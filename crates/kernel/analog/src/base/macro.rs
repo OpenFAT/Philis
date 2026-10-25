@@ -27,6 +27,18 @@ pub struct Macro {
     pub keepouts: Vec<Keepout>,
     /// Per-variant figures (CELL-19).
     pub figures: Figures,
+    /// Shapes drawn as a named cell (a foundry device cell), for the deck
+    /// rules that select by cell name (`in_cells`). Ranges index `shapes`.
+    pub cells: Vec<NamedCell>,
+}
+
+/// `shapes[shapes]` are drawn inside a cell named `name`: what a hierarchical
+/// layout states by placing that cell. One level: a shape is in at most one
+/// named cell, and every range naming one cell is the same cell.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct NamedCell {
+    pub name: String,
+    pub shapes: std::ops::Range<u32>,
 }
 
 impl Macro {
@@ -137,6 +149,7 @@ pub fn place_macro(m: &Macro, l: &Layout, i: usize) -> Macro {
         drawn: m.drawn.clone(),
         keepouts: m.keepouts.iter().map(|k| Keepout { rect: shift(k.rect), ..*k }).collect(),
         figures: m.figures.clone(),
+        cells: m.cells.clone(),
     }
 }
 

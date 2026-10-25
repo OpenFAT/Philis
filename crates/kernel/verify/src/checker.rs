@@ -44,6 +44,8 @@ pub struct Checker {
     merge_default: Vec<u16>,
     /// [`crate::ExtractOptions::field_solve`]: PEX field-solves these nets.
     field_nets: Vec<String>,
+    /// [`crate::ExtractOptions::cells`]: the named cells `build_store` loads.
+    cells: Vec<analog::base::NamedCell>,
 }
 
 impl Checker {
@@ -114,6 +116,7 @@ impl Checker {
             merge_default: merge.clone(),
             merge,
             field_nets: Vec::new(),
+            cells: Vec::new(),
         })
     }
 
@@ -184,12 +187,13 @@ impl Checker {
     /// Extraction options for the following [`Checker::run`]s.
     pub fn set_extract(&mut self, o: &crate::ExtractOptions) {
         self.field_nets.clone_from(&o.field_solve);
+        self.cells.clone_from(&o.cells);
         self.merge = if o.unmerged { Vec::new() } else { self.merge_default.clone() };
     }
 
     fn load_geometry(&mut self, shapes: &[Shape], pins: &[LabeledPin]) -> Result<(), String> {
         let (store, provenance) =
-            build_store(shapes, pins, &self.deck, &mut self.loaded.strings, &self.merge)?;
+            build_store(shapes, pins, &self.deck, &mut self.loaded.strings, &self.merge, &self.cells)?;
         self.loaded.store = store;
         self.loaded.provenance = provenance;
         Ok(())

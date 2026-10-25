@@ -92,6 +92,20 @@ fn sky130(d: &mut DeckBuilder<'_>) {
     d.device(DeviceKind::Bjt, pnp, "sky130_fd_pr__pnp_05v5_W3p40L3p40", &[ntap, psd, ptap], DeviceValue::default());
     d.device(DeviceKind::Bjt, npn, "sky130_fd_pr__npn_05v5_W1p00L1p00", &[ptap, nsd, ntap], DeviceValue::default());
 
+    // x.25 allows the pnp marker only inside the foundry's PNP cells. The
+    // DRM's list predates the open PDK's rename of its devices to
+    // sky130_fd_pr__* (VOL/libs.ref/sky130_fd_pr: pnp_05v5_W0p68L0p68,
+    // pnp_05v5_W3p40L3p40), so those names are allowed beside it.
+    let x25 = e(pnp).not_in_cells(&[
+        "s8rf_pnp",
+        "s8rf_pnp5x",
+        "s8tesd_iref_pnp",
+        "stk14ecx_*",
+        "sky130_fd_pr__pnp_05v5_W0p68L0p68",
+        "sky130_fd_pr__pnp_05v5_W3p40L3p40",
+    ]);
+    d.replace("x.25", rules::forbidden(x25));
+
     // Poly resistor bodies: sheet = the model card's rsh (generic_po 48.2,
     // res_high_po 317.3885, res_xhigh_po 2000; VOL/ngspice and libs.ref
     // model cards); geometry columns = poly_c's.
