@@ -7,20 +7,81 @@ members = [
   "crates/frontend/visualizer",
   "crates/backend/placement",
   "crates/backend/routing",
+  "crates/kernel/substrate3",
+  # the Substrate2 fork (Q35); upstream members except examples and bins
+  "crates/kernel/substrate3/upstream/codegen",
+  "crates/kernel/substrate3/upstream/config",
+  "crates/kernel/substrate3/upstream/docs/snippets",
+  "crates/kernel/substrate3/upstream/libs/atoll",
+  "crates/kernel/substrate3/upstream/libs/cache",
+  "crates/kernel/substrate3/upstream/libs/diagnostics",
+  "crates/kernel/substrate3/upstream/libs/layir",
+  "crates/kernel/substrate3/upstream/libs/enumify",
+  "crates/kernel/substrate3/upstream/libs/enumify_macros",
+  "crates/kernel/substrate3/upstream/libs/gds",
+  "crates/kernel/substrate3/upstream/libs/gdsconv",
+  "crates/kernel/substrate3/upstream/libs/geometry",
+  "crates/kernel/substrate3/upstream/libs/geometry_macros",
+  "crates/kernel/substrate3/upstream/libs/lefdef",
+  "crates/kernel/substrate3/upstream/libs/pathtree",
+  "crates/kernel/substrate3/upstream/libs/psfparser",
+  "crates/kernel/substrate3/upstream/libs/scir",
+  "crates/kernel/substrate3/upstream/libs/spice",
+  "crates/kernel/substrate3/upstream/libs/macrotools",
+  "crates/kernel/substrate3/upstream/libs/nutlex",
+  "crates/kernel/substrate3/upstream/libs/type_dispatch",
+  "crates/kernel/substrate3/upstream/libs/type_dispatch_macros",
+  "crates/kernel/substrate3/upstream/libs/uniquify",
+  "crates/kernel/substrate3/upstream/libs/verilog",
+  "crates/kernel/substrate3/upstream/pdks/sky130",
+  "crates/kernel/substrate3/upstream/substrate",
+  "crates/kernel/substrate3/upstream/tools/magic",
+  "crates/kernel/substrate3/upstream/tools/netgen",
+  "crates/kernel/substrate3/upstream/tools/ngspice",
+  "crates/kernel/substrate3/upstream/tools/pegasus",
+  "crates/kernel/substrate3/upstream/tools/quantus",
+  "crates/kernel/substrate3/upstream/tools/spectre",
+  "crates/kernel/substrate3/upstream/tools/magic_netgen",
 ]
+exclude = ["crates/kernel/substrate3/upstream/examples", "crates/kernel/substrate3/upstream/bins"]
 
 # Pinned external engines. GPurify is the PDK input (Q55); the pin moves to its
-# head in the `verify` re-pin commit (Q59). Substrate2 is pinned where Philis 1.0
-# left it until the fork is vendored into `crates/kernel/substrate3` (Q35).
+# head in the `verify` re-pin commit (Q59). Substrate2 is the vendored fork in
+# `crates/kernel/substrate3/upstream` (Q35), at the rev its README records.
 [workspace.dependencies]
 fearless_simd = "1.0.0"
 gdsverify = { package = "gpurify", git = "https://github.com/UW-ASIC/GPurify", rev = "be14a73f663cd0da3989c421fd4feadb7963ae7e" }
 gdsverify-geom = { package = "gpurify-geom", git = "https://github.com/UW-ASIC/GPurify", rev = "be14a73f663cd0da3989c421fd4feadb7963ae7e" }
-substrate = { git = "https://github.com/ucb-substrate/substrate2", rev = "01d9600f946437d3bc18806a6517e35001b68251" }
-sky130 = { git = "https://github.com/ucb-substrate/substrate2", rev = "01d9600f946437d3bc18806a6517e35001b68251" }
-layir = { git = "https://github.com/ucb-substrate/substrate2", rev = "01d9600f946437d3bc18806a6517e35001b68251" }
-gdsconv = { git = "https://github.com/ucb-substrate/substrate2", rev = "01d9600f946437d3bc18806a6517e35001b68251" }
-gds = { git = "https://github.com/ucb-substrate/substrate2", rev = "01d9600f946437d3bc18806a6517e35001b68251" }
-scir = { git = "https://github.com/ucb-substrate/substrate2", rev = "01d9600f946437d3bc18806a6517e35001b68251" }
-spice = { git = "https://github.com/ucb-substrate/substrate2", rev = "01d9600f946437d3bc18806a6517e35001b68251" }
+substrate = { path = "crates/kernel/substrate3/upstream/substrate" }
+sky130 = { path = "crates/kernel/substrate3/upstream/pdks/sky130" }
+layir = { path = "crates/kernel/substrate3/upstream/libs/layir" }
+gdsconv = { path = "crates/kernel/substrate3/upstream/libs/gdsconv" }
+gds = { path = "crates/kernel/substrate3/upstream/libs/gds" }
+scir = { path = "crates/kernel/substrate3/upstream/libs/scir" }
+spice = { path = "crates/kernel/substrate3/upstream/libs/spice" }
 serde_json = "1"
+
+# From Substrate2's workspace (crates/kernel/substrate3/upstream).
+serde = "1"
+arcstr = "1"
+rust_decimal = "1"
+rust_decimal_macros = "1"
+tera = "1"
+lazy_static = "1"
+tracing = "0.1"
+indexmap = "2"
+unicase = "2"
+approx = "0.5"
+thiserror = "2"
+toml = "0.9"
+toml_edit = "0.24"
+darling = "0.23"
+syn = "2"
+convert_case = "0.11"
+quote = "1"
+proc-macro2 = "1"
+proc-macro-error = "1"
+proc-macro-crate = "3"
+itertools = "0.14"
+clap = "4"
+anyhow = "1"

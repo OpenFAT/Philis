@@ -1,0 +1,21 @@
+[package]
+name = "substrate3"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+analog = { path = "../analog" }
+verify = { path = "../verify" }
+substrate = { workspace = true }
+layir = { workspace = true }
+scir = { workspace = true }
+spice = { workspace = true }
+gdsconv = { workspace = true }
+gds = { workspace = true }
+sky130 = { workspace = true }
+arcstr = "1"
+rust_decimal = "1"
+unicase = "2"
+
+[build-dependencies]
+verify = { path = "../verify" }
