@@ -1058,6 +1058,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "engine"
+version = "0.1.0"
+dependencies = [
+ "analog",
+ "annotator",
+ "routing",
+ "serde_json",
+ "substrate3",
+ "verify",
+]
+
+[[package]]
 name = "enumify"
 version = "0.2.2"
 dependencies = [

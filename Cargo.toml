@@ -5,6 +5,7 @@ members = [
   "crates/kernel/verify",
   "crates/frontend/annotator",
   "crates/frontend/visualizer",
+    "crates/frontend/engine",
   "crates/backend/placement",
   "crates/backend/routing",
   "crates/kernel/substrate3",

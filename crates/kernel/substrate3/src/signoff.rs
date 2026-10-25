@@ -286,7 +286,7 @@ fn rect(r: substrate::geometry::rect::Rect) -> Rect {
 type Bit = (SignalId, Option<usize>);
 
 /// The flat LVS reference of `lib`'s top cell, with its port bits as `ports`.
-fn reference(lib: &scir::Library<Spice>, pdk: &Pdk) -> Result<RefInput, Error> {
+pub fn reference(lib: &scir::Library<Spice>, pdk: &Pdk) -> Result<RefInput, Error> {
     let top = lib.top_cell().ok_or(Error::Top(0))?;
     let cell = lib.cell(top);
     let mut ports = Vec::new();

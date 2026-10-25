@@ -1,0 +1,14 @@
+[package]
+name = "engine"
+version = "0.1.0"
+edition = "2021"
+
+# The two spines (recipe mode, free-form mode), the recipe call table, the
+# CLI. Depends on every stage; nothing depends on it.
+[dependencies]
+analog = { path = "../../kernel/analog" }
+verify = { path = "../../kernel/verify" }
+substrate3 = { path = "../../kernel/substrate3" }
+annotator = { path = "../annotator" }
+routing = { path = "../../backend/routing" }
+serde_json = { workspace = true }
