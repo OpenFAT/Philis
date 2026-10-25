@@ -1051,7 +1051,10 @@ impl Pdk {
     /// and the edge rules (ASAP7 `enclosure(a.edges().vertical(), L)`), so
     /// a generator drawing one margin on every side meets both.
     pub(crate) fn enclosure_nm(&self, outer: u16, inner: u16) -> Option<i64> {
-        self.widest_on("min_enclosure", "limit", &[outer, inner]).max(self.widest_on("edge_enclosure", "limit", &[inner, outer]))
+        let l = [outer, inner];
+        self.widest_on("min_enclosure", "limit", &l)
+            .max(self.widest_on("noncoincident_enclosure", "limit", &l))
+            .max(self.widest_on("edge_enclosure", "limit", &[inner, outer]))
     }
 
     /// The widest end-cap of `inner` by `outer`, nm: the opposite-sides
