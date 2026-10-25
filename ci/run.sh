@@ -33,6 +33,11 @@ case "${1:-}" in
     step cargo test "${pkgs[@]}" --no-fail-fast
     ;;
   nightly)
+    # The ignored tests include the foundry engines' runs (engine/tests/foundry.rs):
+    # they need klayout, magic and netgen, which the flake's dev shell provides.
+    for t in klayout magic netgen; do
+      command -v "$t" >/dev/null || { echo "nightly needs $t on PATH (nix develop)" >&2; failed+=("$t missing"); }
+    done
     step cargo test "${pkgs[@]}" --no-fail-fast
     step cargo test "${pkgs[@]}" --no-fail-fast -- --ignored
     ;;

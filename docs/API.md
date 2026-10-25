@@ -200,6 +200,18 @@ let (out, summary) = run_checks(&loaded(&pdk, store, prov, Some(reference), inte
 let drc_only = pdk.deck.drc.run_with_nets(&store, Some(&extracted.nets), &mut viols, &mut runs);  // fine tier
 ```
 
+The engine is the caller's choice (seam S10, `ARCHITECTURE.md`), one closed
+enum, matched once; the table that comes back is the same whichever ran:
+
+```rust
+use verify::SignoffEngine::{Gpurify, Klayout, Magic};
+let s: Signoff = verify::foundry::signoff(Klayout, &shapes, &pins, &reference, &intent, &pdk)?;  // or Gpurify, Magic
+let rows = verify::foundry::drc(Klayout, &shapes, &pins, &pdk)?;   // fine tier: DRC alone, (rule, markers)
+let out = engine::run(&spice, &pdk, Magic)?;                       // the spine takes it too
+```
+
+- `Gpurify` is `signoff_checked`; `Klayout` and `Magic` write the GDS (`verify::gds_out`), run the vendored foundry decks (`pdks/klayout/<pdk>/`, `pdks/magic/<pdk>/`) and parse their reports into `drc/<rule>` (margin = markers) and `lvs/mismatch` rows, with `erc`, `pex`, `em_ir` as coverage rows they did not check.
+- A foundry engine that cannot conclude is a `verify::Refused { code, message }`: `foundry/no-tool`, `foundry/no-deck` (asap7 has no open LVS deck or magic tech), `foundry/no-pdk` (a `Pdk::load`ed pair names no built-in), `foundry/gds`, `foundry/run` (no verdict; the scratch directory is kept and named). Never a GPurify run in its place.
 - Granularity: `verify::signoff` is store, extract, `run_checks`; each is callable alone, and DRC alone runs on a store between recipe steps.
 - Redundancy: the store builds from Philis tiles and routes, from the fork's `layir` cells, or from GDS bytes; three doors onto one engine. Rule values come by typed getter or by `match` on the `Rule` enum (Q54 holds across the boundary because GPurify's own kinds are a closed enum).
 - Coupling: no file paths cross the boundary; the deck is a value; `AnalogNumbers` is the only Philis-owned PDK input and it never shadows a deck value.
