@@ -55,7 +55,7 @@ impl Cell for Diode {
         let (nsdm, psdm) = (req(process, "nsdm"), req(process, "psdm"));
         let ct = dim(process, "contact");
         let diff_enc = r("diff_encloses_licon", 0).max(process.enclosure("diff", "licon").unwrap_or(0));
-        let li_enc = r("li_encloses_licon", 0).max(process.enclosure("li", "licon").unwrap_or(0)).max(process.endcap("li", "licon").unwrap_or(0));
+        let li_enc = process.enclosure("li", "licon").unwrap_or(0).max(process.endcap("li", "licon").unwrap_or(0));
         // Implant past the diffusion it dopes, the deck's.
         let enc = |o: &str, i: &str| process.enclosure(o, i).unwrap_or(0);
         let imp = up(enc("nsdm", "diff").max(enc("psdm", "diff")).max(enc("nsdm", "tap")).max(enc("psdm", "tap")));

@@ -124,15 +124,17 @@ impl Geom {
         let v = vias(process);
         let met = |i: usize| m.get(i).copied().unwrap_or(LayerId(0));
         let ct = dim(process, "contact");
-        let via_enc = dim(process, "via_enclosure");
+        let via_enc = dim(process, "cap_strap_via_enclosure_nm");
         let sandwich = spec.kind == Kind::VerticalAcrossLayers;
         let unit_gap = process.rule("plate_spacing", 0);
         // Per-layer cut dimensions, the deck's: each cut layer's exact width
         // and its own (array) spacing.
-        let via_spacing = dim(process, "via_spacing");
+        // The strap's cuts keep the Philis margin `cap_strap_via_spacing_nm`
+        // where it is stricter than the deck.
+        let margin = process.rule("cap_strap_via_spacing_nm", 0);
         let cut_w = [process.width("via1").unwrap_or(ct), process.width("via2").unwrap_or(ct)];
-        let via_pitch = (cut_w[0] + process.space("via1").unwrap_or(via_spacing))
-            .max(cut_w[1] + process.space("via2").unwrap_or(via_spacing));
+        let via_pitch = (cut_w[0] + process.space("via1").unwrap_or(0).max(margin))
+            .max(cut_w[1] + process.space("via2").unwrap_or(0).max(margin));
         // The strap column carries rails on every sandwich metal beside a plate
         // that is usually wide: clear the worst (wide-)spacing of all three.
         let m_space = (1..=3)

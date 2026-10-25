@@ -246,8 +246,11 @@ pub fn dim(process: &dyn Process, key: &str) -> i32 {
         "min_finger_width" => q(process.width("diff")),
         "nwell_diff_enc" => q(process.enclosure("nwell", "diff")),
         "nwell_min_width" => q(process.width("nwell")),
-        "via_spacing" => q(process.space("via1")),
-        "via_enclosure" => q(process.enclosure("met1", "via1")).max(q(process.enclosure("met2", "via1"))),
+        // A Philis margin (`cap_strap_via_enclosure_nm`) raises only this.
+        "cap_strap_via_enclosure_nm" => [("met1", "via1"), ("met2", "via1")]
+            .iter()
+            .map(|&(m, v)| q(process.enclosure(m, v)).max(q(process.endcap(m, v))))
+            .fold(0, i32::max),
         _ => 0,
     };
     process.rule(key, 0).max(deck)

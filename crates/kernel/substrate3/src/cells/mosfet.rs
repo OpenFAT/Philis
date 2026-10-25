@@ -368,7 +368,7 @@ impl Mosfet {
         let polycon_gap =
             r("polycon_to_diff_spacing", 0).max(r("polycon_to_pdiff_spacing", 0)).max(process.space_between("licon", "diff").unwrap_or(0));
         // li over a cut: `li_enc` all round, `li_side` on one side per axis.
-        let li_enc = r("li_encloses_licon", 0).max(enc("li", "licon"));
+        let li_enc = enc("li", "licon");
         let li_side = r("li_encloses_licon_one_side", 0).max(li_enc).max(cap("li", "licon"));
         let li_space = r("li_min_spacing", 0).max(process.space("li").unwrap_or(0));
         let diff_enc = r("diff_encloses_licon", 0).max(enc("diff", "licon"));
@@ -433,10 +433,25 @@ impl Mosfet {
             let p = edge_cut(start, w);
             p - start >= gate_space && start + w - p - ct >= gate_space
         };
+        // The dummies' li riser strips: `rise_l` left of their cuts, `rise_r` right.
+        let rise_l = li_side.max(li_enc).max(lat);
+        let rise_r = rise_l.max(li_side);
+        // A top gate pad row (split or two-ended gates) sits beside the
+        // riser strips: its li keeps `li_space` from the nearest dummy's riser
+        // on each end, at an end region `e` wide.
+        let top_pads = self.split_gates || self.double_gate;
+        let pads_clear = |e: i32| {
+            let cut = |gx: i32| snap_cut(gx + gate_l / 2 - ct / 2, lat);
+            let cut_d = |dx: i32| snap_cut(dx + dummy_l / 2 - ct / 2, lat);
+            let last_gx = e + (n_fingers - 1) * pitch;
+            !top_pads
+                || (cut(e) - li_enc - (cut_d(-dummy_l) + ct + rise_r) >= li_space
+                    && cut_d(last_gx + gate_l + e) - rise_l - (cut(last_gx) + ct + li_side) >= li_space)
+        };
         let sd_edge = if dummied {
-            let clear = poly_space + if self.split_gates || self.double_gate { bar_over + skirt_over } else { bar_over.max(skirt_over) };
+            let clear = poly_space + if top_pads { bar_over + skirt_over } else { bar_over.max(skirt_over) };
             let mut e = on_lattice(clear.max(pitch - gate_l).max(ct + 2 * gate_space));
-            while !(holds(0, e) && holds(e + (n_fingers - 1) * pitch + gate_l, e)) {
+            while !(holds(0, e) && holds(e + (n_fingers - 1) * pitch + gate_l, e) && pads_clear(e)) {
                 e += lat;
             }
             e
@@ -680,8 +695,6 @@ impl Mosfet {
 
         // Dummy gates on the diffusion ends, gate and outer S/D tied up to the
         // bulk rail: off transistors the LVS reference lists (`Macro::dummies`).
-        let rise_l = li_side.max(li_enc).max(lat);
-        let rise_r = rise_l.max(li_side);
         // Cut `diff_enc` above the strip bottom and `tap_enc` below its top: the
         // deck wants `tap_enc` on one side of each axis.
         let tap_h = ct + diff_enc + tap_enc;
@@ -885,7 +898,7 @@ impl Mosfet {
 pub fn sd_and_pitch(process: &dyn Process, gate_l: i32) -> (i32, i32) {
     let r = |name: &str, default: i32| process.rule(name, default);
     let ct = dim(process, "contact");
-    let li_enc = r("li_encloses_licon", 0).max(process.enclosure("li", "licon").unwrap_or(0));
+    let li_enc = process.enclosure("li", "licon").unwrap_or(0);
     let li_side = r("li_encloses_licon_one_side", 0).max(li_enc).max(process.endcap("li", "licon").unwrap_or(0));
     let diff_enc = r("diff_encloses_licon", 0).max(process.enclosure("diff", "licon").unwrap_or(0));
     let gate_space = r("licon_to_gate_spacing", 0).max(process.space_between("licon", "poly").unwrap_or(0));
@@ -1966,12 +1979,13 @@ mod tests {
         assert!(dirty.is_empty(), "{}", dirty.join("\n"));
     }
 
-    /// CELL-11 / T5: sky130 at L = 150 contacts at 280 + 150 = 430 nm (was
-    /// 730, set by a met1 pitch the row never draws).
+    /// CELL-11 / T5: sky130 at L = 150 contacts at 290 + 150 = 440 nm (was
+    /// 730, set by a met1 pitch the row never draws): the met1 landing pitch,
+    /// mcon 170 + 2 × m1.5 65 (Philis's margin over 60) + m1.2 140.
     #[test]
     fn the_contacted_pitch_is_the_deck_minimum() {
         let pdk = verify::Pdk::builtin("sky130").unwrap();
-        assert_eq!(sd_and_pitch(&pdk, 150), (280, 430));
+        assert_eq!(sd_and_pitch(&pdk, 150), (290, 440));
     }
 
     /// Every gate-cut row's poly is whole bars: along the line through its
@@ -2028,7 +2042,7 @@ mod tests {
     }
 
     /// At the minimum pitch, a dummy-free eight-finger centroid pair steps
-    /// its gates exactly 430 nm.
+    /// its gates exactly 440 nm.
     #[test]
     fn a_row_is_shorter() {
         use crate::cells::testkit;
@@ -2043,7 +2057,7 @@ mod tests {
         xs.sort_unstable();
         xs.dedup();
         assert_eq!(xs.len(), 16);
-        assert!(xs.windows(2).all(|w| w[1] - w[0] == 430), "{xs:?}");
+        assert!(xs.windows(2).all(|w| w[1] - w[0] == 440), "{xs:?}");
     }
 
     #[test]

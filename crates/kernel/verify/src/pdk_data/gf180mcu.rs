@@ -13,10 +13,9 @@ pub(crate) fn cell() -> serde_json::Value {
     "bjt_ka_pct_um_source": "textbook, not gf180mcu: Hastings, The Art of Analog Layout, §10.2.1 (PDF p.507), I_S mismatch area constant of a bipolar pair; replace with the PDK's own figure when one is published.",
     "vbe_tc_uv_per_k": 2000,
     "vbe_tc_uv_per_k_source": "textbook, not gf180mcu: Hastings, The Art of Analog Layout, §9.1 (PDF p.433), |dV_BE/dT| ~ 2 mV/K.",
-    "li_encloses_licon": 40,
     "li_encloses_licon_one_side": 60,
-    "m1_enc": 40,
-    "via_enclosure": 400,
+    "cap_strap_via_enclosure_nm": 400,
+    "cap_strap_via_enclosure_nm_source": "Philis margin, not a deck rule: how far the sandwich capacitor's strap-column metals pass its cuts. The deck states 10 nm (V1.4a, Vn.3b) and 60 nm end of line (Vn.3c/Vn.4b); 400 nm is MIMTM.2's via5-on-MIM enclosure, kept stricter by owner decision, here and not in the deck, since a 400 nm via rule would fail every routed via. Read by cells::capacitor Geom::new, through builder::dim, which maxes it with the deck's via enclosure.",
     "dummy_max_l_nm": 3000,
     "dummy_max_l_nm_source": "microloading reach 3-5 um, hastings.txt L41097-41104 (H13-26); Philis policy: the lower end",
     "em_derating": {

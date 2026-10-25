@@ -201,7 +201,7 @@ impl Unit {
                 b.rect(licon, Rect { x: x0 + i * pitch, y: y0 + j * pitch, w: ct, h: ct });
             }
         }
-        let ls = r("li_encloses_licon", 0).max(enc("li", "licon")).max(cap("li", "licon"));
+        let ls = enc("li", "licon").max(cap("li", "licon"));
         let plate = Rect { x: x0 - ls, y: y0 - ls, w: (nx - 1) * pitch + ct + 2 * ls, h: (ny - 1) * pitch + ct + 2 * ls };
         b.rect(li, plate);
         b.pin(pin(di, "E", Rect { x: x0 + (nx / 2) * pitch, y: y0 + (ny / 2) * pitch, w: ct, h: ct }, li));

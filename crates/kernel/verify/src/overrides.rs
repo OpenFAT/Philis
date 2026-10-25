@@ -34,6 +34,7 @@ pub fn deck_text(name: &str) -> Result<String, String> {
         "asap7" => asap7(&mut d),
         _ => {} // gf180mcu, ihp_sg13g2: no edits.
     }
+    stricter_margins(name, &mut d);
     let deck = d.finish().map_err(|e| format!("{name}: deck overrides rejected: {e}"))?;
     print(&deck, &strings).map_err(|e| format!("{name}: {e}"))
 }
@@ -151,6 +152,23 @@ fn asap7(d: &mut DeckBuilder<'_>) {
             d.device(DeviceKind::Mos, marker, &name, &[gate_c, sd, sd], DeviceValue::default());
         }
     }
+}
+
+/// Rules raised past the foundry minimum to a Philis margin, by owner
+/// decision ("I prefer stricter deck rules"): each was a sidecar key that
+/// raised the deck rule of the same meaning at every reader
+/// (`docs/ref/research/sidecar-keys.md` §6), so the deck now states it.
+fn stricter_margins(name: &str, d: &mut DeckBuilder<'_>) {
+    let (id, inner, outer, nm, adjacent) = match name {
+        // m1.5 is 60 nm [S1]; Philis lands met1 65 nm past mcon.
+        "sky130" => ("m1.5", "mcon", "met1", 65.0, true),
+        // CO.6 is 5 nm [DRM]; Philis lands metal1 40 nm past contact.
+        "gf180mcu" => ("CO.6", "contact", "metal1", 40.0, false),
+        _ => return,
+    };
+    let (inner, outer, limit) = (d.get(inner), d.get(outer), d.length(nm));
+    let row = if adjacent { rules::adjacent_enclosure(inner, outer, limit) } else { rules::min_enclosure(inner, outer, limit) };
+    d.replace(id, row);
 }
 
 #[cfg(test)]
