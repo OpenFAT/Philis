@@ -428,7 +428,9 @@ rule CO.2a space(contact) >= 250nm
 rule CO.2b via_array_space(contact; array: 15) >= 280nm
 rule CO.3 enclosure(contact_poly, poly2) >= 70nm
 rule CO.4 enclosure(contact_comp, comp) >= 70nm
-rule CO.6 enclosure(contact, metal1) >= 5nm
+# PHILIS: CO.6 is 5nm [DRM]; 40nm is Philis's margin over the foundry minimum,
+# stricter by owner decision (was the sidecar key li_encloses_licon).
+rule CO.6 enclosure(contact, metal1) >= 40nm
 rule CO.7 space(contact_comp, gate) >= 150nm
 rule CO.8 space(contact_poly, comp) >= 170nm
 

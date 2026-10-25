@@ -220,7 +220,6 @@ impl Cell for Resistor {
         let cut_space = process.space("licon").unwrap_or(ct);
         // Poly past a cut, and li past a cut, on every side.
         let border = r("poly_encloses_licon_one_side", 0)
-            .max(r("li_encloses_licon", 0))
             .max(process.enclosure("poly", "licon").unwrap_or(0))
             .max(process.endcap("poly", "licon").unwrap_or(0))
             .max(process.endcap("li", "licon").unwrap_or(0));
@@ -488,7 +487,6 @@ fn jumper_tracks(process: &dyn Process, head: i32) -> Vec<i32> {
     let lat = cut_lattice(process);
     let (ct, m_ct, m_enc) = (dim(process, "contact"), dim(process, "mcon_size"), dim(process, "m1_enc"));
     let border = r("poly_encloses_licon_one_side", 0)
-            .max(r("li_encloses_licon", 0))
             .max(process.enclosure("poly", "licon").unwrap_or(0))
             .max(process.endcap("poly", "licon").unwrap_or(0))
             .max(process.endcap("li", "licon").unwrap_or(0));
@@ -539,7 +537,6 @@ const LAP: i32 = 0;
 fn head_len(process: &dyn Process) -> i32 {
     let r = |name: &str, default: i32| process.rule(name, default);
     let border = r("poly_encloses_licon_one_side", 0)
-            .max(r("li_encloses_licon", 0))
             .max(process.enclosure("poly", "licon").unwrap_or(0))
             .max(process.endcap("poly", "licon").unwrap_or(0))
             .max(process.endcap("li", "licon").unwrap_or(0));

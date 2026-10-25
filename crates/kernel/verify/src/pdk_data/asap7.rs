@@ -16,7 +16,6 @@ pub(crate) fn cell() -> serde_json::Value {
     "vbe_tc_uv_per_k": 2000,
     "vbe_tc_uv_per_k_source": "textbook, not ASAP7: Hastings, The Art of Analog Layout, §9.1 (PDF p.433), |dV_BE/dT| ~ 2 mV/K.",
     "min_finger_width": 27,
-    "via_enclosure": 5,
     "dummy_max_l_nm": null,
     "layers": {
         "diff": "ACTIVE",

@@ -492,7 +492,9 @@ layer mcon_m1_4a = mcon.in_cells("s8cell_ee_plus_sseln_a", "s8cell_ee_plus_sseln
 layer mcon_m1_4 = mcon.not_in_cells("s8cell_ee_plus_sseln_a", "s8cell_ee_plus_sseln_b", "s8cell_ee_plus_sselp_a", "s8cell_ee_plus_sselp_b", "s8fpls_pl8", "s8fs_cmux4_fm")
 rule m1.4 enclosure(mcon_m1_4, met1) >= 30nm
 rule m1.4a enclosure(mcon_m1_4a, met1) >= 5nm
-rule m1.5 enclosure(mcon, met1, adjacent) >= 60nm
+# PHILIS: m1.5 is 60nm [S1]; 65nm is Philis's margin over the foundry minimum,
+# stricter by owner decision (was the sidecar key m1_enc).
+rule m1.5 enclosure(mcon, met1, adjacent) >= 65nm
 rule via.1a size(via) == 150nm x 150nm
 rule via.2 space(via) >= 170nm
 rule via.4a enclosure(via, met1) >= 55nm

@@ -84,18 +84,42 @@ become top-level `pdks/<pdk>.deck`. The survey ran over the sidecars at
    - `well_enclosure`, `well_spacing`, `dti`;
    - `sheet_tolerance`, `linewidth_control_nm`, `placement_space`;
    - the `_note` strings and dead `_source` strings.
-6. **Bm keys: an owner decision.** Either keep each as a named Philis margin
-   or drop to the deck minimum:
+6. **Bm keys: decided, stricter.** The owner chose "I prefer stricter deck
+   rules" (2026-10-25). A key whose every reader means the deck rule now
+   raises that rule in the deck, as an override in `overrides.rs`
+   `stricter_margins` mirrored by a `# PHILIS:` edit in `pdks/<pdk>.deck`
+   (outcome a). A key that is one structure's construction margin stays in
+   `pdk_data` under a name that says so, with a `_source` naming the rule it
+   exceeds (outcome b). A key the deck already beats at its reader is deleted.
 
-   | PDK | key | deck | sidecar |
-   |---|---|---|---|
-   | sky130 | `m1_enc` | m1.5 60 | 65 |
-   | sky130 | `via_enclosure` | 55/85 | 300 |
-   | gf180mcu | `m1_enc` | V1.4a 10 | 40 |
-   | gf180mcu | `via_enclosure` | 10 | 400 |
-   | gf180mcu | `li_encloses_licon` | CO.6 5 | 40 |
-   | ihp_sg13g2 | `via_enclosure` | 10/50 | 360 |
-   | ihp_sg13g2 | `via_spacing` | V1.b 220 | 420 |
+   | PDK | key | deck | sidecar | outcome |
+   |---|---|---|---|---|
+   | sky130 | `m1_enc` | m1.5 60 | 65 | a: m1.5 is 65 in the deck; the key is deleted |
+   | sky130 | `via_enclosure` | 55/85 | 300 | b: `cap_strap_via_enclosure_nm` |
+   | gf180mcu | `m1_enc` | V1.4a 10 | 40 | deleted: `dim` already draws V1.4b's 60 |
+   | gf180mcu | `via_enclosure` | 10 | 400 | b: `cap_strap_via_enclosure_nm` |
+   | gf180mcu | `li_encloses_licon` | CO.6 5 | 40 | a: CO.6 is 40 in the deck; the key is deleted |
+   | ihp_sg13g2 | `via_enclosure` | 10/50 | 360 | b: `cap_strap_via_enclosure_nm` |
+   | ihp_sg13g2 | `via_spacing` | V1.b 220 | 420 | b: `cap_strap_via_spacing_nm` |
 
-   Until the owner decides, the migration keeps the current values, so
-   geometry does not change.
+   - **Outcome a.** `m1_enc` and `li_encloses_licon` were read only as
+     "metal over a contact cut, all round". That is m1.5's meaning and CO.6's,
+     so the readers now take the deck value. The router's `cut_enclosure_pair`
+     and the MOS `m1_land` read the same rule, so they grow with it.
+   - **Outcome b.** `via_enclosure` and `via_spacing` have one reader: the
+     strap column of the three-metal sandwich capacitor in
+     `capacitor.rs` `Geom::new`. Raising a global via rule to 300-420 nm
+     would fail every routed via. Three of the numbers are another rule's:
+     400 is gf180 MIMTM.2, 360 is ihp MIM.d and 420 is ihp TV1.b.
+   - **Behaviour changes.**
+     - The sky130 contacted MOS pitch at L = 150 nm goes from 430 to 440 nm.
+       The met1 landing pitch is now mcon 170 + 2 × 65 + m1.2 140.
+     - At that pitch, a top gate pad's li came 160 nm from a dummy's li
+       riser. That is under li.3's 170 nm. The 170 nm had held only through
+       lattice snapping, so `mosfet.rs` now sizes a dummied end region to
+       keep li.3 between them.
+     - The ihp spacing used to be dead, because the reader preferred the
+       deck's 290 nm. It is now maxed with the deck, so ihp strap cuts are
+       420 nm apart.
+   - **asap7.** asap7's `via_enclosure` 5 went with the rename. `dim` now
+     reads the deck's end-cap there too, which is also 5 nm.
