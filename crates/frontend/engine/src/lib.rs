@@ -270,11 +270,17 @@ pub fn build_tiles(calls: &RecipeCalls, problem: &annotator::Problem, flat: &Fla
                 RecipeKind::MosAdjacent if process.layer("fin").is_some() => {
                     FinFet::enumerate(&group, &constraints, process).into_iter().filter(|v| !v.shared).map(|v| v.draw(&group, &constraints, process)).collect()
                 }
-                RecipeKind::MosAdjacent => Mosfet::enumerate(&group, &constraints, process)
+                // Blocks may abut on one shared diffusion only where every
+                // member has the same source and bulk (the block style's
+                // boundaries sit on sources); else each member is its own
+                // block, side by side.
+                RecipeKind::MosAdjacent if common(flat, members, "S") && common(flat, members, "B") => Mosfet::enumerate(&group, &constraints, process)
                     .into_iter()
                     .filter(|v| v.style == Pattern::Single && v.rows == 1)
                     .map(|v| v.draw(&group, &constraints, process))
+                    .chain(apart(members, &constraints, process, pdk))
                     .collect(),
+                RecipeKind::MosAdjacent => apart(members, &constraints, process, pdk).into_iter().collect(),
             };
             let mut m = drawn
                 .into_iter()
@@ -285,6 +291,63 @@ pub fn build_tiles(calls: &RecipeCalls, problem: &annotator::Problem, flat: &Fla
             Ok(m)
         })
         .collect()
+}
+
+/// Whether every member's terminal `t` is on one net.
+fn common(flat: &Flat, members: &[DeviceId], t: &str) -> bool {
+    let net = |d: &DeviceId| flat.devices[d.0 as usize].terminals.iter().find(|(n, _)| n == t).map(|&(_, n)| n);
+    members.windows(2).all(|w| net(&w[0]) == net(&w[1]))
+}
+
+/// The members as separate planar blocks in one row, left to right, the
+/// widest drawn-layer spacing apart: member `k`'s pins renamed `d{k}:`.
+/// `None` when a member has no single-block variant.
+fn apart(members: &[DeviceId], c: &analog::Constraints, process: &dyn analog::base::Process, pdk: &Pdk) -> Option<Macro> {
+    let u = c.unitization.iter().find(|u| u.devices == members)?;
+    let lattice = substrate3::cells::builder::cut_lattice(process).max(1);
+    let mut row = Macro::default();
+    let mut cursor = 0;
+    let mut first = true;
+    for (k, &d) in members.iter().enumerate() {
+        let group = DeviceGroup { devices: vec![d] };
+        let one = analog::Constraints {
+            unitization: vec![analog::cell::Unitization { devices: vec![d], dev_nf: vec![u.dev_nf[k]], target_ratio: vec![1], ..u.clone() }],
+            ..analog::Constraints::default()
+        };
+        let m = Mosfet::enumerate(&group, &one, process)
+            .into_iter()
+            .filter(|v| v.style == Pattern::Single && v.rows == 1)
+            .map(|v| v.draw(&group, &one, process))
+            .min_by_key(|m| i64::from(m.bbox.w) * i64::from(m.bbox.h))?;
+        // Left edge on `cursor`, on the cut lattice.
+        let dx = cursor - m.bbox.x;
+        let shift = |r: analog::base::Rect| analog::base::Rect { x: r.x + dx, ..r };
+        row.shapes.extend(m.shapes.iter().map(|s| Shape { layer: s.layer, rect: shift(s.rect) }));
+        row.pins.extend(m.pins.iter().map(|p| analog::base::Pin { name: p.name.replacen("d0:", &format!("d{k}:"), 1), at: shift(p.at), ..p.clone() }));
+        row.units.extend(m.units.iter().map(|un| analog::base::Unit { owner: k as u8, x: un.x + dx, ..*un }));
+        row.dummies.extend(m.dummies.iter().map(|du| analog::base::Dummy { owner: k as u8, ..*du }));
+        let b = shift(m.bbox);
+        row.bbox = if first { b } else { union(row.bbox, b) };
+        first = false;
+        cursor = b.x + b.w + widest_spacing(std::slice::from_ref(&m), pdk);
+        cursor = (cursor + lattice - 1).div_euclid(lattice) * lattice;
+    }
+    Some(row)
+}
+
+fn union(a: analog::base::Rect, b: analog::base::Rect) -> analog::base::Rect {
+    let (x0, y0) = (a.x.min(b.x), a.y.min(b.y));
+    let (x1, y1) = ((a.x + a.w).max(b.x + b.w), (a.y + a.h).max(b.y + b.h));
+    analog::base::Rect { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+}
+
+/// The widest spacing among the layers `tiles` draw: neighbours that far
+/// apart never interact.
+fn widest_spacing(tiles: &[Macro], pdk: &Pdk) -> i32 {
+    let mut layers: Vec<u16> = tiles.iter().flat_map(|m| m.shapes.iter().map(|s| s.layer.0)).collect();
+    layers.sort_unstable();
+    layers.dedup();
+    layers.iter().filter_map(|&l| pdk.min_spacing(l)).max().unwrap_or(0)
 }
 
 fn names(flat: &Flat, members: &[DeviceId]) -> String {
@@ -434,10 +497,7 @@ pub fn arrange(tiles: &[Macro], pdk: &Pdk) -> Result<Layout, Refusal> {
     if tiles.len() > 1 && analog::base::Process::layer(pdk, "fin").is_some() {
         return Err(refuse("floorplan", format!("{} tiles on a fin deck: a row needs the gate-lattice glue row (M2)", tiles.len())));
     }
-    let mut layers: Vec<u16> = tiles.iter().flat_map(|m| m.shapes.iter().map(|s| s.layer.0)).collect();
-    layers.sort_unstable();
-    layers.dedup();
-    let gap = layers.iter().filter_map(|&l| pdk.min_spacing(l)).max().unwrap_or(0);
+    let gap = widest_spacing(tiles, pdk);
     // Tile origins on the cut lattice, as the cells draw their cuts.
     let lattice = substrate3::cells::builder::cut_lattice(pdk).max(1);
     let n = tiles.len();
