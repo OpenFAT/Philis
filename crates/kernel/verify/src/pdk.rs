@@ -74,6 +74,9 @@ pub struct Pdk {
     pub routing_metals: Vec<LayerId>,
     /// The cuts joining consecutive `routing_metals` (one fewer).
     pub routing_cuts: Vec<LayerId>,
+    /// The built-in name ([`Pdk::builtin`]); `None` for a [`Pdk::load`]ed
+    /// pair. The foundry engines ([`crate::foundry`]) find their decks by it.
+    pub name: Option<&'static str>,
 }
 
 impl Pdk {
@@ -85,7 +88,9 @@ impl Pdk {
     /// An unknown name, or anything [`Pdk::load`] rejects.
     pub fn builtin(name: &str) -> Result<Self, String> {
         let cell = crate::pdk_data::cell(name).ok_or_else(|| format!("no built-in PDK {name:?} (built in: {})", crate::pdk_data::NAMES.join(", ")))?;
-        Self::load(&crate::overrides::deck_text(name)?, &cell)
+        let mut pdk = Self::load(&crate::overrides::deck_text(name)?, &cell)?;
+        pdk.name = crate::pdk_data::NAMES.iter().copied().find(|n| *n == name);
+        Ok(pdk)
     }
 
     /// Parse `deck` (GPurify deck text) with the Philis data table `cell`
@@ -142,6 +147,7 @@ impl Pdk {
             roles: roles.map,
             routing_metals,
             routing_cuts,
+            name: None,
         };
         for (name, id) in pdk.layers.clone() {
             if let Some(w) = pdk.min_width(id.0) {
