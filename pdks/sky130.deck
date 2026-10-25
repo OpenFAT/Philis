@@ -815,7 +815,8 @@ rule ct.4 inside(mcon, li)
 # UHVI, which this deck does not mark).
 rule poly.12 forbidden((poly.not_in_cells("s8fgvr_n_fg2") not nwell_lv) and tap)
 # x.25: pnp.dg only within the cells s8rf_pnp, s8rf_pnp5x, s8tesd_iref_pnp, stk14ecx_*.
-rule x.25 forbidden(pnp.not_in_cells("s8rf_pnp", "s8rf_pnp5x", "s8tesd_iref_pnp", "stk14ecx_*"))
+# PHILIS: x.25 also allows the open PDK's renamed PNP cells (the DRM's list predates the sky130_fd_pr__ rename).
+rule x.25 forbidden(pnp.not_in_cells("s8rf_pnp", "s8rf_pnp5x", "s8tesd_iref_pnp", "stk14ecx_*", "sky130_fd_pr__pnp_05v5_W0p68L0p68", "sky130_fd_pr__pnp_05v5_W3p40L3p40"))
 rule poly.14 forbidden((gate and hvi).interacting(gate not hvi))
 rule poly.15 forbidden(poly and diff_rs)
 rule nsd.8 forbidden((nsdm and pdifftap) or (psdm and ndifftap))

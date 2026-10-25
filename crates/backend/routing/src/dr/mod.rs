@@ -2110,6 +2110,7 @@ pub fn place_near(cell: &Macro, near: (i32, i32), obstacles: &[Rect], clearance:
                         drawn: cell.drawn.clone(),
                         keepouts: cell.keepouts.iter().map(|k| analog::base::Keepout { rect: mv(k.rect), ..*k }).collect(),
                         figures: cell.figures.clone(),
+                        cells: cell.cells.clone(),
                     });
                 }
             }

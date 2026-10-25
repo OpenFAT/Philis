@@ -88,6 +88,10 @@ pub struct ExtractOptions {
     /// Load every shape as its own polygon: overlaps double-count area and
     /// shared edges count as fringe. For calibration only.
     pub unmerged: bool,
+    /// Shapes drawn inside named cells, for the deck's `in_cells` rules (sky130
+    /// x.25 allows the `pnp` marker only in the foundry's PNP cells). Ranges
+    /// index the checked `shapes`; empty, no shape is in a cell.
+    pub cells: Vec<analog::base::NamedCell>,
 }
 
 /// What a signoff did not check. Never a pass: a certificate requires
@@ -431,7 +435,13 @@ pub fn drc_with(shapes: &[Shape], pins: &[LabeledPin], pdk: &Pdk, opts: &Extract
 /// Standalone ERC, as [`drc`].
 #[must_use]
 pub fn erc(shapes: &[Shape], pins: &[LabeledPin], pdk: &Pdk) -> Vec<Finding> {
-    standalone(shapes, pins, pdk, Checks { drc: false, erc: true, lvs: false, pex: false }, &ExtractOptions::default())
+    erc_with(shapes, pins, pdk, &ExtractOptions::default())
+}
+
+/// [`erc`] over geometry loaded per `opts`, as [`drc_with`].
+#[must_use]
+pub fn erc_with(shapes: &[Shape], pins: &[LabeledPin], pdk: &Pdk, opts: &ExtractOptions) -> Vec<Finding> {
+    standalone(shapes, pins, pdk, Checks { drc: false, erc: true, lvs: false, pex: false }, opts)
 }
 
 fn standalone(shapes: &[Shape], pins: &[LabeledPin], pdk: &Pdk, checks: Checks, opts: &ExtractOptions) -> Vec<Finding> {
@@ -486,6 +496,33 @@ mod tests {
     fn rect(pdk: &Pdk, layer: &str, x: i32, y: i32, w: i32, h: i32) -> Shape {
         let layer = pdk.layer(layer).unwrap_or_else(|| panic!("no layer {layer}"));
         Shape { layer, rect: Rect { x, y, w, h } }
+    }
+
+    /// sky130 x.25: a `pnp` marker is legal only inside a named foundry PNP
+    /// cell. Flat, or in a cell of another name, it fires; inside the open
+    /// PDK's W3p40L3p40 cell it does not. The cell path loads the same store
+    /// otherwise: the met1 width finding and its location are unchanged.
+    #[test]
+    fn x25_reads_the_named_cell() {
+        let pdk = sky130();
+        let shapes = [rect(&pdk, "pnp", 0, 0, 5_000, 5_000), rect(&pdk, "met1", 10_000, 0, 100, 2_000)];
+        let run = |cells: &[(&str, std::ops::Range<u32>)]| {
+            let cells = cells.iter().map(|(n, r)| analog::base::NamedCell { name: (*n).into(), shapes: r.clone() }).collect();
+            let mut f: Vec<(String, i64, i64)> = drc_with(&shapes, &[], &pdk, &ExtractOptions { cells, ..Default::default() })
+                .into_iter()
+                .filter(|f| !f.rule.ends_with("density"))
+                .map(|f| (f.rule, f.x, f.y))
+                .collect();
+            f.sort();
+            f
+        };
+        let flat = run(&[]);
+        assert!(flat.iter().any(|f| f.0 == "x.25"), "{flat:?}");
+        assert_eq!(run(&[("not_a_pnp_cell", 0..1)]), flat);
+        let named = run(&[("sky130_fd_pr__pnp_05v5_W3p40L3p40", 0..1)]);
+        let rest: Vec<_> = flat.into_iter().filter(|f| f.0 != "x.25").collect();
+        assert_eq!(named, rest);
+        assert!(rest.iter().any(|f| f.0.starts_with("m1.")), "{rest:?}");
     }
 
     // Metal reaching no device is floating — unless a label makes it a port,
@@ -590,7 +627,7 @@ mod tests {
         signoff_extract(shapes, pins, &RefInput::default(), &Intent::default(), opts, pdk)
     }
 
-    const UNMERGED: ExtractOptions = ExtractOptions { field_solve: Vec::new(), unmerged: true };
+    const UNMERGED: ExtractOptions = ExtractOptions { field_solve: Vec::new(), unmerged: true, cells: Vec::new() };
 
     // PERF-16: two overlapping met1 rects extract as their union. Deck met1
     // (pdks/sky130.deck): 25.78 aF/µm², 40.57 aF/µm. Union 7.5 µm²,
@@ -640,7 +677,7 @@ mod tests {
         let pdk = sky130();
         let (shapes, pins) = three_lines(&pdk);
         let analytic = extract(&shapes, &pins, &ExtractOptions::default(), &pdk);
-        let field = extract(&shapes, &pins, &ExtractOptions { field_solve: vec!["a".into()], unmerged: false }, &pdk);
+        let field = extract(&shapes, &pins, &ExtractOptions { field_solve: vec!["a".into()], unmerged: false, cells: Vec::new() }, &pdk);
         assert!(field.coverage.skipped_rules.iter().all(|(r, _)| r != "pex.field"), "{:?}", field.coverage.skipped_rules);
         let (a0, a1) = (ground(&analytic.caps, "a"), ground(&field.caps, "a"));
         assert!((a1 - a0).abs() / a0 > 1e-3, "field C(a) {a1} vs analytical {a0}");
@@ -652,7 +689,7 @@ mod tests {
     fn a_refused_field_solve_falls_back_with_coverage() {
         let pdk = sky130();
         let (shapes, pins) = three_lines(&pdk);
-        let s = extract(&shapes, &pins, &ExtractOptions { field_solve: vec!["nosuchnet".into()], unmerged: false }, &pdk);
+        let s = extract(&shapes, &pins, &ExtractOptions { field_solve: vec!["nosuchnet".into()], unmerged: false, cells: Vec::new() }, &pdk);
         let rules: Vec<&str> = s.report.hard_violations.iter().map(|v| v.rule.as_str()).collect();
         assert!(!rules.iter().any(|r| r.starts_with("engine/pex")), "{rules:?}");
         let why = s.coverage.skipped_rules.iter().find(|(r, _)| r == "pex.field").map(|(_, w)| w.as_str());
@@ -669,7 +706,7 @@ mod tests {
         let pdk = sky130();
         let pins = [pin(&pdk, "A", 500, 500), pin(&pdk, "B", 1500, 500)];
         let reference = RefInput { devices: vec![], ports: vec!["A".into(), "B".into()], external_ports: None };
-        let opts = ExtractOptions { field_solve: vec!["A".into(), "B".into()], unmerged: false };
+        let opts = ExtractOptions { field_solve: vec!["A".into(), "B".into()], unmerged: false, cells: Vec::new() };
         let s = signoff_extract(&[rect(&pdk, "met1", 0, 0, 2000, 1000)], &pins, &reference, &Intent::default(), &opts, &pdk);
         assert!(s.report.hard_violations.iter().any(|v| v.rule.starts_with("lvs/extract: label short")));
         assert!(s.coverage.skipped_rules.iter().all(|(r, _)| r != "pex.field"), "{:?}", s.coverage.skipped_rules);

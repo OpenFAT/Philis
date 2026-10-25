@@ -106,9 +106,15 @@ pub(crate) mod testkit {
     /// taps meet only through the substrate until routing ties them
     /// (`soft_connection`), and a two-ended gate's straps only through poly.
     pub fn findings(shapes: &[analog::base::Shape], labels: &[verify::LabeledPin], pdk: &verify::Pdk) -> Vec<String> {
-        verify::drc(shapes, labels, pdk)
+        findings_in(shapes, &[], labels, pdk)
+    }
+
+    /// [`findings`] with `cells` named ([`analog::base::Macro::cells`]).
+    pub fn findings_in(shapes: &[analog::base::Shape], cells: &[analog::base::NamedCell], labels: &[verify::LabeledPin], pdk: &verify::Pdk) -> Vec<String> {
+        let opts = verify::ExtractOptions { cells: cells.to_vec(), ..Default::default() };
+        verify::drc_with(shapes, labels, pdk, &opts)
             .into_iter()
-            .chain(verify::erc(shapes, labels, pdk))
+            .chain(verify::erc_with(shapes, labels, pdk, &opts))
             .filter(|f| !f.rule.ends_with("_density") && !(f.rule == "floating_gate" || f.rule.starts_with("soft_connection")))
             .map(|f| format!("{}:{}", f.rule, f.layer))
             .collect()
@@ -140,7 +146,7 @@ pub(crate) mod testkit {
             .enumerate()
             .filter_map(|(i, v)| {
                 let m = v.draw(group, c, pdk);
-                let rules = findings(&m.shapes, &ports_with(&m, &common), pdk);
+                let rules = findings_in(&m.shapes, &m.cells, &ports_with(&m, &common), pdk);
                 (!rules.is_empty()).then(|| format!("#{i}: {rules:?}"))
             })
             .collect()

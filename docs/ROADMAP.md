@@ -58,10 +58,14 @@ and typed fields for the `pdk_data` tables.
     cards, the encrypted asap7sc7p5t QRC tech, ORFS. Unblock: the owner
     registers for the ASAP7 Calibre PEX deck (asap.asu.edu; its MIPT carries
     the resistivities).
-  - sky130 x.25 allows the `pnp` marker only inside the foundry's named
-    cells; Philis emits flat geometry, so `cells::bjt::every_variant_is_drc_and_erc_clean`
-    fails. Fix: the PNP as a subcell named after the open PDK's device, with
-    those names added to x.25 (the DRM lists the pre-rename s8 names).
+  - Fixed: sky130 x.25 (the `pnp` marker only in the foundry's named
+    cells). A fixed-geometry PNP recipe draws its units in a cell named after
+    its open-PDK model (`Macro::cells`), verify loads named cells through an
+    in-memory GDS (GPurify tags cells only when flattening), and x.25 allows
+    the renamed cells. A PNP of the netlist's own size is refused on sky130
+    (`pnp_cells_only`). The engine draws no BJT yet; when it does, it must
+    pick the recipe overlay and carry `Macro::cells` into signoff
+    (`ExtractOptions::cells`).
   - Upstream GPurify: `noncoincident_enclosure` scores an unhosted inner 0,
     and `soft_connection` keeps global layers in its hard connectivity, both
     against its own docs. The deck works around each (`PHILIS:` lines).

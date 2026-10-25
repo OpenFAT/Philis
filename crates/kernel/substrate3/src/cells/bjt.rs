@@ -38,6 +38,11 @@ impl Cell for Bjt {
         if !device_is_pnp(group, _constraints) && (_process.layer("dnwell").is_none() || _process.rule("npn_isolation", 0) == 0) {
             return vec![];
         }
+        // sky130 x.25: the pnp marker only inside the foundry's PNP cells. A
+        // PNP the netlist sizes is no foundry cell, so none is drawn.
+        if device_is_pnp(group, _constraints) && _process.rule("pnp_cells_only", 0) != 0 && foundry_cell(_process).is_none() {
+            return vec![];
+        }
         let s = group_sizing(group, _constraints, _process);
         let counts = unit_counts(&s);
         let n = counts.iter().sum::<u16>();
@@ -63,7 +68,10 @@ impl Cell for Bjt {
         let (px, py) = (snap_cut(u.pitch.0 + lat - 1, lat), snap_cut(u.pitch.1 + lat - 1, lat));
         for (slot, di) in owners.iter().enumerate().filter_map(|(i, d)| Some((i, (*d)?))) {
             let (ox, oy) = ((slot as i32 % cols) * px, (slot as i32 / cols) * py);
-            u.draw(&mut b, process, usize::from(di), ox, oy);
+            match foundry_cell(process) {
+                Some(cell) => b.in_cell(cell, |b| u.draw(b, process, usize::from(di), ox, oy)),
+                None => u.draw(&mut b, process, usize::from(di), ox, oy),
+            }
         }
         b.cover_poly_cuts(process);
         b.finish()
@@ -225,6 +233,13 @@ impl Unit {
     }
 }
 
+/// The foundry cell each unit is drawn as: the recipe's model, when the
+/// recipe fixes the emitter (`bjt_emitter_w`/`_l`, a fixed device). `None` for
+/// a size the netlist chose, which no foundry cell is.
+fn foundry_cell(process: &dyn Process) -> Option<&str> {
+    (process.rule("bjt_emitter_w", 0) != 0 && process.rule("bjt_emitter_l", 0) != 0).then(|| process.model()).flatten()
+}
+
 /// Units per member: a member without units draws one.
 fn unit_counts(s: &Sizing) -> Vec<u16> {
     s.dev_nf.iter().map(|&u| u.max(1)).collect()
@@ -244,7 +259,10 @@ fn device_is_pnp(group: &DeviceGroup, c: &Constraints) -> bool {
 mod tests {
     use super::*;
 
-    /// Every variant, drawn alone, is DRC- and ERC-clean.
+    /// Every variant, drawn alone, is DRC- and ERC-clean. NPN at the
+    /// netlist's size; PNP only through each fixed-geometry recipe, its units
+    /// in the foundry cell x.25 allows the marker in. A PNP of the netlist's
+    /// own size is refused: no foundry cell is that device.
     #[test]
     fn every_variant_is_drc_and_erc_clean() {
         use crate::cells::testkit;
@@ -255,29 +273,32 @@ mod tests {
         };
         let mut dirty = Vec::new();
         for n in [1, 2] {
-            for kind in [DeviceKind::Npn, DeviceKind::Pnp] {
-                dirty.extend(testkit::dirty::<Bjt>(kind, n, 1, 1000, 1000, &pdk));
-            }
+            dirty.extend(testkit::dirty::<Bjt>(DeviceKind::Npn, n, 1, 1000, 1000, &pdk));
+            let (g, c) = testkit::group_of(DeviceKind::Pnp, n, 1, 1000, 1000);
+            assert!(Bjt::enumerate(&g, &c, &pdk).is_empty(), "sky130 drew a {n}-member PNP outside a foundry cell");
         }
         // A 1:8 bandgap pair (nine units), an equal pair, and 1:4, whose 3×3
         // "+" cross leaves the four corners empty.
         for counts in [[1, 8], [2, 2], [1, 4]] {
-            for kind in [DeviceKind::Npn, DeviceKind::Pnp] {
-                let (g, mut c) = testkit::group_of(kind, 2, 1, 1000, 1000);
-                c.unitization[0].dev_nf = counts.to_vec();
-                dirty.extend(testkit::dirty_group::<Bjt>(&g, &c, &pdk).into_iter().map(|d| format!("{kind:?} {counts:?} {d}")));
-            }
+            let (g, mut c) = testkit::group_of(DeviceKind::Npn, 2, 1, 1000, 1000);
+            c.unitization[0].dev_nf = counts.to_vec();
+            dirty.extend(testkit::dirty_group::<Bjt>(&g, &c, &pdk).into_iter().map(|d| format!("Npn {counts:?} {d}")));
         }
-        // The [1, 8] PNP block once more through the `pnp_3p40` fixed-geometry
-        // recipe overlay.
-        let overlay = verify::pdk::Overlay { pdk: &pdk, recipe: pdk.recipe("bjt", "sky130_fd_pr__pnp_05v5_W3p40L3p40").unwrap() };
-        let (g, mut c) = testkit::group_of(DeviceKind::Pnp, 2, 1, 1000, 1000);
-        c.unitization[0].dev_nf = vec![1, 8];
-        for v in Bjt::enumerate(&g, &c, &overlay) {
-            let m = v.draw(&g, &c, &overlay);
-            let rules = testkit::findings(&m.shapes, &testkit::ports_with(&m, &["G", "S", "B", "C"]), &pdk);
-            if !rules.is_empty() {
-                dirty.push(format!("overlay pnp_3p40 [1, 8] {}×{}: {rules:?}", v.rows, v.columns));
+        for model in ["sky130_fd_pr__pnp_05v5_W3p40L3p40", "sky130_fd_pr__pnp_05v5_W0p68L0p68"] {
+            let overlay = verify::pdk::Overlay { pdk: &pdk, recipe: pdk.recipe("bjt", model).unwrap() };
+            for counts in [&[1][..], &[1, 1], &[1, 8], &[2, 2], &[1, 4]] {
+                let (g, mut c) = testkit::group_of(DeviceKind::Pnp, counts.len(), 1, 1000, 1000);
+                c.unitization[0].dev_nf = counts.to_vec();
+                let variants = Bjt::enumerate(&g, &c, &overlay);
+                assert!(!variants.is_empty(), "{model} {counts:?}");
+                for v in variants {
+                    let m = v.draw(&g, &c, &overlay);
+                    assert!(!m.cells.is_empty() && m.cells.iter().all(|k| k.name == model), "{model} {counts:?}: {:?}", m.cells);
+                    let rules = testkit::findings_in(&m.shapes, &m.cells, &testkit::ports_with(&m, &["G", "S", "B", "C"]), &pdk);
+                    if !rules.is_empty() {
+                        dirty.push(format!("{model} {counts:?} {}×{}: {rules:?}", v.rows, v.columns));
+                    }
+                }
             }
         }
         assert!(dirty.is_empty(), "DRC/ERC-dirty variants:\n{}", dirty.join("\n"));
@@ -340,6 +361,8 @@ mod tests {
             eprintln!("sky130 PDK unavailable — skipping");
             return;
         };
+        // sky130 draws a PNP only as its fixed foundry cell.
+        let overlay = verify::pdk::Overlay { pdk: &pdk, recipe: pdk.recipe("bjt", "sky130_fd_pr__pnp_05v5_W3p40L3p40").unwrap() };
         for a in 1..=2u16 {
             for b in 1..=16u16 {
                 if (a % 2 + b % 2) > 1 {
@@ -347,10 +370,10 @@ mod tests {
                 }
                 let (g, mut c) = testkit::group_of(DeviceKind::Pnp, 2, 1, 1000, 1000);
                 c.unitization[0].dev_nf = vec![a, b];
-                let variants = Bjt::enumerate(&g, &c, &pdk);
+                let variants = Bjt::enumerate(&g, &c, &overlay);
                 assert!(!variants.is_empty(), "{a}:{b}");
                 for v in variants {
-                    let m = v.draw(&g, &c, &pdk);
+                    let m = v.draw(&g, &c, &overlay);
                     let at = format!("{a}:{b} on {}×{}", v.rows, v.columns);
                     assert_eq!(m.units.len(), usize::from(a + b), "{at}");
                     let centre = |d: u8| {

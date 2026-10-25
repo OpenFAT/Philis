@@ -381,6 +381,13 @@ fn every_generator_is_clean_on_every_deck() {
         for kind in [DeviceKind::Pnp, DeviceKind::Npn] {
             add("bjt", check_nf::<Bjt>(deck, kind, vec![1, 8], 5000, 5000, &pdk, SeriesParallel::Parallel));
         }
+        // Every PNP recipe, drawn as its fixed foundry cell (sky130 offers a
+        // PNP no other way: x.25).
+        let recipes: Vec<String> = pdk.cell.get("bjts").and_then(|r| r.get("recipes")).and_then(|r| r.as_object()).map_or(Vec::new(), |o| o.values().filter_map(|v| v.get("model")?.as_str().map(String::from)).filter(|m| m.contains("pnp")).collect());
+        for model in recipes {
+            let ov = verify::pdk::Overlay { pdk: &pdk, recipe: pdk.recipe("bjt", &model).expect("recipe") };
+            add(&format!("bjt {model}"), check_on::<Bjt>(deck, DeviceKind::Pnp, vec![1, 8], 5000, 5000, &ov, SeriesParallel::Parallel));
+        }
     }
     assert!(dirty.is_empty(), "{} findings:\n{}", dirty.len(), dirty.join("\n"));
 }
@@ -390,6 +397,7 @@ fn every_generator_is_clean_on_every_deck() {
 /// nothing is a generator bug ([`check_on`],
 /// [`every_generator_enumerates_on_every_deck`]).
 const UNDRAWABLE: &[(&str, DeviceKind, &str)] = &[
+    ("sky130", DeviceKind::Pnp, "pnp_cells_only: a PNP only as a fixed-geometry recipe (bjt.rs)"),
     ("gf180mcu", DeviceKind::Npn, "no npn_isolation (bjt.rs:34)"),
     ("ihp_sg13g2", DeviceKind::Npn, "no npn_isolation (bjt.rs:34)"),
     ("asap7", DeviceKind::Npn, "no npn_isolation (bjt.rs:34)"),
@@ -515,9 +523,10 @@ fn check_on<G: Cell>(deck: &str, kind: DeviceKind, dev_nf: Vec<u16>, w: i32, l: 
                     labels.push(verify::LabeledPin { name, layer: p.layer.0, x, y });
                 }
             }
-            let rules: Vec<String> = verify::drc(&m.shapes, &labels, pdk)
+            let opts = verify::ExtractOptions { cells: m.cells.clone(), ..Default::default() };
+            let rules: Vec<String> = verify::drc_with(&m.shapes, &labels, pdk, &opts)
                 .into_iter()
-                .chain(verify::erc(&m.shapes, &labels, pdk))
+                .chain(verify::erc_with(&m.shapes, &labels, pdk, &opts))
                 .filter(|f| !f.rule.contains("density") && f.rule != "floating_gate" && !f.rule.starts_with("soft_connection"))
                 .map(|f| format!("{}:{}", f.rule, f.layer))
                 .collect();
