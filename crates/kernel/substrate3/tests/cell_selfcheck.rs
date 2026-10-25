@@ -25,13 +25,9 @@ use analog::cell::{SeriesParallel, Unitization};
 use substrate3::cells::{Cell, mosfet::Mosfet};
 use analog::base::{DeviceGroup, DeviceId, DeviceKind, Macro, Rect, Shape};
 
-/// Load the sky130 deck the benchmarks use. Skips (rather than fails) when the
-/// PDK is absent, so the suite still runs outside the dev shell.
+/// The sky130 PDK the benchmarks use (built in: a broken one fails).
 fn pdk() -> Option<verify::Pdk> {
-    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
-    let json = std::fs::read_to_string(root.join("pdks/sky130.json")).ok()?;
-    // A present-but-broken deck is a failure, not a skip.
-    Some(verify::Pdk::from_json(&json).expect("pdks/sky130.json loads"))
+    Some(verify::Pdk::builtin("sky130").expect("sky130 loads"))
 }
 
 /// The group + constraints for `n` matched devices of `kind`, sized so the
@@ -332,11 +328,9 @@ fn a_bipolar_draws_its_well_only_as_its_construction() {
 #[cfg(not(debug_assertions))]
 #[test]
 fn the_mosfet_is_clean_on_every_deck() {
-    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let mut dirty = Vec::new();
     for deck in ["sky130", "gf180mcu", "ihp_sg13g2", "asap7"] {
-        let Ok(json) = std::fs::read_to_string(root.join(format!("pdks/{deck}.json"))) else { continue };
-        let pdk = verify::Pdk::from_json(&json).expect("deck loads");
+        let pdk = verify::Pdk::builtin(deck).expect("deck loads");
         // A fin deck draws its MOS with the FinFET generator (`cellgen`).
         let fin = analog::base::Process::layer(&pdk, "fin").is_some();
         let check_mos = |kind, n, nf, w, l, pdk: &verify::Pdk, sp| {
@@ -364,11 +358,9 @@ fn the_mosfet_is_clean_on_every_deck() {
 #[test]
 fn every_generator_is_clean_on_every_deck() {
     use substrate3::cells::{bjt::Bjt, cap_array::CapArray, capacitor::Capacitor, resistor::Resistor};
-    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let mut dirty = Vec::new();
     for deck in ["sky130", "gf180mcu", "ihp_sg13g2"] {
-        let Ok(json) = std::fs::read_to_string(root.join(format!("pdks/{deck}.json"))) else { continue };
-        let pdk = verify::Pdk::from_json(&json).expect("deck loads");
+        let pdk = verify::Pdk::builtin(deck).expect("deck loads");
         let lmin = analog::base::Process::rule(&pdk, "min_gate_l", 150);
         let mut add = |tag: &str, d: Vec<String>| dirty.extend(d.into_iter().map(|d| format!("{deck} {tag} {d}")));
         for kind in [DeviceKind::Nmos, DeviceKind::Pmos] {
@@ -438,7 +430,6 @@ fn sized(kind: DeviceKind, dev_nf: Vec<u16>, w: i32, l: i32, series_parallel: Se
 #[test]
 fn every_generator_enumerates_on_every_deck() {
     use substrate3::cells::{bjt::Bjt, cap_array::CapArray, capacitor::Capacitor, diode::Diode, finfet::FinFet, inductor::Inductor, resistor::Resistor};
-    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let count = |kind, w, l, pdk: &verify::Pdk| -> usize {
         let (g, c) = sized(kind, vec![1], w, l, SeriesParallel::Parallel);
         let fin = analog::base::Process::layer(pdk, "fin").is_some();
@@ -457,8 +448,7 @@ fn every_generator_enumerates_on_every_deck() {
     };
     let mut wrong = Vec::new();
     for deck in ["sky130", "gf180mcu", "ihp_sg13g2", "asap7"] {
-        let json = std::fs::read_to_string(root.join(format!("pdks/{deck}.json"))).unwrap_or_else(|e| panic!("pdks/{deck}.json: {e}"));
-        let pdk = verify::Pdk::from_json(&json).expect("deck loads");
+        let pdk = verify::Pdk::builtin(deck).expect("deck loads");
         let lmin = analog::base::Process::rule(&pdk, "min_gate_l", 150);
         // The DRC sweeps' sizes (the generators' own tests for the diode and inductor).
         for (kind, w, l) in [

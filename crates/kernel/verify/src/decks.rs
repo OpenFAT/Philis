@@ -1,4 +1,4 @@
-//! Decks and sidecars compiled into the binary: a moved or packaged `philis`
+//! The hand-edited decks, compiled into the tests: a moved or packaged `philis`
 //! loads its PDKs without GPurify's checkout or this repository on disk.
 //!
 //! The decks themselves are GPurify's, edited in Rust ([`crate::overrides`]).
@@ -13,14 +13,6 @@ pub(crate) const DECKS: &[(&str, &str)] = &[
     ("gf180mcu.deck", include_str!("../../../../pdks/gf180mcu.deck")),
     ("ihp_sg13g2.deck", include_str!("../../../../pdks/ihp_sg13g2.deck")),
     ("asap7.deck", include_str!("../../../../pdks/asap7.deck")),
-];
-
-/// `(PDK name, sidecar JSON)`, what [`crate::Pdk::builtin`] loads.
-pub(crate) const SIDECARS: &[(&str, &str)] = &[
-    ("sky130", include_str!("../../../../pdks/sky130.json")),
-    ("gf180mcu", include_str!("../../../../pdks/gf180mcu.json")),
-    ("ihp_sg13g2", include_str!("../../../../pdks/ihp_sg13g2.json")),
-    ("asap7", include_str!("../../../../pdks/asap7.json")),
 ];
 
 #[cfg(test)]

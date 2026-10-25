@@ -523,9 +523,10 @@ mod tests {
     fn a_bad_stack_is_an_error_not_a_panic() {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../pdks/");
         let deck = std::fs::read_to_string(format!("{root}sky130.deck")).unwrap();
-        let good = std::fs::read_to_string(format!("{root}sky130.json")).unwrap();
-        let sidecar = good.replace(",\n        \"via4\"", "");
-        assert!(!sidecar.contains("\"via4\""), "the sidecar edit took");
+        let good = verify::pdk_data::cell("sky130").unwrap();
+        let mut sidecar = good.clone();
+        sidecar["layers"]["routing_vias"].as_array_mut().unwrap().retain(|v| v != "via4");
+        assert_ne!(sidecar, good, "the sidecar edit took");
         assert!(Pdk::load(&deck, &sidecar).is_err(), "load rejects a missing cut");
         let load = || Pdk::load(&deck, &good).unwrap();
         assert!(routing_stack(&load(), None).is_ok());

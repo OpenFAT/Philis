@@ -77,70 +77,30 @@ pub struct Pdk {
 }
 
 impl Pdk {
-    /// Load a Philis PDK sidecar: `{"deck": <name>, "cell": {…}}`. The deck is
-    /// GPurify's deck language (one source of truth for every rule, layer,
-    /// device and PEX value), resolved by [`Pdk::deck_text`]. The sidecar adds
-    /// only what the checker does not read: layer roles, generator
-    /// dimensions, process coefficients (registry: [`crate::sidecar`]).
-    ///
-    /// # Errors
-    /// An unreadable sidecar or deck, or anything [`Pdk::load`] rejects.
-    pub fn from_json(sidecar: &str) -> Result<Self, String> {
-        Self::load(&Self::deck_text(sidecar)?, sidecar)
-    }
-
-    /// A PDK compiled into the binary (`sky130`, `gf180mcu`, `ihp_sg13g2`,
-    /// `asap7`): its sidecar and vendored deck, no filesystem read.
+    /// A built-in PDK (`sky130`, `gf180mcu`, `ihp_sg13g2`, `asap7`): its deck
+    /// (GPurify's with Philis's overrides, [`crate::overrides`]) and its Philis
+    /// data ([`crate::pdk_data`]), compiled in; no filesystem read.
     ///
     /// # Errors
     /// An unknown name, or anything [`Pdk::load`] rejects.
     pub fn builtin(name: &str) -> Result<Self, String> {
-        let (_, sidecar) = crate::decks::SIDECARS.iter().find(|(n, _)| *n == name).ok_or_else(|| {
-            let names: Vec<_> = crate::decks::SIDECARS.iter().map(|(n, _)| *n).collect();
-            format!("no built-in PDK {name:?} (built in: {})", names.join(", "))
-        })?;
-        Self::from_json(sidecar)
+        let cell = crate::pdk_data::cell(name).ok_or_else(|| format!("no built-in PDK {name:?} (built in: {})", crate::pdk_data::NAMES.join(", ")))?;
+        Self::load(&crate::overrides::deck_text(name)?, &cell)
     }
 
-    /// The deck text a sidecar names: a built-in deck (`<pdk>.deck`, GPurify's
-    /// with Philis's overrides, [`crate::overrides`]) by file name first, then an absolute path, then a file of
-    /// GPurify's `pdks/` found at build time (build.rs) for a deck not vendored.
-    ///
-    /// # Errors
-    /// An unreadable sidecar or deck file.
-    pub fn deck_text(sidecar: &str) -> Result<String, String> {
-        let v: serde_json::Value =
-            serde_json::from_str(sidecar).map_err(|e| format!("sidecar is not valid JSON: {e}"))?;
-        let name = v.get("deck").and_then(serde_json::Value::as_str).ok_or("sidecar names no `deck` file")?;
-        if let Some((pdk, _)) = crate::overrides::UPSTREAM.iter().find(|(n, _)| name.strip_suffix(".deck") == Some(*n)) {
-            return crate::overrides::deck_text(pdk);
-        }
-        let path = std::path::Path::new(name);
-        let path = if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            let pdks = option_env!("GPURIFY_PDKS")
-                .ok_or_else(|| format!("deck {name:?} is not vendored and GPurify's pdks/ was not found at build time; set GPURIFY_DIR"))?;
-            std::path::Path::new(pdks).join(name)
-        };
-        std::fs::read_to_string(&path).map_err(|e| format!("deck {}: {e}", path.display()))
-    }
-
-    /// Parse `deck` (GPurify deck text) with the sidecar JSON `sidecar`, and
-    /// validate that the pair is complete, so downstream code may assume every
+    /// Parse `deck` (GPurify deck text) with the Philis data table `cell`
+    /// (one [`crate::pdk_data`] table, or an edited copy), and validate that
+    /// the pair is complete, so downstream code may assume every
     /// value it reads is real process data.
     ///
     /// # Errors
     /// gdsverify's parse error, or a list of every way the deck is incomplete.
-    pub fn load(text: &str, sidecar: &str) -> Result<Self, String> {
+    pub fn load(text: &str, cell: &serde_json::Value) -> Result<Self, String> {
         let mut strings = StrTable::default();
         let deck = gdsverify::ingest::deck::parse_deck(text, nm_grid(), &mut strings)
             .map_err(|e| format!("deck rejected: {e}"))?;
-        let roles = parse_roles(sidecar)?;
-        let cell = serde_json::from_str::<serde_json::Value>(sidecar)
-            .ok()
-            .and_then(|v| v.get("cell").cloned())
-            .unwrap_or_default();
+        let roles = parse_roles(cell)?;
+        let cell = cell.clone();
 
         let layers: Vec<(String, LayerId)> = (0..deck.layers.len())
             .map(|id| {
@@ -1589,11 +1549,9 @@ struct Roles {
     scalars: Vec<(String, i32)>,
 }
 
-fn parse_roles(text: &str) -> Result<Roles, String> {
-    let v: serde_json::Value =
-        serde_json::from_str(text).map_err(|e| format!("deck is not valid JSON: {e}"))?;
-    let Some(cell) = v.get("cell").and_then(|c| c.as_object()) else {
-        return Err("deck has no `cell` section: it declares no layer roles, no routing \
+fn parse_roles(cell: &serde_json::Value) -> Result<Roles, String> {
+    let Some(cell) = cell.as_object() else {
+        return Err("the PDK data is not a table: it declares no layer roles, no routing \
                     stack and no construction dimensions, so generators cannot resolve a \
                     layer and the router has no legal set of layers to use"
             .into());
@@ -1656,8 +1614,7 @@ mod tests {
     use super::*;
 
     fn load(deck: &str) -> Pdk {
-        let path = format!("{}/../../../pdks/{deck}.json", env!("CARGO_MANIFEST_DIR"));
-        Pdk::from_json(&std::fs::read_to_string(path).unwrap()).unwrap()
+        Pdk::builtin(deck).unwrap()
     }
 
     /// gf180's gate width rule (`DF.2a`, 220 nm) is wider than its poly's
@@ -1711,7 +1668,7 @@ mod tests {
     /// the compiled-in copies, so a moved or packaged `philis` has its PDKs.
     #[test]
     fn every_builtin_pdk_loads() {
-        for (name, _) in crate::decks::SIDECARS {
+        for name in crate::pdk_data::NAMES {
             let pdk = Pdk::builtin(name).unwrap_or_else(|e| panic!("{name}: {e}"));
             assert_eq!(pdk.source, crate::overrides::deck_text(name).unwrap(), "{name}: deck text is not the override-built one");
         }
@@ -1760,19 +1717,11 @@ mod tests {
 
 
     fn sky130_with(edit: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>)) -> Result<Pdk, String> {
-        let text = crate::decks::SIDECARS[0].1;
-        let mut v: serde_json::Value = serde_json::from_str(text).unwrap();
-        edit(v["cell"].as_object_mut().unwrap());
-        Pdk::from_json(&v.to_string())
+        let mut v = crate::pdk_data::cell("sky130").unwrap();
+        edit(v.as_object_mut().unwrap());
+        Pdk::load(&crate::overrides::deck_text("sky130").unwrap(), &v)
     }
 
-
-    #[test]
-    fn cap_density_is_sourced() {
-        let p = Pdk::builtin("sky130").unwrap();
-        assert!(p.provenance("cap_density_ff_um2").is_some_and(|s| s.starts_with("= camimc")));
-        assert!(!p.unverified().contains(&"cap_density_ff_um2"));
-    }
 
     /// A misspelt key is an error, not a value silently ignored while the
     /// generator falls back to its default.
@@ -1815,7 +1764,6 @@ mod tests {
         assert!(sky.provenance("avt_n_mv_um").is_some_and(|s| s.starts_with("Monte Carlo")));
         let assumed = sky.unverified();
         assert!(assumed.contains(&"gate_cap_af_um2") && !assumed.contains(&"avt_n_mv_um"), "{assumed:?}");
-        assert!(!assumed.contains(&"n_well_depth"), "UNVERIFIED but read by no code, so not assumed: {assumed:?}");
         assert!(!assumed.contains(&"tie_max_dist_nm"), "LU.2/LU.2.1/LU.3 source it: {assumed:?}");
     }
 
@@ -1932,8 +1880,8 @@ mod tests {
         let m1 = sky.em_limit(id(&sky, "met1")).expect("EM.met1_mcon");
         assert_eq!((m1.ua_per_um, m1.ua_per_cut), (2_800.0, 360.0));
         // A deck without EM rules is unknown.
-        let sidecar = std::fs::read_to_string(format!("{}/../../../pdks/sky130.json", env!("CARGO_MANIFEST_DIR"))).unwrap();
-        let text: String = Pdk::deck_text(&sidecar).unwrap().lines().filter(|l| !l.contains("em_current_density")).collect::<Vec<_>>().join("\n");
+        let sidecar = crate::pdk_data::cell("sky130").unwrap();
+        let text: String = crate::overrides::deck_text("sky130").unwrap().lines().filter(|l| !l.contains("em_current_density")).collect::<Vec<_>>().join("\n");
         let bare = Pdk::load(&text, &sidecar).unwrap();
         assert!(bare.routing_metals.iter().all(|&l| bare.em_limit(l).is_none()), "no EM rules: unknown");
     }
@@ -1972,11 +1920,11 @@ mod tests {
     /// Black's parameters on the deck rule beat the sidecar's, for that rule only.
     #[test]
     fn a_deck_rule_value_beats_the_sidecar() {
-        let sidecar = std::fs::read_to_string(format!("{}/../../../pdks/sky130.json", env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let sidecar = crate::pdk_data::cell("sky130").unwrap();
         // gdsverify takes Black's parameters on `electromigration` only
         // (`em_current_density` rejects them), so met1's rule becomes one;
         // the rule as the override-built deck prints it.
-        let text = Pdk::deck_text(&sidecar).unwrap().replacen(
+        let text = crate::overrides::deck_text("sky130").unwrap().replacen(
             "em_current_density(met1, mcon; max_density: 2.8e3A/m, max_current_per_cut: 3.6e2uA, narrow: none)",
             "electromigration(met1, mcon; max_density: 2.8mA/um, max_current_per_cut: 0.36mA, blech_limit: 0uA, reference_temperature: 373.15K, activation_energy: 0.85eV, current_exponent: 2)",
             1,

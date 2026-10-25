@@ -149,8 +149,8 @@ def gpurify(d: Path) -> dict:
 
 
 def routing_layers() -> set:
-    deck = json.loads((ROOT / "pdks/sky130.json").read_text())["cell"]["layers"]
-    return set(deck["routing_metals"]) | set(deck["routing_vias"])
+    """sky130's routing stack, as crates/kernel/verify/src/pdk_data/sky130.rs states it."""
+    return {'met1', 'met3', 'via2', 'mcon', 'met4', 'li', 'via4', 'met2', 'via', 'met5', 'via3'}
 
 
 def layer_of(rule: str) -> str:

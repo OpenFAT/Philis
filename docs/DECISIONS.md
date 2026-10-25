@@ -740,6 +740,16 @@ behind and its `Checker` does not compile), reads the shipped decks through
 re-derivation in 1.0's `pdk.rs` that a typed query now answers (the inventory's
 §4.6 table). Recommendation: yes to the three-way split and the re-pin.
 
+**Owner, 2026-10-25: no PDK JSON.** The decks are top-level
+(`pdks/<pdk>.deck`); `Pdk::builtin` builds each from GPurify's upstream deck
+plus the `# PHILIS:` edits as DeckBuilder overrides (`kernel/verify/src/overrides.rs`),
+with the hand-edited decks kept as its equivalence fixtures. The sidecar
+`.json` files are gone: Hastings' class tiers are `kernel/analog` constants,
+dead keys are deleted, and the rest is `kernel/verify/src/pdk_data/<pdk>.rs`,
+one table per PDK (classification: `docs/ref/research/sidecar-keys.md`).
+Typed fields replace the keyed table reader by reader; the Bm keys (a
+sidecar number above the deck's) wait on the owner.
+
 ### Q60 Chip assembly is a later milestone; the die-context table is defined now — accepted (2026-10-25). The design tree is closed; M0 begins.
 
 The die-level Hastings cards (`docs/ref/research/hastings-die.md`) cover chip

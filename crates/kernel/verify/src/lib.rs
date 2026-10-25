@@ -1,3 +1,4 @@
+#![recursion_limit = "1024"]
 //! `verify` — physical verification through GPurify (`gdsverify`).
 //!
 //! [`signoff_checked`] runs DRC/ERC/LVS/PEX in one engine pass and returns a
@@ -10,6 +11,7 @@ pub mod geom;
 pub mod netlist;
 pub mod overrides;
 pub mod pdk;
+pub mod pdk_data;
 pub mod reference;
 pub mod sidecar;
 
@@ -478,8 +480,7 @@ mod tests {
     use analog::base::{Process, Rect};
 
     fn sky130() -> Pdk {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../pdks/sky130.json");
-        Pdk::from_json(&std::fs::read_to_string(path).unwrap()).unwrap()
+        Pdk::builtin("sky130").unwrap()
     }
 
     fn rect(pdk: &Pdk, layer: &str, x: i32, y: i32, w: i32, h: i32) -> Shape {
@@ -717,8 +718,7 @@ mod tests {
     // and their currents installed they no longer do (ihp: EM.Metal*).
     #[test]
     fn intent_arms_the_em_rules() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../pdks/ihp_sg13g2.json");
-        let pdk = Pdk::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let pdk = Pdk::builtin("ihp_sg13g2").unwrap();
         let shapes = [rect(&pdk, "met1", 0, 0, 20_000, 1_000), rect(&pdk, "met1", 0, 5_000, 20_000, 1_000)];
         let met1 = pdk.layer("met1").unwrap().0;
         let pins = [
@@ -744,8 +744,7 @@ mod tests {
     #[test]
     fn max_drop_arms_ir_drop() {
         use gdsverify::check::report::Outcome;
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../pdks/sky130.json");
-        let pdk = Pdk::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let pdk = Pdk::builtin("sky130").unwrap();
         let shapes = [rect(&pdk, "met1", 0, 0, 20_000, 1_000)];
         let met1 = pdk.layer("met1").unwrap().0;
         let pins = [LabeledPin { name: "VDD".into(), layer: met1, x: 500, y: 500 }];
@@ -767,8 +766,7 @@ mod tests {
     // limit go in one object.
     #[test]
     fn set_intent_merges_a_nets_limits() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../pdks/sky130.json");
-        let pdk = Pdk::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let pdk = Pdk::builtin("sky130").unwrap();
         let mut checker = Checker::new(&pdk, true).unwrap();
         let intent = Intent {
             supplies: vec![("VDD".into(), 1_800.0, false)],
@@ -783,8 +781,7 @@ mod tests {
     // (ihp AFil.g2: activ density >= 25% in 800 um windows).
     #[test]
     fn density_wider_than_the_block_is_chip_level() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../pdks/ihp_sg13g2.json");
-        let pdk = Pdk::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let pdk = Pdk::builtin("ihp_sg13g2").unwrap();
         assert!(pdk.density_rules().iter().any(|&(_, w, lim, max)| w == 800_000 && (lim - 0.25).abs() < 1e-9 && !max), "AFil.g2 read as a minimum");
         let mut small = Checker::new(&pdk, false).unwrap();
         let gone = small.defer_density_wider_than(34_000, 21_000);

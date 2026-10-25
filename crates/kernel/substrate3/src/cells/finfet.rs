@@ -335,9 +335,7 @@ mod tests {
     use analog::base::{DeviceKind, Macro, Process, Rect};
 
     fn deck() -> verify::Pdk {
-        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
-        let json = std::fs::read_to_string(root.join("pdks/asap7.json")).expect("pdks/asap7.json");
-        verify::Pdk::from_json(&json).expect("asap7 loads")
+        verify::Pdk::builtin("asap7").expect("asap7 loads")
     }
 
     /// `kind` group with per-member finger counts `nf` (ratio = counts).

@@ -132,7 +132,7 @@ no callbacks, no registries, no hidden state.
 - A new routing recipe: one type in `backend/routing` writing the request
   table, one variant, one claim kind in `kernel/analog` if it promises
   something new.
-- A new PDK: one deck JSON (rules, layers, recipe-capability keys), the tile
+- A new PDK: its GPurify deck (`pdks/<pdk>.deck`, Philis edits as `kernel/verify` overrides), one `kernel/verify/src/pdk_data/<pdk>.rs` table (layer roles, routing stack, Philis numbers), the tile
   constructors in `substrate3/pdk`, the conformance run that fills its
   availability column.
 - A new constraint kind: one `Rule` in `kernel/analog`, its emitter in
@@ -150,7 +150,7 @@ bodies edited.
 
 | ID | change | source | edits | radius | weight Δ | verdict |
 |---|---|---|---|---|---|---|
-| D1 | a new PDK (gf180mcu) through the hot path | owner (Q51) | `pdks/gf180mcu.json` keys; `substrate3/pdk`: tile constructors (new); conformance run (new rows) | 0 expected | +0 for callers (same `PhilisPdk` bound) | pending |
+| D1 | a new PDK (gf180mcu) through the hot path | owner (Q51) | `pdk_data/gf180mcu.rs` keys; `substrate3/pdk`: tile constructors (new); conformance run (new rows) | 0 expected | +0 for callers (same `PhilisPdk` bound) | pending |
 | D2 | a new set recipe: 2-D common centroid for resistors | owner (Q51) | `substrate3/recipes/set/res_cc2d.rs` (new); `RecipeKind` variant (compiler-listed match arms in `plan_recipes`, printer); ladder row; conformance tests | arms listed by the compiler | +1 kind | pending |
 | D3 | a new routing recipe: shield tracks beside a victim | owner (Q51) | `routing/recipes/shield.rs` (new); request-table row kind; `Shield` claim already exists in 1.0's rules | 0 expected | +1 request kind | pending |
 

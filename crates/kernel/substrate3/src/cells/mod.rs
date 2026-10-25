@@ -61,9 +61,7 @@ pub(crate) mod testkit {
 
     /// The sky130 deck; `None` (skip) when absent, panic when present but broken.
     pub fn pdk() -> Option<verify::Pdk> {
-        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
-        let json = std::fs::read_to_string(root.join("pdks/sky130.json")).ok()?;
-        Some(verify::Pdk::from_json(&json).expect("pdks/sky130.json loads"))
+        Some(verify::Pdk::builtin("sky130").expect("sky130 loads"))
     }
 
     /// `n` matched devices of `kind` at `nf` units of `w`×`l` nm each.
