@@ -77,3 +77,27 @@ What the builder cannot do: rewrite a `connect conductors` list in place
 position. Neither matters here: drawn layer ids are by name, the added derived
 layers come after the base's (their ids shift, nothing in Philis reads a
 derived id by number), and no added device shares a marker with a base one.
+
+## 4. Implementation and proof
+
+`crates/kernel/verify/src/overrides.rs`: `UPSTREAM` is the dependency's
+`gdsverify::pdks::*` text (no vendored copy, so it moves with the pin),
+`deck_text(pdk)` compiles it on `nm_grid()`, applies the sky130 and asap7
+overrides, and prints the result. `Pdk::deck_text` returns it for every
+built-in deck name, so `Pdk::builtin` and a sidecar naming `<pdk>.deck` load
+GPurify's deck plus the overrides.
+
+Equivalence test `overrides::tests::overrides_equal_the_edited_decks`: for each
+of the four PDKs, compile the override-built text and the edited deck, take
+`CompiledDeck::source` (every layer, derived row, rule with params,
+connectivity, device, pex row, lvs control), sort each list, and compare
+equal. It passes for all four; a mutated override (a sidewall, a dropped
+conductor) fails it. The edited `pdks/decks/*.deck` stay only as its
+fixtures (`decks::DECKS` is `#[cfg(test)]`) and can go once the edits are upstream.
+
+Differences the switch makes visible: `Pdk::source` is now the printed deck,
+not the hand-written text: no comments, values in canonical units
+(`2.8e3A/m` for `2.8mA/um`), and `grid 1nm` (the layout grid it was compiled
+on) where sky130, gf180mcu and ihp_sg13g2 state `grid 5nm`; the manufacturing grid Philis reads
+comes from the `off_grid` rule, which is unchanged. One test that string-edits
+the deck text now matches the printed form.
