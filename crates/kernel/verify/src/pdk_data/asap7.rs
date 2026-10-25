@@ -1,7 +1,7 @@
 //! asap7's Philis data: what no deck statement carries (layer roles, the
 //! routing stack, generator dimensions, process coefficients, recipe tables),
 //! each number beside its `_source`. Was `pdks/asap7.json`; the deck is
-//! `pdks/asap7.deck` (GPurify's plus `crate::overrides`). Registry and
+//! `pdks/gpurify/asap7.deck` (GPurify's plus `crate::overrides`). Registry and
 //! validation: [`crate::sidecar`]; classification:
 //! `docs/ref/research/sidecar-keys.md`.
 //!

@@ -1,7 +1,7 @@
 # PDK sidecar keys, classified (2026-10-25)
 
 The basis for removing `pdks/*.json`, which the owner asked for: decks
-become top-level `pdks/<pdk>.deck`. The survey ran over the sidecars at
+become top-level `pdks/gpurify/<pdk>.deck`. The survey ran over the sidecars at
 `7ab866b`.
 
 ## Classes
@@ -87,7 +87,7 @@ become top-level `pdks/<pdk>.deck`. The survey ran over the sidecars at
 6. **Bm keys: decided, stricter.** The owner chose "I prefer stricter deck
    rules" (2026-10-25). A key whose every reader means the deck rule now
    raises that rule in the deck, as an override in `overrides.rs`
-   `stricter_margins` mirrored by a `# PHILIS:` edit in `pdks/<pdk>.deck`
+   `stricter_margins` mirrored by a `# PHILIS:` edit in `pdks/gpurify/<pdk>.deck`
    (outcome a). A key that is one structure's construction margin stays in
    `pdk_data` under a name that says so, with a `_source` naming the rule it
    exceeds (outcome b). A key the deck already beats at its reader is deleted.

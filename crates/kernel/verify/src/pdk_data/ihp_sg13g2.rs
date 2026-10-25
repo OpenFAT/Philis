@@ -1,7 +1,7 @@
 //! ihp_sg13g2's Philis data: what no deck statement carries (layer roles, the
 //! routing stack, generator dimensions, process coefficients, recipe tables),
 //! each number beside its `_source`. Was `pdks/ihp_sg13g2.json`; the deck is
-//! `pdks/ihp_sg13g2.deck` (GPurify's plus `crate::overrides`). Registry and
+//! `pdks/gpurify/ihp_sg13g2.deck` (GPurify's plus `crate::overrides`). Registry and
 //! validation: [`crate::sidecar`]; classification:
 //! `docs/ref/research/sidecar-keys.md`.
 
@@ -38,7 +38,7 @@ pub(crate) fn cell() -> serde_json::Value {
         "ea_ev": null,
         "n": null
     },
-    "em_derating_source": "pdks/ihp_sg13g2.deck:601 [PS] §2.15 \"11 years at 105 C\"; Ea and n not stated",
+    "em_derating_source": "pdks/gpurify/ihp_sg13g2.deck:601 [PS] §2.15 \"11 years at 105 C\"; Ea and n not stated",
     "layers": {
         "diff": "activ",
         "poly": "gatpoly",

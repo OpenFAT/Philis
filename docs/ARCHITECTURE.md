@@ -133,7 +133,7 @@ no callbacks, no registries, no hidden state.
 - A new routing recipe: one type in `backend/routing` writing the request
   table, one variant, one claim kind in `kernel/analog` if it promises
   something new.
-- A new PDK: its GPurify deck (`pdks/<pdk>.deck`, Philis edits as `kernel/verify` overrides), its foundry decks if open (`pdks/klayout/<pdk>/`, `pdks/magic/<pdk>/` with a `PROVENANCE.md`, one arm each in `verify::foundry::{klayout, magic}`), one `kernel/verify/src/pdk_data/<pdk>.rs` table (layer roles, routing stack, Philis numbers), the tile
+- A new PDK: its GPurify deck (`pdks/gpurify/<pdk>.deck`, Philis edits as `kernel/verify` overrides), its foundry decks if open (`pdks/klayout/<pdk>/`, `pdks/magic/<pdk>/` with a `PROVENANCE.md`, one arm each in `verify::foundry::{klayout, magic}`), one `kernel/verify/src/pdk_data/<pdk>.rs` table (layer roles, routing stack, Philis numbers), the tile
   constructors in `substrate3/pdk`, the conformance run that fills its
   availability column.
 - A new constraint kind: one `Rule` in `kernel/analog`, its emitter in

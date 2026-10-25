@@ -1,7 +1,7 @@
 //! gf180mcu's Philis data: what no deck statement carries (layer roles, the
 //! routing stack, generator dimensions, process coefficients, recipe tables),
 //! each number beside its `_source`. Was `pdks/gf180mcu.json`; the deck is
-//! `pdks/gf180mcu.deck` (GPurify's plus `crate::overrides`). Registry and
+//! `pdks/gpurify/gf180mcu.deck` (GPurify's plus `crate::overrides`). Registry and
 //! validation: [`crate::sidecar`]; classification:
 //! `docs/ref/research/sidecar-keys.md`.
 
@@ -23,7 +23,7 @@ pub(crate) fn cell() -> serde_json::Value {
         "ea_ev": null,
         "n": null
     },
-    "em_derating_source": "pdks/gf180mcu.deck:486 \"Electromigration at 85 C\" [DRM 54, tables 14.3/14.4]; Ea and n not stated",
+    "em_derating_source": "pdks/gpurify/gf180mcu.deck:486 \"Electromigration at 85 C\" [DRM 54, tables 14.3/14.4]; Ea and n not stated",
     "avt_n_mv_um": 8.9,
     "avt_n_mv_um_source": "nfet_03v3 Monte Carlo of the installed models: benchmarks/characterize_mismatch.py gf180mcu 250 1|2, ngspice-44.2, design.ngspice + '.lib sm141064.ngspice typical' with sw_stat_mismatch=1, ngbehavior=hsa (volare gf180mcu c6d73a35 (gf180mcuD)); 250 pairs x 6 W/L (1/0.28..8/2 um), diode-connected, constant-current VT at 0.1uA*W/L, sigma(dVT) fit through origin vs 1/sqrt(WL); seeds 1,2 gave 8.88, 8.9 -> 8.9. Model card (fets_mm): par_vth 7.148 mV.um on effective area (L-0.15um); mulu0 mismatch adds the rest.",
     "avt_p_mv_um": 8.5,

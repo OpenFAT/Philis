@@ -26,14 +26,14 @@ bug tests fail as intended and the other two still pass:
 | `soft_connection_flags_straps_joined_only_by_substrate` | pass | pass (control) |
 
 When GPurify ships a fix: flip the assert, delete the override, and update
-the edited `pdks/sky130.deck` that `overrides_equal_the_edited_decks`
+the edited `pdks/gpurify/sky130.deck` that `overrides_equal_the_edited_decks`
 compares against.
 
 ## 1. sky130 lvtn.10 flags every LVT nfet
 
 ### Findings
 
-- **The shipped deck contradicts itself.** `pdks/sky130.deck:297-301` says
+- **The shipped deck contradicts itself.** `pdks/gpurify/sky130.deck:297-301` says
   lvtn.10 selects its wells as the foundry PVL does (`[S11]
   Include/lvtn.drc.pvl` lines 40-44) and that "an lvtn off every such well is
   not measured". The rule it writes is `enclosure(lvtn, nwell_novar,
@@ -67,7 +67,7 @@ Philis's workaround replaces the row with
 
 > **sky130 lvtn.10 flags every lvtn off an n-well, against its own comment**
 >
-> `pdks/sky130.deck` lines 297-299 say lvtn.10 selects the wells as the
+> `pdks/gpurify/sky130.deck` lines 297-299 say lvtn.10 selects the wells as the
 > foundry PVL does, so "an lvtn off every such well is not measured". Line 301
 > writes `enclosure(lvtn, nwell_novar, noncoincident) >= 380nm`, and
 > `noncoincident_enclosure` measures an inner shape no host covers as 0
@@ -107,10 +107,10 @@ index 60d3d50..1ef952f 100644
      );
      d.rule(
          "lvtn.12",
-diff --git a/pdks/sky130.deck b/pdks/sky130.deck
+diff --git a/pdks/gpurify/sky130.deck b/pdks/gpurify/sky130.deck
 index ac25c6f..174fe3e 100644
---- a/pdks/sky130.deck
-+++ b/pdks/sky130.deck
+--- a/pdks/gpurify/sky130.deck
++++ b/pdks/gpurify/sky130.deck
 @@ -298,7 +298,7 @@ rule lvtn.9 space(lvtn, hvtp) >= 380nm
  # (exclude coincident edges)", as [S11] Include/lvtn.drc.pvl lines 40-44
  # selects the wells; an lvtn off every such well is not measured.

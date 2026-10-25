@@ -25,5 +25,5 @@ klayout -b -r lvs/gf180mcu.lvs -rd input=<gds> -rd report=<lvsdb> -rd schematic=
 ```
 
 Variant E (6 metals, 9 kÅ top metal, MIM option B) is the stack
-`pdks/gf180mcu.deck` draws. Density is a chip-level check, excluded as
+`pdks/gpurify/gf180mcu.deck` draws. Density is a chip-level check, excluded as
 GPurify defers it.

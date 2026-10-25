@@ -48,7 +48,7 @@ fn drc_deck(run: &Run) -> Result<Deck, Refused> {
             file: deck("klayout", "sky130", "sky130A_mr.drc", "KLayout DRC")?,
             vars: vec![("input", input), ("top_cell", top), ("report", rep), ("feol", "1".into()), ("beol", "1".into()), ("offgrid", "1".into()), ("thr", thr)],
         },
-        // Variant E is the 6-metal, 9 kÅ top stack pdks/gf180mcu.deck draws.
+        // Variant E is the 6-metal, 9 kÅ top stack pdks/gpurify/gf180mcu.deck draws.
         // Density is a chip-level check (GPurify defers it the same way).
         "gf180mcu" => Deck {
             file: deck("klayout", "gf180mcu", "drc/gf180mcu.drc", "KLayout DRC")?,

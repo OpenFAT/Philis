@@ -9,10 +9,10 @@
 /// `(deck file name, 1.0's hand-edited deck text)`.
 #[cfg(test)]
 pub(crate) const DECKS: &[(&str, &str)] = &[
-    ("sky130.deck", include_str!("../../../../pdks/sky130.deck")),
-    ("gf180mcu.deck", include_str!("../../../../pdks/gf180mcu.deck")),
-    ("ihp_sg13g2.deck", include_str!("../../../../pdks/ihp_sg13g2.deck")),
-    ("asap7.deck", include_str!("../../../../pdks/asap7.deck")),
+    ("sky130.deck", include_str!("../../../../pdks/gpurify/sky130.deck")),
+    ("gf180mcu.deck", include_str!("../../../../pdks/gpurify/gf180mcu.deck")),
+    ("ihp_sg13g2.deck", include_str!("../../../../pdks/gpurify/ihp_sg13g2.deck")),
+    ("asap7.deck", include_str!("../../../../pdks/gpurify/asap7.deck")),
 ];
 
 #[cfg(test)]

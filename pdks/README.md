@@ -4,7 +4,7 @@ Process decks, one directory per sign-off engine (`verify::SignoffEngine`).
 
 | directory | engine | contents |
 |---|---|---|
-| `*.deck` (moves to `gpurify/` at merge) | `Gpurify` | GPurify's decks, Philis's edits as `crates/kernel/verify/src/overrides.rs` |
+| `gpurify/<pdk>.deck` | `Gpurify` | GPurify's decks, Philis's edits as `crates/kernel/verify/src/overrides.rs` |
 | `klayout/<pdk>/` | `Klayout` | the foundry's KLayout DRC and LVS decks |
 | `magic/<pdk>/` | `Magic` | magic's tech file and netgen's LVS setup |
 

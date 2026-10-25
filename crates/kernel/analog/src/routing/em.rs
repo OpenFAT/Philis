@@ -362,7 +362,7 @@ mod tests {
         Box::leak(Box::new(Stack { layers: vec![metal(1), Layer { id: 2, sheet_ohm: 4.5, cut: true, ..Layer::default() }, metal(3)], ..Stack::default() }))
     }
 
-    /// The sky130 values (`pdks/sky130.deck:496-497`) as `em_limits`
+    /// The sky130 values (`pdks/gpurify/sky130.deck:496-497`) as `em_limits`
     /// copies them: met1 2800 µA/µm keeping `EM.met1_mcon`'s 360 µA/cut, via
     /// 290 µA/cut, met2 2800 µA/µm keeping `EM.met2_via1`'s 290 µA/cut.
     fn em() -> Electromigration {

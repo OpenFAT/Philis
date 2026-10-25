@@ -522,7 +522,7 @@ mod tests {
     #[test]
     fn a_bad_stack_is_an_error_not_a_panic() {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../pdks/");
-        let deck = std::fs::read_to_string(format!("{root}sky130.deck")).unwrap();
+        let deck = std::fs::read_to_string(format!("{root}gpurify/sky130.deck")).unwrap();
         let good = verify::pdk_data::cell("sky130").unwrap();
         let mut sidecar = good.clone();
         sidecar["layers"]["routing_vias"].as_array_mut().unwrap().retain(|v| v != "via4");

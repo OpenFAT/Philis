@@ -633,7 +633,7 @@ mod tests {
     const UNMERGED: ExtractOptions = ExtractOptions { field_solve: Vec::new(), unmerged: true, cells: Vec::new() };
 
     // PERF-16: two overlapping met1 rects extract as their union. Deck met1
-    // (pdks/sky130.deck): 25.78 aF/µm², 40.57 aF/µm. Union 7.5 µm²,
+    // (pdks/gpurify/sky130.deck): 25.78 aF/µm², 40.57 aF/µm. Union 7.5 µm²,
     // perimeter 26 µm → 1248.2 aF; drawn rects 8 µm², 29 µm → 1382.8 aF.
     #[test]
     fn partial_overlaps_extract_as_their_union() {

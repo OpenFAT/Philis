@@ -741,7 +741,7 @@ re-derivation in 1.0's `pdk.rs` that a typed query now answers (the inventory's
 §4.6 table). Recommendation: yes to the three-way split and the re-pin.
 
 **Owner, 2026-10-25: no PDK JSON.** The decks are top-level
-(`pdks/<pdk>.deck`); `Pdk::builtin` builds each from GPurify's upstream deck
+(`pdks/gpurify/<pdk>.deck`); `Pdk::builtin` builds each from GPurify's upstream deck
 plus the `# PHILIS:` edits as DeckBuilder overrides (`kernel/verify/src/overrides.rs`),
 with the hand-edited decks kept as its equivalence fixtures. The sidecar
 `.json` files are gone: Hastings' class tiers are `kernel/analog` constants,
