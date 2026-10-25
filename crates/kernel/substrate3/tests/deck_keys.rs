@@ -19,8 +19,8 @@ use substrate3::cells::{bjt::Bjt, cap_array::CapArray, capacitor::Capacitor, dio
 use analog::base::{DeviceGroup, DeviceId, DeviceKind, LayerId, Process};
 use verify::sidecar::KEYS;
 
-/// `pdk`, recording every `rule()` name asked of it.
-struct Recording<'a>(&'a verify::Pdk, RefCell<BTreeSet<String>>);
+/// A process view, recording every `rule()` name asked of it.
+struct Recording<'a>(&'a dyn Process, RefCell<BTreeSet<String>>);
 
 impl Process for Recording<'_> {
     fn layer(&self, role: &str) -> Option<LayerId> {
@@ -46,7 +46,7 @@ impl Process for Recording<'_> {
         self.0.eol_space(role)
     }
     fn width(&self, role: &str) -> Option<i32> {
-        Process::width(self.0, role)
+        self.0.width(role)
     }
     fn enclosure(&self, outer: &str, inner: &str) -> Option<i32> {
         self.0.enclosure(outer, inner)
@@ -62,6 +62,9 @@ impl Process for Recording<'_> {
     }
     fn space_between(&self, a: &str, b: &str) -> Option<i32> {
         self.0.space_between(a, b)
+    }
+    fn model(&self) -> Option<&str> {
+        self.0.model()
     }
 }
 
@@ -118,9 +121,11 @@ fn generators_read_exactly_the_required_keys() {
     }
     drawn.push(("capacitor", draw_all::<Capacitor>(p, DeviceKind::Capacitor, &[4, 4], 2000, 2000, Parallel)));
     drawn.push(("cap_array", draw_all::<CapArray>(p, DeviceKind::Capacitor, &[1, 1, 2], 2000, 2000, Parallel)));
-    for kind in [Npn, Pnp] {
-        drawn.push(("bjt", draw_all::<Bjt>(p, kind, &[1, 8], 1000, 1000, Parallel)));
-    }
+    drawn.push(("bjt", draw_all::<Bjt>(p, Npn, &[1, 8], 1000, 1000, Parallel)));
+    // sky130 draws a PNP only as a fixed-geometry recipe (x.25).
+    let ov = verify::pdk::Overlay { pdk: &pdk, recipe: pdk.recipe("bjt", "sky130_fd_pr__pnp_05v5_W3p40L3p40").expect("pnp recipe") };
+    let rec_pnp = Recording(&ov, RefCell::default());
+    drawn.push(("bjt pnp", draw_all::<Bjt>(&rec_pnp, Pnp, &[1, 8], 1000, 1000, Parallel)));
     drawn.push(("diode", draw_all::<Diode>(p, DeviceKind::Diode, &[1, 1], 500, 1000, Parallel)));
     // No deck recognises an inductor, so Inductor offers nothing (CELL-04), and
     // sky130 has no fin layer, so neither does FinFet: recorded for completeness.
@@ -129,7 +134,8 @@ fn generators_read_exactly_the_required_keys() {
     let empty: Vec<_> = drawn.iter().filter(|(_, n)| *n == 0).collect();
     assert!(empty.is_empty(), "generators that drew nothing, so recorded nothing: {empty:?}");
 
-    let recorded = rec.1.into_inner();
+    let mut recorded = rec.1.into_inner();
+    recorded.extend(rec_pnp.1.into_inner());
     // Required keys read outside `rule()` on kernel/cells generators: `layers`
     // by verify's parse_roles, `max_finger_width` by the library's cellgen
     // `folds` (which takes a `&Pdk`, so this recording cannot reach it; its
