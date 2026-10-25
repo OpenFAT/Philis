@@ -8,6 +8,7 @@ pub mod checker;
 mod decks;
 pub mod geom;
 pub mod netlist;
+pub mod overrides;
 pub mod pdk;
 pub mod reference;
 pub mod sidecar;

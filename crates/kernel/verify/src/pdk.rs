@@ -102,8 +102,8 @@ impl Pdk {
         Self::from_json(sidecar)
     }
 
-    /// The deck text a sidecar names: a vendored deck (`pdks/decks/`,
-    /// compiled in) by file name first, then an absolute path, then a file of
+    /// The deck text a sidecar names: a built-in deck (`<pdk>.deck`, GPurify's
+    /// with Philis's overrides, [`crate::overrides`]) by file name first, then an absolute path, then a file of
     /// GPurify's `pdks/` found at build time (build.rs) for a deck not vendored.
     ///
     /// # Errors
@@ -112,8 +112,8 @@ impl Pdk {
         let v: serde_json::Value =
             serde_json::from_str(sidecar).map_err(|e| format!("sidecar is not valid JSON: {e}"))?;
         let name = v.get("deck").and_then(serde_json::Value::as_str).ok_or("sidecar names no `deck` file")?;
-        if let Some((_, text)) = crate::decks::DECKS.iter().find(|(n, _)| *n == name) {
-            return Ok((*text).to_string());
+        if let Some((pdk, _)) = crate::overrides::UPSTREAM.iter().find(|(n, _)| name.strip_suffix(".deck") == Some(*n)) {
+            return crate::overrides::deck_text(pdk);
         }
         let path = std::path::Path::new(name);
         let path = if path.is_absolute() {
@@ -1720,8 +1720,7 @@ mod tests {
     fn every_builtin_pdk_loads() {
         for (name, _) in crate::decks::SIDECARS {
             let pdk = Pdk::builtin(name).unwrap_or_else(|e| panic!("{name}: {e}"));
-            let (_, deck) = crate::decks::DECKS.iter().find(|(d, _)| *d == format!("{name}.deck")).unwrap();
-            assert_eq!(pdk.source, *deck, "{name}: deck text is not the vendored one");
+            assert_eq!(pdk.source, crate::overrides::deck_text(name).unwrap(), "{name}: deck text is not the override-built one");
         }
         assert!(Pdk::builtin("sky13").is_err());
     }
@@ -2013,9 +2012,10 @@ mod tests {
     fn a_deck_rule_value_beats_the_sidecar() {
         let sidecar = std::fs::read_to_string(format!("{}/../../../pdks/sky130.json", env!("CARGO_MANIFEST_DIR"))).unwrap();
         // gdsverify takes Black's parameters on `electromigration` only
-        // (`em_current_density` rejects them), so met1's rule becomes one.
+        // (`em_current_density` rejects them), so met1's rule becomes one;
+        // the rule as the override-built deck prints it.
         let text = Pdk::deck_text(&sidecar).unwrap().replacen(
-            "em_current_density(met1, mcon; max_density: 2.8mA/um, max_current_per_cut: 0.36mA, narrow: none)",
+            "em_current_density(met1, mcon; max_density: 2.8e3A/m, max_current_per_cut: 3.6e2uA, narrow: none)",
             "electromigration(met1, mcon; max_density: 2.8mA/um, max_current_per_cut: 0.36mA, blech_limit: 0uA, reference_temperature: 373.15K, activation_energy: 0.85eV, current_exponent: 2)",
             1,
         );

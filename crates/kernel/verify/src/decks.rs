@@ -1,11 +1,13 @@
 //! Decks and sidecars compiled into the binary: a moved or packaged `philis`
 //! loads its PDKs without GPurify's checkout or this repository on disk.
 //!
-//! The decks are vendored copies of GPurify's (`pdks/decks/*.deck`, line 1
-//! names the upstream commit); every Philis edit carries a `# PHILIS:` line
-//! above it, so an unmarked rule is upstream text.
+//! The decks themselves are GPurify's, edited in Rust ([`crate::overrides`]).
+//! `pdks/decks/*.deck` are 1.0's hand-edited copies (line 1 names the
+//! upstream commit, each edit under a `# PHILIS:` line), kept only as the
+//! fixtures the overrides are proven equal to.
 
-/// `(file name a sidecar's "deck" names, deck text)`.
+/// `(deck file name, 1.0's hand-edited deck text)`.
+#[cfg(test)]
 pub(crate) const DECKS: &[(&str, &str)] = &[
     ("sky130.deck", include_str!("../../../../pdks/decks/sky130.deck")),
     ("gf180mcu.deck", include_str!("../../../../pdks/decks/gf180mcu.deck")),
