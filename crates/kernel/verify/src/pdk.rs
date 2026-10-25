@@ -954,7 +954,7 @@ impl Pdk {
     /// cut, its exact `size` (the shorter side).
     #[must_use]
     pub fn min_width(&self, layer: u16) -> Option<i32> {
-        self.rule_limit_nm("min_width", layer).or_else(|| {
+        self.rule_limit_nm("min_width", layer).or_else(|| self.derived_min_width(layer)).or_else(|| {
             let (kind, w, h) = (self.strings.get("cut_size")?, self.strings.get("width")?, self.strings.get("height")?);
             // A cut sized on a part of the layer (sky130 `licon_std`: licon
             // outside the precision resistors) sizes the plain cut; the
@@ -1124,13 +1124,29 @@ impl Pdk {
         }
         let ops = self.deck.layers.operands(x);
         match self.deck.layers.op(x)? {
-            Op::Sized(d) => Some(self.growth(ops[0], l)? + d.raw() as i32),
+            // ponytail: an anisotropic size grows by its larger side.
+            Op::Sized(dx, dy) => Some(self.growth(ops[0], l)? + dx.raw().max(dy.raw()) as i32),
             Op::Or => ops.iter().find_map(|&o| self.growth(o, l)),
             _ => self.growth(*ops.first()?, l),
         }
     }
 
     /// The `limit` (nm) of the first rule of `kind` whose first layer is `layer`.
+    /// The widest `min_width` stated on parts of `layer` (sky130 since
+    /// GPurify `687c8bc`: `li.1` on `li_not_vpp`, `li.1a` on `li_vpp`): a
+    /// generator drawing plain `layer` honours every part at once.
+    fn derived_min_width(&self, layer: u16) -> Option<i64> {
+        let (kind, limit) = (self.strings.get("min_width")?, self.strings.get("limit")?);
+        self.deck.rules.spec.iter().filter(|s| s.kind == kind).filter_map(|s| {
+            let l = *self.deck.rules.layers_of(s).first()?;
+            (l.0 != layer && self.reaches(l, layer)).then_some(())?;
+            match self.deck.rules.param(s, limit) {
+                Some(ParamValue::Length(d)) => Some(d.raw()),
+                _ => None,
+            }
+        }).max()
+    }
+
     fn rule_limit_nm(&self, kind: &str, layer: u16) -> Option<i64> {
         let kind = self.strings.get(kind)?;
         let limit = self.strings.get("limit")?;
@@ -1388,6 +1404,8 @@ impl Pdk {
             DeviceKind::Resistor => RefKind::Resistor,
             DeviceKind::Capacitor => RefKind::Capacitor,
             DeviceKind::Diode => RefKind::Diode,
+            DeviceKind::Inductor => RefKind::Inductor,
+            DeviceKind::Cell => return None,
         })
     }
 
@@ -1966,7 +1984,7 @@ mod tests {
         // gdsverify takes Black's parameters on `electromigration` only
         // (`em_current_density` rejects them), so met1's rule becomes one.
         let text = Pdk::deck_text(&sidecar).unwrap().replacen(
-            "em_current_density(met1, mcon; max_density: 2.8mA/um, max_current_per_cut: 0.36mA)",
+            "em_current_density(met1, mcon; max_density: 2.8mA/um, max_current_per_cut: 0.36mA, narrow: none)",
             "electromigration(met1, mcon; max_density: 2.8mA/um, max_current_per_cut: 0.36mA, blech_limit: 0uA, reference_temperature: 373.15K, activation_energy: 0.85eV, current_exponent: 2)",
             1,
         );

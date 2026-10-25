@@ -28,6 +28,13 @@ Also carried from 1.0 as milestone gates: `tt_ota`, `ota_constrained`, `quad`,
 
 ## Known gaps (kept current)
 
+- Found by the GPurify re-pin to `687c8bc` (M0): the asap7 FinFET device block
+  violates rules the deck gained since 1.0's pin (FIN.S.1,
+  NSELECT/PSELECT.ACTIVE.EN.1, LIG.GATE.AUX.1, LVT.ACTIVE.EN.1, V0.M1.AUX.3,
+  V1.M2.AUX.2) and LVS reports `lvs.terminal_net` on nmos_rvt and nmos_lvt;
+  `substrate3` tests `pdks::asap7` and `pdks::flavoured_models_extract_as_themselves`
+  fail. M0's `pair` on asap7 depends on fixing the generator.
+
 - Carried failures from Philis 1.0 (`5b4fe98`), failing identically there:
   `routing::dr::tests::a_shielded_victim_gets_both_side_tracks`,
   `routing::dr::tests::foreign_nets_route_around_a_matched_cell`, and the

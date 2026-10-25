@@ -41,7 +41,7 @@ pub fn extract_spice(
     };
     let mut out = String::new();
     write_spice(
-        checker.extracted().as_extraction(),
+        gdsverify::check::topology::Extraction { nets: &checker.extracted().nets, devices: &checker.extracted().devices, ports: &checker.extracted().ports },
         checker.outputs().parasitics.as_ref(),
         detail,
         &checker.loaded.strings,

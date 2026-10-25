@@ -86,7 +86,7 @@ pub fn build_store(
         provenance.place_label(Point { x: nm(p.x), y: nm(p.y) }, GvLayerId(layer), name);
     }
     let (mut store, _) = builder.finish(deck.layers.len());
-    derive_layers(&mut store, deck, &provenance, strings).map_err(|e| format!("derived layers: {e}"))?;
+    derive_layers(&mut store, deck, &provenance, strings);
     provenance
         .resolve_labels(&store, &deck.connectivity)
         .map_err(|e| format!("pin label: {e}"))?;

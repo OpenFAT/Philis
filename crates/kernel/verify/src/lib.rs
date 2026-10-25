@@ -600,8 +600,11 @@ mod tests {
         let pins = [pin(&pdk, "a", 500, 250)];
         let merged = ground(&signoff_checked(&shapes, &pins, &RefInput::default(), &Intent::default(), &pdk).caps, "a");
         assert!((merged - 1.2482).abs() / 1.2482 <= 1e-3, "merged C(a) = {merged} fF, want 1.2482");
+        // GPurify unions overlapping shapes itself since 687c8bc: the
+        // pre-merge (`ExtractOptions::unmerged`) no longer changes the answer.
+        // ponytail: the pre-merge is redundant; delete it with the Q59 dedup.
         let unmerged = ground(&extract(&shapes, &pins, &UNMERGED, &pdk).caps, "a");
-        assert!((unmerged - 1.3828).abs() / 1.3828 <= 1e-3, "unmerged C(a) = {unmerged} fF, want 1.3828");
+        assert!((unmerged - 1.2482).abs() / 1.2482 <= 1e-3, "unmerged C(a) = {unmerged} fF, want 1.2482");
     }
 
     // A met1 ring drawn as four overlapping bars: 40 µm² drawn, 36 µm² true.
@@ -619,7 +622,9 @@ mod tests {
         let pins = [pin(&pdk, "a", 500, 5000)];
         let merged = ground(&extract(&shapes, &pins, &ExtractOptions::default(), &pdk).caps, "a");
         let unmerged = ground(&extract(&shapes, &pins, &UNMERGED, &pdk).caps, "a");
-        assert!(unmerged - merged >= 4.0 * 25.78e-3, "merged {merged} fF, unmerged {unmerged} fF");
+        // Both are the union since GPurify 687c8bc (see the test above): the
+        // 4 µm² the bars overlap is counted once either way.
+        assert!((unmerged - merged).abs() <= 1e-9, "merged {merged} fF, unmerged {unmerged} fF");
     }
 
     fn three_lines(pdk: &Pdk) -> ([Shape; 3], [LabeledPin; 3]) {

@@ -1505,7 +1505,7 @@ dependencies = [
 [[package]]
 name = "gpurify"
 version = "0.1.0"
-source = "git+https://github.com/UW-ASIC/GPurify?rev=be14a73f663cd0da3989c421fd4feadb7963ae7e#be14a73f663cd0da3989c421fd4feadb7963ae7e"
+source = "git+https://github.com/UW-ASIC/GPurify?rev=687c8bc8bf9468095a4104a05075cf44e762532b#687c8bc8bf9468095a4104a05075cf44e762532b"
 dependencies = [
  "gpurify-check",
  "gpurify-extract",
@@ -1519,25 +1519,23 @@ dependencies = [
 [[package]]
 name = "gpurify-check"
 version = "0.1.0"
-source = "git+https://github.com/UW-ASIC/GPurify?rev=be14a73f663cd0da3989c421fd4feadb7963ae7e#be14a73f663cd0da3989c421fd4feadb7963ae7e"
+source = "git+https://github.com/UW-ASIC/GPurify?rev=687c8bc8bf9468095a4104a05075cf44e762532b#687c8bc8bf9468095a4104a05075cf44e762532b"
 dependencies = [
  "fearless_simd",
  "gpurify-geom",
  "gpurify-ingest",
- "serde",
  "thiserror 1.0.69",
 ]
 
 [[package]]
 name = "gpurify-extract"
 version = "0.1.0"
-source = "git+https://github.com/UW-ASIC/GPurify?rev=be14a73f663cd0da3989c421fd4feadb7963ae7e#be14a73f663cd0da3989c421fd4feadb7963ae7e"
+source = "git+https://github.com/UW-ASIC/GPurify?rev=687c8bc8bf9468095a4104a05075cf44e762532b#687c8bc8bf9468095a4104a05075cf44e762532b"
 dependencies = [
  "fearless_simd",
  "gpurify-check",
  "gpurify-geom",
  "gpurify-ingest",
- "num-complex",
  "rayon",
  "thiserror 1.0.69",
 ]
@@ -1545,19 +1543,17 @@ dependencies = [
 [[package]]
 name = "gpurify-geom"
 version = "0.1.0"
-source = "git+https://github.com/UW-ASIC/GPurify?rev=be14a73f663cd0da3989c421fd4feadb7963ae7e#be14a73f663cd0da3989c421fd4feadb7963ae7e"
+source = "git+https://github.com/UW-ASIC/GPurify?rev=687c8bc8bf9468095a4104a05075cf44e762532b#687c8bc8bf9468095a4104a05075cf44e762532b"
 dependencies = [
  "fearless_simd",
- "serde",
  "thiserror 1.0.69",
 ]
 
 [[package]]
 name = "gpurify-ingest"
 version = "0.1.0"
-source = "git+https://github.com/UW-ASIC/GPurify?rev=be14a73f663cd0da3989c421fd4feadb7963ae7e#be14a73f663cd0da3989c421fd4feadb7963ae7e"
+source = "git+https://github.com/UW-ASIC/GPurify?rev=687c8bc8bf9468095a4104a05075cf44e762532b#687c8bc8bf9468095a4104a05075cf44e762532b"
 dependencies = [
- "fearless_simd",
  "flate2",
  "gpurify-geom",
  "serde",

@@ -4,10 +4,11 @@
 
 use gdsverify::check::lvs::CompareOptions;
 use gdsverify::check::report::{Outcome, Severity, Violations};
-use gdsverify::engine::pipeline::{extract, intern_report_ids, ExtractError, Extracted, Loaded};
+use gdsverify::engine::pipeline::{extract, intern_report_ids, Extracted, Loaded};
 use gdsverify::engine::run::run_checks;
 use gdsverify::engine::{Checks, Outputs, RunOptions, Summary};
-use gdsverify::ingest::deck::parse_deck;
+use gdsverify::check::deck::CompiledDeck;
+use gdsverify::ingest::deck::{parse_deck, Deck};
 use gdsverify::ingest::{StrId, StrTable};
 use analog::base::Shape;
 
@@ -15,14 +16,20 @@ use crate::geom::{build_store, LabeledPin};
 use crate::pdk::{nm_grid, GvLayerId, Pdk};
 use crate::reference::{self, RefInput, RefKind};
 
-/// Error prefix of the extraction failure `signoff` degrades around: two
-/// labels bound to one extracted net (a short).
+/// Error prefix of the label short `signoff` degrades around: two labels
+/// bound to one extracted net. GPurify since `687c8bc` extracts a short and
+/// lets LVS report it; [`Checker::run`] keeps Philis 1.0's contract and stops
+/// at the short, so `signoff` still re-runs with one label per net.
 pub const LABEL_SHORT: &str = "extract: label short";
 
 /// A reusable verification session over one deck.
 pub struct Checker {
     /// The engine's shared input; public so tests can inspect `reference`.
     pub loaded: Loaded,
+    /// The parsed deck with this session's rules taken out (density in the
+    /// loop, waivers, chip-level rules): the source `loaded.deck` is compiled
+    /// from, since `CompiledDeck` keeps no rule table to filter (Q59).
+    deck: Deck,
     extracted: Extracted,
     out: Outputs,
     /// Rules taken out of the deck as chip-level, `(rule, why)`.
@@ -77,14 +84,16 @@ impl Checker {
         // A hand-built `Loaded` skips the loader, so the LVS report ids must be
         // interned here or the first discrepancy panics.
         intern_report_ids(&mut strings);
+        let compiled = compile(&deck, &strings)?;
         let loaded = Loaded {
             strings,
             grid: nm_grid(),
-            deck,
+            deck: compiled,
             store: Default::default(),
             provenance: Default::default(),
             reference: None,
             intent: None,
+            design: None,
         };
         let mut merge: Vec<u16> = pdk
             .routing_metals
@@ -97,6 +106,7 @@ impl Checker {
         merge.dedup();
         Ok(Self {
             loaded,
+            deck,
             extracted: Extracted::default(),
             out: Outputs::default(),
             deferred,
@@ -115,7 +125,7 @@ impl Checker {
     /// A device stating fewer terminals than its recogniser's arity.
     pub fn set_reference(&mut self, input: &RefInput) -> Result<Vec<(RefKind, Option<String>)>, String> {
         let (netlist, skipped) =
-            reference::build(input, &self.loaded.deck, &mut self.loaded.strings)?;
+            reference::build(input, &self.deck, &mut self.loaded.strings)?;
         self.loaded.reference = Some(netlist);
         let strings = &mut self.loaded.strings;
         self.external = input.external_ports.as_ref().map(|p| p.iter().map(|n| strings.intern(n)).collect());
@@ -179,7 +189,7 @@ impl Checker {
 
     fn load_geometry(&mut self, shapes: &[Shape], pins: &[LabeledPin]) -> Result<(), String> {
         let (store, provenance) =
-            build_store(shapes, pins, &self.loaded.deck, &mut self.loaded.strings, &self.merge)?;
+            build_store(shapes, pins, &self.deck, &mut self.loaded.strings, &self.merge)?;
         self.loaded.store = store;
         self.loaded.provenance = provenance;
         Ok(())
@@ -206,15 +216,16 @@ impl Checker {
         checks: Checks,
     ) -> Result<Summary, String> {
         self.load_geometry(shapes, pins)?;
-        self.extracted = extract(&self.loaded).map_err(|e| self.extract_error(e))?;
+        self.extracted = extract(&self.loaded).map_err(|e| format!("extract: {e}"))?;
+        if let Some(names) = self.label_nets().into_iter().map(|g| g.1).find(|g| g.len() > 1) {
+            return Err(format!("{LABEL_SHORT}: labels {names:?} bind to one extracted net"));
+        }
         let options = RunOptions {
             checks,
             lvs: CompareOptions::default(),
             quasistatic_nets: self.field_nets.clone(),
-            quasistatic_inductance: false,
         };
-        let (out, mut summary) =
-            run_checks(&self.loaded, &self.extracted, &options).map_err(|e| format!("engine: {e}"))?;
+        let (out, mut summary) = run_checks(&self.loaded, &self.extracted, &options);
         self.out = out;
         self.drop_port_floating(&mut summary);
         Ok(summary)
@@ -223,7 +234,7 @@ impl Checker {
     fn drop_port_floating(&mut self, summary: &mut Summary) {
         let kinds: Vec<StrId> = ["unconnected_pin", "floating_gate"].iter().filter_map(|k| self.loaded.strings.get(k)).collect();
         let rules: Vec<StrId> =
-            self.loaded.deck.rules.spec.iter().filter(|s| kinds.contains(&s.kind)).map(|s| s.id).collect();
+            self.deck.rules.spec.iter().filter(|s| kinds.contains(&s.kind)).map(|s| s.id).collect();
         let v = &self.out.violations;
         let exempt = |i: usize| {
             rules.contains(&v.rule[i])
@@ -248,18 +259,6 @@ impl Checker {
         self.out.violations = kept;
     }
 
-    /// Render an extraction failure; a label conflict names the colliding
-    /// labels and carries the [`LABEL_SHORT`] prefix.
-    fn extract_error(&self, e: ExtractError) -> String {
-        use gdsverify::check::topology::port::PortError;
-        if let ExtractError::Port(PortError::ConflictingLabels(net)) = e {
-            // Extraction stopped at the ports: the nets are rebuilt to name
-            // the labels that share one.
-            let names = self.label_nets().into_iter().find(|g| g.0 == net).map(|g| g.1).unwrap_or_default();
-            return format!("{LABEL_SHORT}: labels {names:?} bind to one extracted net");
-        }
-        format!("extract: {e}")
-    }
 
     /// The label names of each extracted net that carries more than one —
     /// what a [`LABEL_SHORT`] is — over the last loaded geometry, first-seen
@@ -334,7 +333,7 @@ impl Checker {
     /// rules taken out.
     pub fn defer_density_wider_than(&mut self, w: i64, h: i64) -> Vec<String> {
         use gdsverify::ingest::deck::{ParamValue, RuleSpec};
-        let (st, rules) = (&self.loaded.strings, &self.loaded.deck.rules);
+        let (st, rules) = (&self.loaded.strings, &self.deck.rules);
         let (density, cmp) = (st.get("density"), st.get("density_cmp"));
         let len = |s: &RuleSpec, k: &str| match st.get(k).and_then(|k| rules.param(s, k)) {
             Some(ParamValue::Length(d)) => Some(d.raw()),
@@ -354,7 +353,11 @@ impl Checker {
                 Some((s.id, st.resolve(s.id).to_string(), format!("ChipLevel(window {win} nm > block {w}x{h} nm)")))
             })
             .collect();
-        self.loaded.deck.rules.spec.retain(|s| !out.iter().any(|o| o.0 == s.id));
+        self.deck.rules.spec.retain(|s| !out.iter().any(|o| o.0 == s.id));
+        if !out.is_empty() {
+            // ponytail: one recompile per call; a block calls this once.
+            self.loaded.deck = compile(&self.deck, &self.loaded.strings).expect("a filtered deck compiles");
+        }
         let names = out.iter().map(|o| o.1.clone()).collect();
         self.deferred.extend(out.into_iter().map(|(_, n, why)| (n, why)));
         names
@@ -418,7 +421,7 @@ impl Checker {
     /// ids, else `engine`.
     #[must_use]
     pub fn domain_of(&self, rule: StrId) -> &'static str {
-        if let Some(spec) = self.loaded.deck.rules.spec.iter().find(|s| s.id == rule) {
+        if let Some(spec) = self.deck.rules.spec.iter().find(|s| s.id == rule) {
             let kind = self.loaded.strings.resolve(spec.kind);
             if gdsverify::check::drc::ruleset::KINDS.contains(&kind) {
                 return "drc";
@@ -432,4 +435,10 @@ impl Checker {
         }
         "engine"
     }
+}
+
+/// Type `deck` for the engine. A rule table the parsed deck accepted only
+/// fails here on an engine kind GPurify no longer knows.
+fn compile(deck: &Deck, strings: &StrTable) -> Result<CompiledDeck, String> {
+    CompiledDeck::from_deck(deck.clone(), nm_grid(), strings).map_err(|e| format!("deck rejected: {e}"))
 }
