@@ -85,8 +85,11 @@ impl Builder {
         let wmin = process.width("npc").unwrap_or(0);
         let inside = |c: &Rect, p: &Rect| c.x >= p.x && c.y >= p.y && c.x + c.w <= p.x + p.w && c.y + c.h <= p.y + p.h;
         let polys: Vec<Rect> = self.shapes.iter().filter(|s| s.layer == poly).map(|s| s.rect).collect();
+        // A cut a generator already covered keeps that npc: a row hull over
+        // it could bridge columns past a max enclosure (sky130 npc.5).
+        let npcs: Vec<Rect> = self.shapes.iter().filter(|s| s.layer == npc).map(|s| s.rect).collect();
         let mut rows: Vec<Rect> = Vec::new();
-        for c in self.shapes.iter().filter(|s| s.layer == licon && polys.iter().any(|p| inside(&s.rect, p))) {
+        for c in self.shapes.iter().filter(|s| s.layer == licon && polys.iter().any(|p| inside(&s.rect, p)) && !npcs.iter().any(|n| inside(&s.rect, n))) {
             let r = Rect { x: c.rect.x - enc, y: c.rect.y - enc, w: c.rect.w + 2 * enc, h: c.rect.h + 2 * enc };
             match rows.iter_mut().find(|q| q.y == r.y && q.h == r.h) {
                 Some(q) => *q = hull(*q, r),

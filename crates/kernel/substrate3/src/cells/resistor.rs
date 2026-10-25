@@ -421,8 +421,21 @@ impl Cell for Resistor {
         let rpm_rect = Rect { x: lo + array_w / 2 - rpm_w / 2, y: -rpm_enc, w: rpm_w, h: total_h + 2 * rpm_enc };
         if let Some(rpm) = process.layer("rpm") {
             b.rect(rpm, rpm_rect);
+            // npc hugs each poly column: a slotted-licon head's poly may sit at
+            // most a limit inside it (sky130 npc.5, 95 nm); columns closer than
+            // npc's spacing share one bridge.
             if let Some(npc) = process.layer("npc") {
-                b.rect(npc, rpm_rect);
+                let e = process.enclosure("npc", "poly").unwrap_or(0);
+                let gap_min = process.space("npc").unwrap_or(0);
+                for (i, &(x, w, l)) in columns.iter().enumerate() {
+                    let h = 2 * head + l + 2 * e;
+                    b.rect(npc, Rect { x: x - e, y: -e, w: w + 2 * e, h });
+                    if let Some(&(nx, _, nl)) = columns.get(i + 1) {
+                        if nx - x - w - 2 * e < gap_min {
+                            b.rect(npc, Rect { x: x + w + e, y: -e, w: nx - x - w - 2 * e, h: h.min(2 * head + nl + 2 * e) });
+                        }
+                    }
+                }
             }
         }
         if let Some(imp) = process.layer("res_implant") {
