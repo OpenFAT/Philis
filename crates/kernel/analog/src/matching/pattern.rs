@@ -40,12 +40,7 @@ pub fn grids(counts: &[u16], max_aspect: f64) -> Vec<(usize, usize)> {
         })
         .filter(|&(r, c)| r.max(c) as f64 / r.min(c) as f64 <= max_aspect)
         .collect();
-    out.sort_by(|&(ra, ca), &(rb, cb)| {
-        (ra.max(ca) * rb.min(cb))
-            .cmp(&(rb.max(cb) * ra.min(ca)))
-            .then((ra * ca).cmp(&(rb * cb)))
-            .then(ra.cmp(&rb))
-    });
+    out.sort_by(|&(ra, ca), &(rb, cb)| (ra.max(ca) * rb.min(cb)).cmp(&(rb.max(cb) * ra.min(ca))).then((ra * ca).cmp(&(rb * cb))).then(ra.cmp(&rb)));
     out.dedup();
     if !out.contains(&(1, t)) {
         out.push((1, t));
@@ -562,7 +557,9 @@ mod tests {
                     for (d, &k) in counts.iter().enumerate() {
                         let mine: Vec<usize> = (0..n).filter(|&i| slot[i] == Some(d as u8)).collect();
                         assert_eq!(mine.len(), usize::from(k), "{at}: member {d}");
-                        let off = mine.iter().fold((0i64, 0i64), |(r, c), &i| (r + 2 * (i / cols) as i64 - rows as i64 + 1, c + 2 * (i % cols) as i64 - cols as i64 + 1));
+                        let off = mine.iter().fold((0i64, 0i64), |(r, c), &i| {
+                            (r + 2 * (i / cols) as i64 - rows as i64 + 1, c + 2 * (i % cols) as i64 - cols as i64 + 1)
+                        });
                         assert_eq!(off, (0, 0), "{at}: member {d} off centre");
                     }
                 }

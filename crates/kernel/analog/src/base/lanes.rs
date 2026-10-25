@@ -182,7 +182,11 @@ mod tests {
             .map(|i| {
                 let ox = i64::from(q.hw + b.hw[i] + c - (q.x - b.x[i]).abs());
                 let oy = i64::from(q.hh + b.hh[i] + c - (q.y - b.y[i]).abs());
-                if ox > 0 && oy > 0 { ox * oy } else { 0 }
+                if ox > 0 && oy > 0 {
+                    ox * oy
+                } else {
+                    0
+                }
             })
             .sum()
     }

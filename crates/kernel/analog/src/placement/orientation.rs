@@ -104,9 +104,9 @@ impl crate::rule::RuleBatch<Layout> for OrientationSet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::base::{Orient, Rect, Unit, UnitLib};
     use crate::matching::moments::mirror_allowed;
     use crate::rule::RuleBatch;
-    use crate::base::{Orient, Rect, Unit, UnitLib};
     use std::sync::Arc;
 
     /// Devices 0 and 1, each alone in its own 100 × 100 cell drawing `phis`

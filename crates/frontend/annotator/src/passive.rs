@@ -3,11 +3,11 @@
 //! H08-61 matched passives from topology, H08-56 one material, H09-05 bandgap
 //! cores, H09-26 emitter degeneration; DACP eq. 1 split DAC).
 
-use analog::intent::{Compound, Diagnostic};
-use analog::metadata::{NetClass, NetClassification};
 use analog::base::ids::{DeviceId, NetId};
 use analog::base::netlist::DeviceKind;
 use analog::base::BipartiteHypergraph;
+use analog::intent::{Compound, Diagnostic};
+use analog::metadata::{NetClass, NetClassification};
 
 use crate::class::SetRole;
 use crate::size::Drawn;
@@ -63,7 +63,10 @@ pub fn resistor_sets(hg: &BipartiteHypergraph, drawn: &[Drawn], classes: &[NetCl
         }
         let internal = devs.iter().all(|d| {
             let i = d.0 as usize;
-            res(i) || (matches!(hg.kinds[i], DeviceKind::Nmos | DeviceKind::Pmos) && net(hg, i, "G") == Some(NetId(n as u16)) && [net(hg, i, "D"), net(hg, i, "S")].iter().all(|&x| x != Some(NetId(n as u16))))
+            res(i)
+                || (matches!(hg.kinds[i], DeviceKind::Nmos | DeviceKind::Pmos)
+                    && net(hg, i, "G") == Some(NetId(n as u16))
+                    && [net(hg, i, "D"), net(hg, i, "S")].iter().all(|&x| x != Some(NetId(n as u16))))
         });
         let rs: Vec<usize> = devs.iter().map(|d| d.0 as usize).filter(|&d| res(d)).collect();
         if internal && rs.len() >= 2 {
@@ -78,7 +81,8 @@ pub fn resistor_sets(hg: &BipartiteHypergraph, drawn: &[Drawn], classes: &[NetCl
         let r = find(&mut parent, d);
         comps.entry(r).or_default().push(d);
     }
-    let mut out: Vec<PassiveSet> = comps.into_values().filter(|g| g.len() > 1 && one_material(drawn, g)).map(|g| set(g, "divider", SetRole::FeedbackRatio)).collect();
+    let mut out: Vec<PassiveSet> =
+        comps.into_values().filter(|g| g.len() > 1 && one_material(drawn, g)).map(|g| set(g, "divider", SetRole::FeedbackRatio)).collect();
     for c in compounds {
         for &(a, b) in &c.pairs {
             let g = vec![a.0 as usize, b.0 as usize];
@@ -98,7 +102,12 @@ pub fn bandgap_cores(hg: &BipartiteHypergraph, drawn: &[Drawn], bjt_pairs: &[(De
         .iter()
         .filter_map(|&(a, b)| {
             let em = [net(hg, a.0 as usize, "E"), net(hg, b.0 as usize, "E")];
-            let mut rs: Vec<usize> = em.iter().flatten().flat_map(|n| hg.net_devices[n.0 as usize].iter().map(|d| d.0 as usize)).filter(|&d| hg.kinds[d] == DeviceKind::Resistor).collect();
+            let mut rs: Vec<usize> = em
+                .iter()
+                .flatten()
+                .flat_map(|n| hg.net_devices[n.0 as usize].iter().map(|d| d.0 as usize))
+                .filter(|&d| hg.kinds[d] == DeviceKind::Resistor)
+                .collect();
             rs.sort_unstable();
             rs.dedup();
             (rs.len() > 1 && one_material(drawn, &rs)).then(|| set(rs, "bandgap_r", SetRole::BandgapCore))

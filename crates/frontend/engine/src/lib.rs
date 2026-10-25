@@ -267,19 +267,23 @@ pub fn build_tiles(calls: &RecipeCalls, problem: &annotator::Problem, flat: &Fla
             // A fin deck draws fins (each member on its own active), any
             // other the planar block's `Single` style: members side by side.
             let drawn: Vec<Macro> = match calls.kind[i] {
-                RecipeKind::MosAdjacent if process.layer("fin").is_some() => {
-                    FinFet::enumerate(&group, &constraints, process).into_iter().filter(|v| !v.shared).map(|v| v.draw(&group, &constraints, process)).collect()
-                }
+                RecipeKind::MosAdjacent if process.layer("fin").is_some() => FinFet::enumerate(&group, &constraints, process)
+                    .into_iter()
+                    .filter(|v| !v.shared)
+                    .map(|v| v.draw(&group, &constraints, process))
+                    .collect(),
                 // Blocks may abut on one shared diffusion only where every
                 // member has the same source and bulk (the block style's
                 // boundaries sit on sources); else each member is its own
                 // block, side by side.
-                RecipeKind::MosAdjacent if common(flat, members, "S") && common(flat, members, "B") => Mosfet::enumerate(&group, &constraints, process)
-                    .into_iter()
-                    .filter(|v| v.style == Pattern::Single && v.rows == 1)
-                    .map(|v| v.draw(&group, &constraints, process))
-                    .chain(apart(members, &constraints, process, pdk))
-                    .collect(),
+                RecipeKind::MosAdjacent if common(flat, members, "S") && common(flat, members, "B") => {
+                    Mosfet::enumerate(&group, &constraints, process)
+                        .into_iter()
+                        .filter(|v| v.style == Pattern::Single && v.rows == 1)
+                        .map(|v| v.draw(&group, &constraints, process))
+                        .chain(apart(members, &constraints, process, pdk))
+                        .collect()
+                }
                 RecipeKind::MosAdjacent => apart(members, &constraints, process, pdk).into_iter().collect(),
             };
             let mut m = drawn
@@ -323,7 +327,11 @@ fn apart(members: &[DeviceId], c: &analog::Constraints, process: &dyn analog::ba
         let dx = cursor - m.bbox.x;
         let shift = |r: analog::base::Rect| analog::base::Rect { x: r.x + dx, ..r };
         row.shapes.extend(m.shapes.iter().map(|s| Shape { layer: s.layer, rect: shift(s.rect) }));
-        row.pins.extend(m.pins.iter().map(|p| analog::base::Pin { name: p.name.replacen("d0:", &format!("d{k}:"), 1), at: shift(p.at), ..p.clone() }));
+        row.pins.extend(m.pins.iter().map(|p| analog::base::Pin {
+            name: p.name.replacen("d0:", &format!("d{k}:"), 1),
+            at: shift(p.at),
+            ..p.clone()
+        }));
         row.units.extend(m.units.iter().map(|un| analog::base::Unit { owner: k as u8, x: un.x + dx, ..*un }));
         row.dummies.extend(m.dummies.iter().map(|du| analog::base::Dummy { owner: k as u8, ..*du }));
         let b = shift(m.bbox);
@@ -556,7 +564,8 @@ pub fn signoff(netlist: &Netlist, placed: &[Macro], routes: &Routes, pdk: &Pdk, 
     reference.devices.extend(dummy_cards(placed, &names, &reference.devices));
     reference.external_ports = Some(reference.ports.clone());
     reference.ports = pins.iter().map(|p| p.name.clone()).collect();
-    verify::foundry::signoff(engine, &shapes, &pins, &reference, &verify::Intent::default(), pdk).map_err(|r| Refusal { code: r.code, message: r.message })
+    verify::foundry::signoff(engine, &shapes, &pins, &reference, &verify::Intent::default(), pdk)
+        .map_err(|r| Refusal { code: r.code, message: r.message })
 }
 
 /// One label per net (1.0 `labeled_pins`): the first placed pin on a label
@@ -570,7 +579,9 @@ fn labeled_pins(placed: &[Macro], nets: &[String], pdk: &Pdk, shapes: &[Shape]) 
             continue;
         }
         let (x, y) = (p.at.x + p.at.w / 2, p.at.y + p.at.h / 2);
-        let on_drawn = shapes.iter().any(|s| s.layer == p.layer && (s.rect.x..=s.rect.x + s.rect.w).contains(&x) && (s.rect.y..=s.rect.y + s.rect.h).contains(&y));
+        let on_drawn = shapes
+            .iter()
+            .any(|s| s.layer == p.layer && (s.rect.x..=s.rect.x + s.rect.w).contains(&x) && (s.rect.y..=s.rect.y + s.rect.h).contains(&y));
         let Some(name) = nets.get(p.net.0 as usize).filter(|_| on_drawn) else { continue };
         labelled.push(p.net.0);
         out.push(LabeledPin { name: name.clone(), layer: p.layer.0, x, y });
@@ -633,7 +644,14 @@ pub fn run(spice: &str, pdk: &Pdk, engine: verify::SignoffEngine) -> Result<Outc
 ///
 /// # Errors
 /// Any step's [`Refusal`].
-pub fn run_calls(netlist: &Netlist, problem: &annotator::Problem, cfg: &annotator::AnnotationConfig, calls: RecipeCalls, pdk: &Pdk, engine: verify::SignoffEngine) -> Result<Outcome, Refusal> {
+pub fn run_calls(
+    netlist: &Netlist,
+    problem: &annotator::Problem,
+    cfg: &annotator::AnnotationConfig,
+    calls: RecipeCalls,
+    pdk: &Pdk,
+    engine: verify::SignoffEngine,
+) -> Result<Outcome, Refusal> {
     let tiles = build_tiles(&calls, problem, &netlist.flat, pdk)?;
     let layout = arrange(&tiles, pdk)?;
     let (placed, routes, route_report) = route::route(&tiles, &layout, problem, cfg, netlist.flat.nets.len(), pdk);

@@ -4,10 +4,10 @@
 //! sidecar pull vs Isolation: `annotate_with`; (c) a sidecar Match on unequal
 //! kind/model/L: `sidecar::parse`; (d) here.
 
-use analog::intent::{ConstraintId, Diagnostic};
-use analog::metadata::NetClass;
 use analog::base::ids::DeviceId;
 use analog::base::Netlist;
+use analog::intent::{ConstraintId, Diagnostic};
+use analog::metadata::NetClass;
 
 use crate::Problem;
 
@@ -23,7 +23,9 @@ pub(crate) fn diag(ids: &[ConstraintId], devices: Vec<DeviceId>, what: impl std:
 /// Reported only, nothing dropped: it is a netlist fact, not a rule clash.
 #[must_use]
 pub fn check(p: &Problem, nl: &Netlist) -> Vec<Diagnostic> {
-    let Some(id) = p.routing.budget.iter().find(|b| b.kind().ends_with("::Differential")).and_then(|b| b.meta()).map(|m| m.id) else { return Vec::new() };
+    let Some(id) = p.routing.budget.iter().find(|b| b.kind().ends_with("::Differential")).and_then(|b| b.meta()).map(|m| m.id) else {
+        return Vec::new();
+    };
     let rail = |n: analog::base::ids::NetId| matches!(p.net_classes[n.0 as usize].class, NetClass::Supply | NetClass::Ground | NetClass::Substrate);
     // Distinct devices per net, one pass.
     let mut on = vec![0usize; nl.nets.len()];
@@ -40,7 +42,11 @@ pub fn check(p: &Problem, nl: &Netlist) -> Vec<Diagnostic> {
             let (nx, ny) = (count(x), count(y));
             if nx != ny {
                 let name = |n: analog::base::ids::NetId| &nl.nets[n.0 as usize].name;
-                out.push(Diagnostic { kind: "asymmetric_net_pair", devices: vec![], message: format!("ids {}: {}/{} {nx} vs {ny} devices", id.0, name(x), name(y)) });
+                out.push(Diagnostic {
+                    kind: "asymmetric_net_pair",
+                    devices: vec![],
+                    message: format!("ids {}: {}/{} {nx} vs {ny} devices", id.0, name(x), name(y)),
+                });
             }
         }
     }
@@ -132,7 +138,9 @@ mod tests {
     /// SelfDevice: a self-symmetric tail agreeing with propagation is no conflict; a self seed on a paired device is.
     #[test]
     fn self_device_conflicts_only_on_a_paired_device() {
-        let two = |second: &str| annotate(&ota(), &format!(r#"[{{"constraint":"SymmetricBlocks","direction":"V","pairs":[["XM1","XM2"]]}},{{"constraint":"SymmetricBlocks","direction":"V","pairs":[[{second}]]}}]"#)).0;
+        let two = |second: &str| {
+            annotate(&ota(), &format!(r#"[{{"constraint":"SymmetricBlocks","direction":"V","pairs":[["XM1","XM2"]]}},{{"constraint":"SymmetricBlocks","direction":"V","pairs":[[{second}]]}}]"#)).0
+        };
         let p = two(r#""XM5""#);
         assert!(conflicts(&p).is_empty(), "{:?}", p.intent.diagnostics);
         let p = two(r#""XM1""#);

@@ -126,10 +126,8 @@ pub fn phi_equal(a: &Sums, b: &Sums) -> bool {
 /// compare and passes.
 #[must_use]
 pub fn phi_equal_all(units: &[crate::base::Unit], members: usize) -> bool {
-    let live: Vec<Sums> = (0..members)
-        .map(|d| sums(units.iter().filter(|u| usize::from(u.owner) == d).map(|&u| Pt::from(u))))
-        .filter(|s| s.n > 0)
-        .collect();
+    let live: Vec<Sums> =
+        (0..members).map(|d| sums(units.iter().filter(|u| usize::from(u.owner) == d).map(|&u| Pt::from(u)))).filter(|s| s.n > 0).collect();
     live.windows(2).all(|w| phi_equal(&w[0], &w[1]))
 }
 
@@ -156,10 +154,7 @@ fn moment(pts: &[Pt], c: (f64, f64), l: f64, p: i32, q: i32) -> f64 {
     if w <= 0.0 {
         return 0.0;
     }
-    pts.iter()
-        .map(|pt| pt.w * ((pt.x - c.0) / l).powi(p) * ((pt.y - c.1) / l).powi(q))
-        .sum::<f64>()
-        / w
+    pts.iter().map(|pt| pt.w * ((pt.x - c.0) / l).powi(p) * ((pt.y - c.1) / l).powi(q)).sum::<f64>() / w
 }
 
 /// How many leading moment orders (1, 2, …) cancel between every pair of
@@ -239,7 +234,11 @@ mod tests {
     fn row(abba: bool, y: f64) -> (Vec<Pt>, Vec<Pt>) {
         let outer: Vec<Pt> = [0.0, 3000.0].iter().map(|&x| pt(x, y)).collect();
         let inner: Vec<Pt> = [1000.0, 2000.0].iter().map(|&x| pt(x, y)).collect();
-        if abba { (outer, inner) } else { (inner, outer) }
+        if abba {
+            (outer, inner)
+        } else {
+            (inner, outer)
+        }
     }
 
     #[test]
@@ -279,9 +278,7 @@ mod tests {
 
     #[test]
     fn hastings_phi_example() {
-        let mk = |xs: &[i8]| -> Sums {
-            sums(xs.iter().map(|&s| Pt { x: 0.0, y: 0.0, w: 1.0, phi: (s, 0) }))
-        };
+        let mk = |xs: &[i8]| -> Sums { sums(xs.iter().map(|&s| Pt { x: 0.0, y: 0.0, w: 1.0, phi: (s, 0) })) };
         let a = mk(&[1, 1, 1, -1]);
         let b = mk(&[1; 9].iter().chain([-1; 3].iter()).copied().collect::<Vec<i8>>().as_slice());
         assert!(phi_equal(&a, &b));

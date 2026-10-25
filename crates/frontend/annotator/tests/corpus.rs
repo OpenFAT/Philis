@@ -8,23 +8,31 @@ mod common;
 use std::collections::{BTreeMap, BTreeSet};
 
 use annotator::{annotate, AnnotationConfig, BlockKind};
-use common::{canon, canon_leaves, Canon, id_pairs, net, permute, strongarm_cfg, STRONGARM};
+use common::{canon, canon_leaves, id_pairs, net, permute, strongarm_cfg, Canon, STRONGARM};
 
 /// `(name, netlist)`: repository fixtures transcribed without `.subckt`, then
 /// constructed circuits (exact text of plan-01 EXT-01).
 pub const CIRCUITS: [(&str, &str); 18] = [
     // backend/annotator/src/tests.rs `ota()`.
-    ("ota5t", "XM1 vout1 vinp vtail VSS nfet w=10u l=1u | XM2 vout2 vinm vtail VSS nfet w=10u l=1u
+    (
+        "ota5t",
+        "XM1 vout1 vinp vtail VSS nfet w=10u l=1u | XM2 vout2 vinm vtail VSS nfet w=10u l=1u
                XM3 vout1 vbias VDD VDD pfet w=20u l=1u | XM4 vout2 vbias VDD VDD pfet w=20u l=1u
-               XM5 vtail vbn VSS VSS nfet w=40u l=2u"),
+               XM5 vtail vbn VSS VSS nfet w=40u l=2u",
+    ),
     // examples/three_stage_opamp/src/main.rs.
-    ("three_stage", "M1 n1 vin_p tail vss nfet w=4u l=0.5u | M2 n2 vin_n tail vss nfet w=4u l=0.5u
+    (
+        "three_stage",
+        "M1 n1 vin_p tail vss nfet w=4u l=0.5u | M2 n2 vin_n tail vss nfet w=4u l=0.5u
                      M3 tail vbias vss vss nfet w=8u l=0.5u
                      M4 n1 n1 vdd vdd pfet w=6u l=0.5u | M5 n2 n1 vdd vdd pfet w=6u l=0.5u
                      M6 n3 n2 vdd vdd pfet w=12u l=0.5u | M7 n3 vbias vss vss nfet w=6u l=0.5u
-                     M8 vout n3 vdd vdd pfet w=40u l=0.5u | M9 vout vbias vss vss nfet w=20u l=0.5u"),
+                     M8 vout n3 vdd vdd pfet w=40u l=0.5u | M9 vout vbias vss vss nfet w=20u l=0.5u",
+    ),
     // benchmarks/fixtures/*.spice.
-    ("dac4", "XC0 top VSS cap_generic_m1m2 W=2u L=2u m=1
+    (
+        "dac4",
+        "XC0 top VSS cap_generic_m1m2 W=2u L=2u m=1
               XC1 top b0 cap_generic_m1m2 W=2u L=2u m=1
               XC2 top b1 cap_generic_m1m2 W=2u L=2u m=2
               XC3 top b2 cap_generic_m1m2 W=2u L=2u m=4
@@ -33,38 +41,69 @@ pub const CIRCUITS: [(&str, &str); 18] = [
               XMP1 b1 d1 VDD VDD pfet_01v8 W=1u L=0.15u | XMN1 b1 d1 VSS VSS nfet_01v8 W=0.5u L=0.15u
               XMP2 b2 d2 VDD VDD pfet_01v8 W=1u L=0.15u | XMN2 b2 d2 VSS VSS nfet_01v8 W=0.5u L=0.15u
               XMP3 b3 d3 VDD VDD pfet_01v8 W=1u L=0.15u | XMN3 b3 d3 VSS VSS nfet_01v8 W=0.5u L=0.15u
-              XMC cmp top VSS VSS nfet_01v8 W=1u L=0.15u"),
+              XMC cmp top VSS VSS nfet_01v8 W=1u L=0.15u",
+    ),
     ("bgr_core", "XQ1 VSS VSS e1 pnp_05v5_W3p40L3p40 m=1 | XQ2 VSS VSS e2 pnp_05v5_W3p40L3p40 m=8"),
     ("bjt_mirror", "XQ1 outn in VSS npn_05v5_1x1 W=1u L=1u | XQ2 outp in VDD pnp_05v5_W3p40L3p40"),
-    ("chain4", "XM1 a g b VSS nfet_01v8 W=2u L=0.5u | XM2 b g c VSS nfet_01v8 W=2u L=0.5u
-                XM3 c g d VSS nfet_01v8 W=2u L=0.5u | XM4 d g e VSS nfet_01v8 W=2u L=0.5u"),
+    (
+        "chain4",
+        "XM1 a g b VSS nfet_01v8 W=2u L=0.5u | XM2 b g c VSS nfet_01v8 W=2u L=0.5u
+                XM3 c g d VSS nfet_01v8 W=2u L=0.5u | XM4 d g e VSS nfet_01v8 W=2u L=0.5u",
+    ),
     ("pair", "XM1 d g VSS VSS nfet_01v8 W=2u L=0.5u | XM2 d g VSS VSS nfet_01v8 W=2u L=0.5u"),
-    ("quad", "XM1 n g VSS VSS nfet_01v8 W=2u L=0.5u | XM2 n g VSS VSS nfet_01v8 W=2u L=0.5u
-              XM3 n g VSS VSS nfet_01v8 W=2u L=0.5u | XM4 n g VSS VSS nfet_01v8 W=2u L=0.5u"),
-    ("folded", "M1 x1 vinp tail VSS nfet w=10u l=1u | M2 x2 vinn tail VSS nfet w=10u l=1u | M0 tail vbn VSS VSS nfet w=20u l=1u
+    (
+        "quad",
+        "XM1 n g VSS VSS nfet_01v8 W=2u L=0.5u | XM2 n g VSS VSS nfet_01v8 W=2u L=0.5u
+              XM3 n g VSS VSS nfet_01v8 W=2u L=0.5u | XM4 n g VSS VSS nfet_01v8 W=2u L=0.5u",
+    ),
+    (
+        "folded",
+        "M1 x1 vinp tail VSS nfet w=10u l=1u | M2 x2 vinn tail VSS nfet w=10u l=1u | M0 tail vbn VSS VSS nfet w=20u l=1u
                 M3 x1 vbp1 VDD VDD pfet w=20u l=1u | M4 x2 vbp1 VDD VDD pfet w=20u l=1u
                 M5 o1 vbp2 x1 VDD pfet w=10u l=1u | M6 out vbp2 x2 VDD pfet w=10u l=1u
                 M7 o1 vbn2 y1 VSS nfet w=5u l=1u | M8 out vbn2 y2 VSS nfet w=5u l=1u
-                M9 y1 o1 VSS VSS nfet w=5u l=1u | M10 y2 o1 VSS VSS nfet w=5u l=1u"),
-    ("gilbert", "M1 x1 rfp tail VSS nfet w=8u l=0.5u | M2 x2 rfn tail VSS nfet w=8u l=0.5u | M0 tail vb VSS VSS nfet w=16u l=0.5u
+                M9 y1 o1 VSS VSS nfet w=5u l=1u | M10 y2 o1 VSS VSS nfet w=5u l=1u",
+    ),
+    (
+        "gilbert",
+        "M1 x1 rfp tail VSS nfet w=8u l=0.5u | M2 x2 rfn tail VSS nfet w=8u l=0.5u | M0 tail vb VSS VSS nfet w=16u l=0.5u
                  M3 outp lop x1 VSS nfet w=4u l=0.5u | M4 outn lon x1 VSS nfet w=4u l=0.5u
-                 M5 outp lon x2 VSS nfet w=4u l=0.5u | M6 outn lop x2 VSS nfet w=4u l=0.5u"),
-    ("rail2rail", "MN1 xn1 vinp tn VSS nfet w=4u l=0.5u | MP1 xp1 vinp tp VDD pfet w=8u l=0.5u
+                 M5 outp lon x2 VSS nfet w=4u l=0.5u | M6 outn lop x2 VSS nfet w=4u l=0.5u",
+    ),
+    (
+        "rail2rail",
+        "MN1 xn1 vinp tn VSS nfet w=4u l=0.5u | MP1 xp1 vinp tp VDD pfet w=8u l=0.5u
                    MN2 xn2 vinn tn VSS nfet w=4u l=0.5u | MP2 xp2 vinn tp VDD pfet w=8u l=0.5u
-                   MN0 tn vbn VSS VSS nfet w=8u l=0.5u | MP0 tp vbp VDD VDD pfet w=16u l=0.5u"),
-    ("latch", "MN1 q qb VSS VSS nfet w=2u l=0.15u | MP1 q qb VDD VDD pfet w=4u l=0.15u
-               MN2 qb q VSS VSS nfet w=2u l=0.15u | MP2 qb q VDD VDD pfet w=4u l=0.15u"),
-    ("mirror6", "MR ref ref VSS VSS nfet w=2u l=1u | MO1 o1 ref VSS VSS nfet w=2u l=1u | MO2 o2 ref VSS VSS nfet w=4u l=1u
-                 MO3 o3 ref VSS VSS nfet w=2u l=1u | MO4 o4 ref VSS VSS nfet w=8u l=1u | MO5 o5 ref VSS VSS nfet w=2u l=1u"),
-    ("brokaw", "Q1 c1 vb x npn m=1 | Q2 c2 vb y npn m=8 | R2 y x rpoly w=2u l=20u | R1 x VSS rpoly w=2u l=80u
-                MP1 c1 c1 VDD VDD pfet w=4u l=1u | MP2 c2 c1 VDD VDD pfet w=4u l=1u"),
+                   MN0 tn vbn VSS VSS nfet w=8u l=0.5u | MP0 tp vbp VDD VDD pfet w=16u l=0.5u",
+    ),
+    (
+        "latch",
+        "MN1 q qb VSS VSS nfet w=2u l=0.15u | MP1 q qb VDD VDD pfet w=4u l=0.15u
+               MN2 qb q VSS VSS nfet w=2u l=0.15u | MP2 qb q VDD VDD pfet w=4u l=0.15u",
+    ),
+    (
+        "mirror6",
+        "MR ref ref VSS VSS nfet w=2u l=1u | MO1 o1 ref VSS VSS nfet w=2u l=1u | MO2 o2 ref VSS VSS nfet w=4u l=1u
+                 MO3 o3 ref VSS VSS nfet w=2u l=1u | MO4 o4 ref VSS VSS nfet w=8u l=1u | MO5 o5 ref VSS VSS nfet w=2u l=1u",
+    ),
+    (
+        "brokaw",
+        "Q1 c1 vb x npn m=1 | Q2 c2 vb y npn m=8 | R2 y x rpoly w=2u l=20u | R1 x VSS rpoly w=2u l=80u
+                MP1 c1 c1 VDD VDD pfet w=4u l=1u | MP2 c2 c1 VDD VDD pfet w=4u l=1u",
+    ),
     ("rdiv", "RA top mid rpoly w=2u l=10u | RB mid VSS rpoly w=2u l=40u"),
-    ("splitdac", "C0 tl VSS cap w=3u l=3u m=1 | C1 tl b0 cap w=3u l=3u m=1 | C2 tl b1 cap w=3u l=3u m=2
-                  C3 tm b2 cap w=3u l=3u m=1 | C4 tm b3 cap w=3u l=3u m=2 | CA tl tm cap w=3u l=4u m=1"),
+    (
+        "splitdac",
+        "C0 tl VSS cap w=3u l=3u m=1 | C1 tl b0 cap w=3u l=3u m=1 | C2 tl b1 cap w=3u l=3u m=2
+                  C3 tm b2 cap w=3u l=3u m=1 | C4 tm b3 cap w=3u l=3u m=2 | CA tl tm cap w=3u l=4u m=1",
+    ),
     ("strongarm", STRONGARM),
     // EXT-19 step 5: a source-degenerated diff pair (M1 regression note).
-    ("degen_pair", "M1 o1 inp s1 VSS nfet w=4u l=0.5u | M2 o2 inn s2 VSS nfet w=4u l=0.5u | R1 s1 tail rpoly w=2u l=10u
-                    R2 s2 tail rpoly w=2u l=10u | M0 tail vb VSS VSS nfet w=8u l=0.5u"),
+    (
+        "degen_pair",
+        "M1 o1 inp s1 VSS nfet w=4u l=0.5u | M2 o2 inn s2 VSS nfet w=4u l=0.5u | R1 s1 tail rpoly w=2u l=10u
+                    R2 s2 tail rpoly w=2u l=10u | M0 tail vb VSS VSS nfet w=8u l=0.5u",
+    ),
 ];
 
 /// Negative circuits: nothing in them should be matched (T3). `bjt_mirror` is
@@ -76,7 +115,11 @@ const NEGATIVE: [(&str, &str); 3] = [
 ];
 
 fn cfg(name: &str) -> AnnotationConfig {
-    if name == "strongarm" { strongarm_cfg() } else { common::cfg() }
+    if name == "strongarm" {
+        strongarm_cfg()
+    } else {
+        common::cfg()
+    }
 }
 
 fn all() -> impl Iterator<Item = (&'static str, &'static str)> {
@@ -85,7 +128,15 @@ fn all() -> impl Iterator<Item = (&'static str, &'static str)> {
 
 /// Today's decisions per circuit: leaves `(kind, sorted member names)`, then the
 /// [`Canon`] fields `pairs`, `selfs`, `net_pairs`, `axes`, then `sets` (EXT-15).
-type Row = (&'static str, &'static [(&'static str, &'static [&'static str])], &'static [(&'static str, &'static str)], &'static [&'static str], &'static [(&'static str, &'static str)], usize, &'static [Set]);
+type Row = (
+    &'static str,
+    &'static [(&'static str, &'static [&'static str])],
+    &'static [(&'static str, &'static str)],
+    &'static [&'static str],
+    &'static [(&'static str, &'static str)],
+    usize,
+    &'static [Set],
+);
 /// `(members (name, parallel, series), kind, class)`.
 type Set = (&'static [(&'static str, u16, u16)], &'static str, &'static str);
 const EXPECTED: [Row; 18] = [
@@ -93,15 +144,43 @@ const EXPECTED: [Row; 18] = [
     // EXT-15: matched sets (components of MatchSym ∪ MatchBlock over every match, shared-bias groups), unitized.
     // EXT-16: kind and class per set (DiffPair leaf → Voltage; role defaults: input/load Moderate, bias Minimal).
     // EXT-24: net pairs are every compound's mirrored non-rail nets (Differential), not DiffPair drains only.
-    ("ota5t", &[("Load", &["XM3", "XM4"]), ("DiffPair", &["XM1", "XM2"])], &[("XM1", "XM2"), ("XM3", "XM4")], &["XM5"], &[("vinm", "vinp"), ("vout1", "vout2")], 1, &[(&[("XM1", 1, 1), ("XM2", 1, 1)], "Voltage", "Moderate"), (&[("XM3", 2, 1), ("XM4", 2, 1)], "Current", "Moderate")]),
+    (
+        "ota5t",
+        &[("Load", &["XM3", "XM4"]), ("DiffPair", &["XM1", "XM2"])],
+        &[("XM1", "XM2"), ("XM3", "XM4")],
+        &["XM5"],
+        &[("vinm", "vinp"), ("vout1", "vout2")],
+        1,
+        &[(&[("XM1", 1, 1), ("XM2", 1, 1)], "Voltage", "Moderate"), (&[("XM3", 2, 1), ("XM4", 2, 1)], "Current", "Moderate")],
+    ),
     // EXT-05: declared roles: diff_pair_with_mirror_load's slots 2,3 are a Load.
     // EXT-15: matched sets (components of MatchSym ∪ MatchBlock over every match, shared-bias groups), unitized.
     // EXT-16: kind and class per set (DiffPair leaf → Voltage; role defaults: input/load Moderate, bias Minimal).
     // EXT-24: net pairs are every compound's mirrored non-rail nets (Differential), not DiffPair drains only.
-    ("three_stage", &[("DiffPair", &["M1", "M2"]), ("Group", &["M6", "M8", "M9"]), ("Load", &["M4", "M5"])], &[("M1", "M2"), ("M4", "M5")], &["M3"], &[("n1", "n2"), ("vin_n", "vin_p")], 1, &[(&[("M1", 1, 1), ("M2", 1, 1)], "Voltage", "Moderate"), (&[("M3", 4, 1), ("M7", 3, 1), ("M9", 10, 1)], "Current", "Minimal"), (&[("M4", 1, 1), ("M5", 1, 1)], "Current", "Moderate")]),
+    (
+        "three_stage",
+        &[("DiffPair", &["M1", "M2"]), ("Group", &["M6", "M8", "M9"]), ("Load", &["M4", "M5"])],
+        &[("M1", "M2"), ("M4", "M5")],
+        &["M3"],
+        &[("n1", "n2"), ("vin_n", "vin_p")],
+        1,
+        &[
+            (&[("M1", 1, 1), ("M2", 1, 1)], "Voltage", "Moderate"),
+            (&[("M3", 4, 1), ("M7", 3, 1), ("M9", 10, 1)], "Current", "Minimal"),
+            (&[("M4", 1, 1), ("M5", 1, 1)], "Current", "Moderate"),
+        ],
+    ),
     // EXT-05 review: `cmos_inverter`'s declared prox makes each switch inverter a Stack leaf.
     // EXT-19: the capacitor bank is one binary DacBank set, Exceptional Ratio.
-    ("dac4", &[("Stack", &["XMN0", "XMP0"]), ("Stack", &["XMN1", "XMP1"]), ("Stack", &["XMN2", "XMP2"]), ("Stack", &["XMN3", "XMP3"])], &[], &[], &[], 0, &[(&[("XC0", 1, 1), ("XC1", 1, 1), ("XC2", 2, 1), ("XC3", 4, 1), ("XC4", 8, 1)], "Ratio", "Exceptional")]),
+    (
+        "dac4",
+        &[("Stack", &["XMN0", "XMP0"]), ("Stack", &["XMN1", "XMP1"]), ("Stack", &["XMN2", "XMP2"]), ("Stack", &["XMN3", "XMP3"])],
+        &[],
+        &[],
+        &[],
+        0,
+        &[(&[("XC0", 1, 1), ("XC1", 1, 1), ("XC2", 2, 1), ("XC3", 4, 1), ("XC4", 8, 1)], "Ratio", "Exceptional")],
+    ),
     // EXT-19: bjt_ratioed_pair (a CurrentMirror leaf, matched but no hard Symmetry: a 1:N
     // centroid array, `emit.rs`, review fixes 1); the set is Voltage (ΔV_BE) Moderate (BandgapCore).
     ("bgr_core", &[("CurrentMirror", &["XQ1", "XQ2"])], &[], &[], &[], 0, &[(&[("XQ1", 1, 1), ("XQ2", 8, 1)], "Voltage", "Moderate")]),
@@ -119,7 +198,28 @@ const EXPECTED: [Row; 18] = [
     // EXT-16: kind and class per set (DiffPair leaf → Voltage; role defaults: input/load Moderate, bias Minimal).
     // EXT-24: net pairs are every compound's mirrored non-rail nets (Differential), not DiffPair drains only.
     // EXT-20: Symmetry per compound: M7/M8, M9/M10 and the self M0 join.
-    ("folded", &[("CascodePair", &["M5", "M6"]), ("DiffPair", &["M1", "M2"]), ("Group", &["M10", "M7", "M8", "M9"]), ("Load", &["M3", "M4"]), ("Stack", &["M3", "M5"]), ("Stack", &["M4", "M6"])], &[("M1", "M2"), ("M10", "M9"), ("M3", "M4"), ("M5", "M6"), ("M7", "M8")], &["M0"], &[("o1", "out"), ("vinn", "vinp"), ("x1", "x2"), ("y1", "y2")], 1, &[(&[("M1", 1, 1), ("M2", 1, 1)], "Voltage", "Moderate"), (&[("M10", 1, 1), ("M9", 1, 1)], "Current", "Minimal"), (&[("M3", 2, 1), ("M4", 2, 1)], "Current", "Moderate"), (&[("M5", 1, 1), ("M6", 1, 1)], "Current", "Moderate"), (&[("M7", 1, 1), ("M8", 1, 1)], "Current", "Minimal")]),
+    (
+        "folded",
+        &[
+            ("CascodePair", &["M5", "M6"]),
+            ("DiffPair", &["M1", "M2"]),
+            ("Group", &["M10", "M7", "M8", "M9"]),
+            ("Load", &["M3", "M4"]),
+            ("Stack", &["M3", "M5"]),
+            ("Stack", &["M4", "M6"]),
+        ],
+        &[("M1", "M2"), ("M10", "M9"), ("M3", "M4"), ("M5", "M6"), ("M7", "M8")],
+        &["M0"],
+        &[("o1", "out"), ("vinn", "vinp"), ("x1", "x2"), ("y1", "y2")],
+        1,
+        &[
+            (&[("M1", 1, 1), ("M2", 1, 1)], "Voltage", "Moderate"),
+            (&[("M10", 1, 1), ("M9", 1, 1)], "Current", "Minimal"),
+            (&[("M3", 2, 1), ("M4", 2, 1)], "Current", "Moderate"),
+            (&[("M5", 1, 1), ("M6", 1, 1)], "Current", "Moderate"),
+            (&[("M7", 1, 1), ("M8", 1, 1)], "Current", "Minimal"),
+        ],
+    ),
     // EXT-04: GILBERT_CELL's link fix makes it match the whole 6-device cell
     // (today's child re-search, max_slots=2, decomposes it into 3 DiffPair legs).
     // EXT-05: declared pairs are the mirror images (M3,M6), (M4,M5).
@@ -128,20 +228,44 @@ const EXPECTED: [Row; 18] = [
     // EXT-16: kind and class per set (DiffPair leaf → Voltage; role defaults: input/load Moderate, bias Minimal).
     // EXT-24: net pairs are every compound's mirrored non-rail nets (Differential), not DiffPair drains only.
     // EXT-20: the compound's self M0 joins the Symmetry.
-    ("gilbert", &[("DiffPair", &["M1", "M2"]), ("DiffPair", &["M3", "M6"]), ("DiffPair", &["M4", "M5"])], &[("M1", "M2"), ("M3", "M6"), ("M4", "M5")], &["M0"], &[("outn", "outp"), ("rfn", "rfp"), ("x1", "x2")], 1, &[(&[("M1", 1, 1), ("M2", 1, 1)], "Voltage", "Moderate"), (&[("M3", 1, 1), ("M4", 1, 1), ("M5", 1, 1), ("M6", 1, 1)], "Voltage", "Moderate")]),
+    (
+        "gilbert",
+        &[("DiffPair", &["M1", "M2"]), ("DiffPair", &["M3", "M6"]), ("DiffPair", &["M4", "M5"])],
+        &[("M1", "M2"), ("M3", "M6"), ("M4", "M5")],
+        &["M0"],
+        &[("outn", "outp"), ("rfn", "rfp"), ("x1", "x2")],
+        1,
+        &[(&[("M1", 1, 1), ("M2", 1, 1)], "Voltage", "Moderate"), (&[("M3", 1, 1), ("M4", 1, 1), ("M5", 1, 1), ("M6", 1, 1)], "Voltage", "Moderate")],
+    ),
     // EXT-05: complementary_diff_pair declares both polarities' DiffPairs.
     // EXT-15: matched sets (components of MatchSym ∪ MatchBlock over every match, shared-bias groups), unitized.
     // EXT-16: kind and class per set (DiffPair leaf → Voltage; role defaults: input/load Moderate, bias Minimal).
     // EXT-24: net pairs are every compound's mirrored non-rail nets (Differential), not DiffPair drains only.
     // EXT-20: the compound's selfs (both tails) join the Symmetry.
-    ("rail2rail", &[("DiffPair", &["MN1", "MN2"]), ("DiffPair", &["MP1", "MP2"])], &[("MN1", "MN2"), ("MP1", "MP2")], &["MN0", "MP0"], &[("vinn", "vinp"), ("xn1", "xn2"), ("xp1", "xp2")], 1, &[(&[("MN1", 1, 1), ("MN2", 1, 1)], "Voltage", "Moderate"), (&[("MP1", 1, 1), ("MP2", 1, 1)], "Voltage", "Moderate")]),
+    (
+        "rail2rail",
+        &[("DiffPair", &["MN1", "MN2"]), ("DiffPair", &["MP1", "MP2"])],
+        &[("MN1", "MN2"), ("MP1", "MP2")],
+        &["MN0", "MP0"],
+        &[("vinn", "vinp"), ("xn1", "xn2"), ("xp1", "xp2")],
+        1,
+        &[(&[("MN1", 1, 1), ("MN2", 1, 1)], "Voltage", "Moderate"), (&[("MP1", 1, 1), ("MP2", 1, 1)], "Voltage", "Moderate")],
+    ),
     // EXT-05 (AA-03): cross_coupled_inverters' declared pairs and prox, not inverters.
     // EXT-09: `net_pairs` moves — Differential now comes from the DiffPair leaves, and
     // the cross-coupled MN1/MN2 pair's drains (q, qb) differ, so it yields one.
     // EXT-15: matched sets (components of MatchSym ∪ MatchBlock over every match, shared-bias groups), unitized.
     // EXT-16: kind and class per set (DiffPair leaf → Voltage; role defaults: input/load Moderate, bias Minimal).
     // EXT-24: net pairs are every compound's mirrored non-rail nets (Differential), not DiffPair drains only.
-    ("latch", &[("DiffPair", &["MN1", "MN2"]), ("DiffPair", &["MP1", "MP2"]), ("Stack", &["MN1", "MP1"]), ("Stack", &["MN2", "MP2"])], &[("MN1", "MN2"), ("MP1", "MP2")], &[], &[("q", "qb")], 1, &[(&[("MN1", 1, 1), ("MN2", 1, 1)], "Voltage", "Moderate"), (&[("MP1", 1, 1), ("MP2", 1, 1)], "Voltage", "Moderate")]),
+    (
+        "latch",
+        &[("DiffPair", &["MN1", "MN2"]), ("DiffPair", &["MP1", "MP2"]), ("Stack", &["MN1", "MP1"]), ("Stack", &["MN2", "MP2"])],
+        &[("MN1", "MN2"), ("MP1", "MP2")],
+        &[],
+        &[("q", "qb")],
+        1,
+        &[(&[("MN1", 1, 1), ("MN2", 1, 1)], "Voltage", "Moderate"), (&[("MP1", 1, 1), ("MP2", 1, 1)], "Voltage", "Moderate")],
+    ),
     // EXT-05: current_mirror_4 declares (ref, k) per output; only the first pair
     // holding the shared reference gets a Symmetry.
     // EXT-06: equal-priority current_mirror_4 matches tie on canonical labels, not
@@ -150,18 +274,51 @@ const EXPECTED: [Row; 18] = [
     // EXT-16: kind and class per set (DiffPair leaf → Voltage; role defaults: input/load Moderate, bias Minimal).
     // EXT-24: net pairs are every compound's mirrored non-rail nets (Differential), not DiffPair drains only.
     // EXT-20: no compound holds the mirror (one ratioed set), so no Symmetry (AA-24).
-    ("mirror6", &[("CurrentMirror", &["MO1", "MR"]), ("CurrentMirror", &["MO3", "MR"]), ("CurrentMirror", &["MO5", "MR"]), ("CurrentMirror", &["MO2", "MO4"])], &[], &[], &[], 0, &[(&[("MO1", 1, 1), ("MO2", 2, 1), ("MO3", 1, 1), ("MO4", 4, 1), ("MO5", 1, 1), ("MR", 1, 1)], "Current", "Minimal")]),
+    (
+        "mirror6",
+        &[
+            ("CurrentMirror", &["MO1", "MR"]),
+            ("CurrentMirror", &["MO3", "MR"]),
+            ("CurrentMirror", &["MO5", "MR"]),
+            ("CurrentMirror", &["MO2", "MO4"]),
+        ],
+        &[],
+        &[],
+        &[],
+        0,
+        &[(&[("MO1", 1, 1), ("MO2", 2, 1), ("MO3", 1, 1), ("MO4", 4, 1), ("MO5", 1, 1), ("MR", 1, 1)], "Current", "Minimal")],
+    ),
     // EXT-15: matched sets (components of MatchSym ∪ MatchBlock over every match, shared-bias groups), unitized.
     // EXT-16: kind and class per set (DiffPair leaf → Voltage; role defaults: input/load Moderate, bias Minimal).
     // EXT-24: net pairs are every compound's mirrored non-rail nets (Differential), not DiffPair drains only.
     // EXT-19: Q1/Q2 ratioed pair (Voltage Moderate) and the bandgap resistors R1:R2 = 4:1 in
     // series units of 20 µm (Ratio Moderate).
     // EXT-20: MP1/MP2 is in no compound (a CurrentMirror is no seed), so no Symmetry.
-    ("brokaw", &[("CurrentMirror", &["MP1", "MP2"]), ("CurrentMirror", &["Q1", "Q2"])], &[], &[], &[], 0, &[(&[("MP1", 1, 1), ("MP2", 1, 1)], "Current", "Minimal"), (&[("Q1", 1, 1), ("Q2", 8, 1)], "Voltage", "Moderate"), (&[("R1", 1, 4), ("R2", 1, 1)], "Ratio", "Moderate")]),
+    (
+        "brokaw",
+        &[("CurrentMirror", &["MP1", "MP2"]), ("CurrentMirror", &["Q1", "Q2"])],
+        &[],
+        &[],
+        &[],
+        0,
+        &[
+            (&[("MP1", 1, 1), ("MP2", 1, 1)], "Current", "Minimal"),
+            (&[("Q1", 1, 1), ("Q2", 8, 1)], "Voltage", "Moderate"),
+            (&[("R1", 1, 4), ("R2", 1, 1)], "Ratio", "Moderate"),
+        ],
+    ),
     // EXT-19: the divider is one FeedbackRatio set, RB four 10 µm series units.
     ("rdiv", &[], &[], &[], &[], 0, &[(&[("RA", 1, 1), ("RB", 1, 4)], "Ratio", "Moderate")]),
     // EXT-19: both banks and the bridge CA are one split_dac set (CA outside the unit).
-    ("splitdac", &[], &[], &[], &[], 0, &[(&[("C0", 1, 1), ("C1", 1, 1), ("C2", 2, 1), ("C3", 1, 1), ("C4", 2, 1), ("CA", 1, 1)], "Ratio", "Exceptional")]),
+    (
+        "splitdac",
+        &[],
+        &[],
+        &[],
+        &[],
+        0,
+        &[(&[("C0", 1, 1), ("C1", 1, 1), ("C2", 2, 1), ("C3", 1, 1), ("C4", 2, 1), ("CA", 1, 1)], "Ratio", "Exceptional")],
+    ),
     // EXT-05: five_transistor_ota's roles (0,1,DiffPair), (2,3,Load), self 4 (mn0,
     // not mp8); cross_coupled_inverters' pairs; complementary_diff_pair's sources must be a
     // signal, so the output inverters no longer match it and mp9/mp10 join
@@ -174,11 +331,42 @@ const EXPECTED: [Row; 18] = [
     // EXT-16: kind and class per set (DiffPair leaf → Voltage; role defaults: input/load Moderate, bias Minimal).
     // EXT-24: net pairs are every compound's mirrored non-rail nets (Differential), not DiffPair drains only.
     // EXT-20: Symmetry per compound: every ALIGN gold pair, one axis.
-    ("strongarm", &[("DiffPair", &["mn1", "mn2"]), ("DiffPair", &["mn3", "mn4"]), ("DiffPair", &["mp5", "mp6"]), ("Group", &["mn13", "mp10", "mp11"]), ("Group", &["mn14", "mp12", "mp9"]), ("Load", &["mp7", "mp8"]), ("Stack", &["mn3", "mp5"]), ("Stack", &["mn4", "mp6"])], &[("mn1", "mn2"), ("mn13", "mn14"), ("mn3", "mn4"), ("mp10", "mp9"), ("mp11", "mp12"), ("mp5", "mp6"), ("mp7", "mp8")], &["mn0"], &[("vin", "vip"), ("vin_d", "vip_d"), ("vin_o", "vip_o"), ("von", "vop")], 1, &[(&[("mn1", 2, 1), ("mn2", 2, 1)], "Voltage", "Moderate"), (&[("mn13", 1, 1), ("mn14", 1, 1)], "Current", "Minimal"), (&[("mn3", 1, 1), ("mn4", 1, 1)], "Voltage", "Moderate"), (&[("mp10", 1, 1), ("mp7", 1, 1), ("mp8", 1, 1), ("mp9", 1, 1)], "Current", "Moderate"), (&[("mp11", 1, 1), ("mp12", 1, 1), ("mp5", 4, 1), ("mp6", 4, 1)], "Voltage", "Moderate")]),
+    (
+        "strongarm",
+        &[
+            ("DiffPair", &["mn1", "mn2"]),
+            ("DiffPair", &["mn3", "mn4"]),
+            ("DiffPair", &["mp5", "mp6"]),
+            ("Group", &["mn13", "mp10", "mp11"]),
+            ("Group", &["mn14", "mp12", "mp9"]),
+            ("Load", &["mp7", "mp8"]),
+            ("Stack", &["mn3", "mp5"]),
+            ("Stack", &["mn4", "mp6"]),
+        ],
+        &[("mn1", "mn2"), ("mn13", "mn14"), ("mn3", "mn4"), ("mp10", "mp9"), ("mp11", "mp12"), ("mp5", "mp6"), ("mp7", "mp8")],
+        &["mn0"],
+        &[("vin", "vip"), ("vin_d", "vip_d"), ("vin_o", "vip_o"), ("von", "vop")],
+        1,
+        &[
+            (&[("mn1", 2, 1), ("mn2", 2, 1)], "Voltage", "Moderate"),
+            (&[("mn13", 1, 1), ("mn14", 1, 1)], "Current", "Minimal"),
+            (&[("mn3", 1, 1), ("mn4", 1, 1)], "Voltage", "Moderate"),
+            (&[("mp10", 1, 1), ("mp7", 1, 1), ("mp8", 1, 1), ("mp9", 1, 1)], "Current", "Moderate"),
+            (&[("mp11", 1, 1), ("mp12", 1, 1), ("mp5", 4, 1), ("mp6", 4, 1)], "Voltage", "Moderate"),
+        ],
+    ),
     // EXT-19 step 5: the degenerated pair is a DiffPair (`passive::degenerated_pairs`), its
     // resistors one degeneration Ratio set (Moderate, the pair's role).
     // EXT-20: the compound's equal couples (R1/R2 too) and its self M0.
-    ("degen_pair", &[("DiffPair", &["M1", "M2"])], &[("M1", "M2"), ("R1", "R2")], &["M0"], &[("inn", "inp"), ("o1", "o2"), ("s1", "s2")], 1, &[(&[("M1", 1, 1), ("M2", 1, 1)], "Voltage", "Moderate"), (&[("R1", 1, 1), ("R2", 1, 1)], "Ratio", "Moderate")]),
+    (
+        "degen_pair",
+        &[("DiffPair", &["M1", "M2"])],
+        &[("M1", "M2"), ("R1", "R2")],
+        &["M0"],
+        &[("inn", "inp"), ("o1", "o2"), ("s1", "s2")],
+        1,
+        &[(&[("M1", 1, 1), ("M2", 1, 1)], "Voltage", "Moderate"), (&[("R1", 1, 1), ("R2", 1, 1)], "Ratio", "Moderate")],
+    ),
 ];
 
 #[test]
@@ -192,7 +380,10 @@ fn corpus_expectations() {
         let got = (canon(&p, &nl), canon_leaves(&p, &nl));
         let exp = (
             Canon {
-                sets: sets.iter().map(|(m, k, c)| (m.iter().map(|&(n, p, s)| (n.to_string(), p, s)).collect(), (*k).to_string(), (*c).to_string())).collect(),
+                sets: sets
+                    .iter()
+                    .map(|(m, k, c)| (m.iter().map(|&(n, p, s)| (n.to_string(), p, s)).collect(), (*k).to_string(), (*c).to_string()))
+                    .collect(),
                 pairs: owned(pairs),
                 selfs: selfs.iter().map(|s| (*s).to_string()).collect(),
                 net_pairs: owned(net_pairs),
@@ -352,7 +543,8 @@ fn differential_comes_from_recognized_pairs() {
     let p = annotate(&nl, &AnnotationConfig::default());
     assert_eq!(count(&p.routing.hard), 0, "ota5t hard");
     assert_eq!(count(&p.routing.budget), 2, "ota5t budget");
-    let want: BTreeSet<_> = [("vinm", "vout1"), ("vinm", "vout2"), ("vinp", "vout1"), ("vinp", "vout2")].map(|(a, b)| (a.to_string(), b.to_string())).into();
+    let want: BTreeSet<_> =
+        [("vinm", "vout1"), ("vinm", "vout2"), ("vinp", "vout1"), ("vinp", "vout2")].map(|(a, b)| (a.to_string(), b.to_string())).into();
     let got = xtalk(&nl, &p);
     assert_eq!((got.len(), got.into_iter().collect::<BTreeSet<_>>()), (4, want), "ota5t crosstalk");
 
@@ -428,7 +620,13 @@ fn ids_survive_permutation() {
 type CompoundRow = (&'static str, &'static [(&'static str, &'static str)], &'static [&'static str], &'static [(&'static str, &'static str)], usize);
 const COMPOUNDS: [CompoundRow; 8] = [
     ("ota5t", &[("XM1", "XM2"), ("XM3", "XM4")], &["XM5"], &[("vinm", "vinp"), ("vout1", "vout2")], 1),
-    ("folded", &[("M1", "M2"), ("M3", "M4"), ("M5", "M6"), ("M7", "M8"), ("M10", "M9")], &["M0"], &[("vinn", "vinp"), ("x1", "x2"), ("o1", "out"), ("y1", "y2")], 1),
+    (
+        "folded",
+        &[("M1", "M2"), ("M3", "M4"), ("M5", "M6"), ("M7", "M8"), ("M10", "M9")],
+        &["M0"],
+        &[("vinn", "vinp"), ("x1", "x2"), ("o1", "out"), ("y1", "y2")],
+        1,
+    ),
     ("gilbert", &[("M1", "M2"), ("M3", "M6"), ("M4", "M5")], &["M0"], &[("rfn", "rfp"), ("x1", "x2"), ("outn", "outp")], 1),
     ("rail2rail", &[("MN1", "MN2"), ("MP1", "MP2")], &["MN0", "MP0"], &[("vinn", "vinp"), ("xn1", "xn2"), ("xp1", "xp2")], 1),
     ("latch", &[("MN1", "MN2"), ("MP1", "MP2")], &[], &[("q", "qb")], 1),
@@ -436,7 +634,13 @@ const COMPOUNDS: [CompoundRow; 8] = [
     // T1's circuit: align_gold checks it against the ALIGN gold.
     // EXT-19: the degeneration resistors mirror through s1/s2; the tail M0 is on the axis.
     ("degen_pair", &[("M1", "M2"), ("R1", "R2")], &["M0"], &[("inn", "inp"), ("o1", "o2"), ("s1", "s2")], 1),
-    ("strongarm", &[("mn1", "mn2"), ("mn3", "mn4"), ("mp5", "mp6"), ("mp7", "mp8"), ("mp10", "mp9"), ("mp11", "mp12"), ("mn13", "mn14")], &["mn0"], &[("vin", "vip"), ("vin_d", "vip_d"), ("vin_o", "vip_o"), ("von", "vop")], 1),
+    (
+        "strongarm",
+        &[("mn1", "mn2"), ("mn3", "mn4"), ("mp5", "mp6"), ("mp7", "mp8"), ("mp10", "mp9"), ("mp11", "mp12"), ("mn13", "mn14")],
+        &["mn0"],
+        &[("vin", "vip"), ("vin_d", "vip_d"), ("vin_o", "vip_o"), ("von", "vop")],
+        1,
+    ),
 ];
 
 #[test]
@@ -548,7 +752,10 @@ fn per_set_unitization_follows_class() {
     let u = p.constraints.unitization.iter().find(|u| u.devices.iter().any(|d| d.0 == id(&nl, "M7"))).expect("M7 covered");
     let mut names: Vec<&str> = u.devices.iter().map(|d| nl.devices[d.0 as usize].name.as_str()).collect();
     names.sort_unstable();
-    assert_eq!((names.as_slice(), u.dummy_required, u.route_matching_required, u.class, u.style), (&["M7", "M8"][..], false, true, Some(MatchClass::Minimal), Some(ArrayStyle::Adjacent)));
+    assert_eq!(
+        (names.as_slice(), u.dummy_required, u.route_matching_required, u.class, u.style),
+        (&["M7", "M8"][..], false, true, Some(MatchClass::Minimal), Some(ArrayStyle::Adjacent))
+    );
     let nl = net(src("dac4"));
     let p = annotate(&nl, &cfg("dac4"));
     let mut models = Vec::new();
@@ -570,7 +777,11 @@ fn split_dac_bridge_value() {
     assert!(!bridge(&p), "{:?}", p.intent.diagnostics);
     assert!(matches!(p.intent.sets[0].origin, analog::intent::Origin::PassiveSet { rule: "split_dac" }));
     // CELL-21: the bridge's own W/L does not split the set; one Unitization holds all six.
-    assert!(p.constraints.unitization.iter().any(|u| u.devices.len() == 6), "{:?}", p.constraints.unitization.iter().map(|u| &u.devices).collect::<Vec<_>>());
+    assert!(
+        p.constraints.unitization.iter().any(|u| u.devices.len() == 6),
+        "{:?}",
+        p.constraints.unitization.iter().map(|u| &u.devices).collect::<Vec<_>>()
+    );
     let p = annotate(&net(&src("splitdac").replace("CA tl tm cap w=3u l=4u", "CA tl tm cap w=3u l=5u")), &cfg("splitdac"));
     assert!(bridge(&p), "{:?}", p.intent.diagnostics);
 }
@@ -590,7 +801,8 @@ fn annotator_covers_cellgen_groups() {
         let nl = net(src(name));
         let p = annotate(&nl, &cfg(name));
         let id = |n: &str| nl.devices.iter().position(|d| d.name == n).unwrap() as u16;
-        let u = p.constraints.unitization.iter().find(|u| u.devices.iter().any(|d| d.0 == id(devs[0]))).unwrap_or_else(|| panic!("{name}: uncovered"));
+        let u =
+            p.constraints.unitization.iter().find(|u| u.devices.iter().any(|d| d.0 == id(devs[0]))).unwrap_or_else(|| panic!("{name}: uncovered"));
         let names: Vec<&str> = u.devices.iter().map(|d| nl.devices[d.0 as usize].name.as_str()).collect();
         assert_eq!((names.as_slice(), u.dev_nf.as_slice(), u.dummy_required, u.route_matching_required), (devs, nf, dummy, route), "{name}");
     }
@@ -772,7 +984,10 @@ fn net_classes() {
         }
         p
     };
-    check("dac4", &[(&["d0", "d1", "d2", "d3", "b0", "b1", "b2", "b3"], DigitalStatic), (&["top"], Sensitive), (&["VDD"], Supply), (&["VSS"], Ground)]);
+    check(
+        "dac4",
+        &[(&["d0", "d1", "d2", "d3", "b0", "b1", "b2", "b3"], DigitalStatic), (&["top"], Sensitive), (&["VDD"], Supply), (&["VSS"], Ground)],
+    );
     check("three_stage", &[(&["vbias"], Bias), (&["vin_p", "vin_n"], Sensitive), (&["n3"], Signal)]);
     check("folded", &[(&["vbp1", "vbp2", "vbn", "vbn2"], Bias)]);
     check("bjt_mirror", &[(&["in", "outn", "outp"], Signal)]);
@@ -811,7 +1026,9 @@ fn ota5t_tags() {
     // GAP-03 / REL T8: with only gates and rails as pins (the corpus netlist has
     // no port list), no diffusion reaches a pin: no minority injector, no ring.
     let mut nl = nl;
-    nl.ports = ["vinp", "vinm", "vbias", "vbn", "VDD", "VSS"].map(|n| analog::base::ids::NetId(nl.nets.iter().position(|x| x.name == n).unwrap() as u16)).to_vec();
+    nl.ports = ["vinp", "vinm", "vbias", "vbn", "VDD", "VSS"]
+        .map(|n| analog::base::ids::NetId(nl.nets.iter().position(|x| x.name == n).unwrap() as u16))
+        .to_vec();
     let p = annotate(&nl, &cfg("ota5t"));
     assert!(p.intent.aggressors.is_empty(), "{:?}", p.intent.aggressors);
     assert_eq!(p.constraints.guard_rings.len(), 0);
@@ -835,7 +1052,8 @@ fn net_id(nl: &analog::base::Netlist, n: &str) -> analog::base::ids::NetId {
 fn folded_differential_pairs() {
     let nl = net(src("folded"));
     let p = annotate(&nl, &cfg("folded"));
-    let want: BTreeSet<(String, String)> = [("vinn", "vinp"), ("x1", "x2"), ("o1", "out"), ("y1", "y2")].iter().map(|&(a, b)| common::sorted(a, b)).collect();
+    let want: BTreeSet<(String, String)> =
+        [("vinn", "vinp"), ("x1", "x2"), ("o1", "out"), ("y1", "y2")].iter().map(|&(a, b)| common::sorted(a, b)).collect();
     assert_eq!(canon(&p, &nl).net_pairs, want);
 }
 
@@ -846,7 +1064,13 @@ fn folded_differential_pairs() {
 fn strongarm_shields() {
     let nl = net(STRONGARM);
     let p = annotate(&nl, &strongarm_cfg());
-    let shielded: Vec<(String, String)> = p.intent.nets.iter().enumerate().filter_map(|(i, f)| Some((nl.nets[i].name.clone(), nl.nets[f.shield_ref?.0 as usize].name.clone()))).collect();
+    let shielded: Vec<(String, String)> = p
+        .intent
+        .nets
+        .iter()
+        .enumerate()
+        .filter_map(|(i, f)| Some((nl.nets[i].name.clone(), nl.nets[f.shield_ref?.0 as usize].name.clone())))
+        .collect();
     let mut victims: Vec<&str> = shielded.iter().map(|s| s.0.as_str()).collect();
     victims.sort_unstable();
     assert_eq!(victims, ["vin", "vin_o", "vip", "vip_o"]);
@@ -869,7 +1093,8 @@ fn ota5t_common_nodes() {
     let p = annotate(&nl, &cfg("ota5t"));
     let got: BTreeSet<(String, Vec<String>, Vec<String>)> =
         p.intent.common_nodes.iter().map(|c| (nl.nets[c.net.0 as usize].name.clone(), names_of(&nl, &c.a), names_of(&nl, &c.b))).collect();
-    let want: BTreeSet<_> = [("vtail", "XM1", "XM2"), ("VDD", "XM3", "XM4")].iter().map(|&(n, a, b)| (n.to_string(), vec![a.to_string()], vec![b.to_string()])).collect();
+    let want: BTreeSet<_> =
+        [("vtail", "XM1", "XM2"), ("VDD", "XM3", "XM4")].iter().map(|&(n, a, b)| (n.to_string(), vec![a.to_string()], vec![b.to_string()])).collect();
     assert_eq!((p.intent.common_nodes.len(), got), (2, want));
     assert!(p.intent.stars.is_empty());
 }
@@ -897,7 +1122,17 @@ fn star_needs_nonmember_current_with_an_op_point() {
     let nl = net(&format!("{} | MX z g VSS VSS nfet w=2u l=1u", src("mirror6")));
     let mx = nl.devices.iter().position(|d| d.name == "MX").unwrap();
     let stars = |mx_ua: f64, ports: Vec<analog::base::ids::NetId>| {
-        let op = DeviceOp { id_ua: 10.0, headroom_mv: 200.0, gm_us: 100.0, power_uw: 0.0, vgs_mv: None, vbs_mv: None, vth_mv: None, gmb_us: None, gds_us: None };
+        let op = DeviceOp {
+            id_ua: 10.0,
+            headroom_mv: 200.0,
+            gm_us: 100.0,
+            power_uw: 0.0,
+            vgs_mv: None,
+            vbs_mv: None,
+            vth_mv: None,
+            gmb_us: None,
+            gds_us: None,
+        };
         let mut dev = vec![Some(op); nl.devices.len()];
         dev[mx] = Some(DeviceOp { id_ua: mx_ua, ..op });
         let ev = annotator::Evidence { op: Some(annotator::OpFacts { dev, net_mv: vec![None; nl.nets.len()] }), ..Default::default() };
@@ -922,13 +1157,29 @@ fn star_needs_nonmember_current_with_an_op_point() {
 fn user_net_class_survives_the_current_source_gate_pass() {
     use annotator::evidence::DeviceOp;
     let nl = net(src("mirror6"));
-    let op = DeviceOp { id_ua: 10.0, headroom_mv: 200.0, gm_us: 100.0, power_uw: 0.0, vgs_mv: None, vbs_mv: None, vth_mv: None, gmb_us: None, gds_us: None };
-    let ev = annotator::Evidence { op: Some(annotator::OpFacts { dev: vec![Some(op); nl.devices.len()], net_mv: vec![None; nl.nets.len()] }), ..Default::default() };
+    let op = DeviceOp {
+        id_ua: 10.0,
+        headroom_mv: 200.0,
+        gm_us: 100.0,
+        power_uw: 0.0,
+        vgs_mv: None,
+        vbs_mv: None,
+        vth_mv: None,
+        gmb_us: None,
+        gds_us: None,
+    };
+    let ev = annotator::Evidence {
+        op: Some(annotator::OpFacts { dev: vec![Some(op); nl.devices.len()], net_mv: vec![None; nl.nets.len()] }),
+        ..Default::default()
+    };
     let r = net_id(&nl, "ref");
     let user = AnnotationConfig { net_classes: vec![(r, analog::metadata::NetClass::Signal)], ..cfg("mirror6") };
     let p = annotator::annotate_with(&nl, &user, &ev);
     assert!(p.intent.devices.iter().any(|f| f.role == analog::intent::DeviceRole::CurrentSource));
-    assert_eq!((p.net_classes[r.0 as usize].class, p.intent.nets[r.0 as usize].evidence), (analog::metadata::NetClass::Signal, analog::intent::EvidenceLevel::User));
+    assert_eq!(
+        (p.net_classes[r.0 as usize].class, p.intent.nets[r.0 as usize].evidence),
+        (analog::metadata::NetClass::Signal, analog::intent::EvidenceLevel::User)
+    );
 }
 
 /// EXT-24: a sense resistor across the input pair's gates is Kelvin-sensed at
@@ -938,7 +1189,13 @@ fn kelvin_from_sense_resistor() {
     let nl = net(&format!("{} | RS vinp vinm rpoly w=2u l=10u", src("ota5t")));
     let p = annotate(&nl, &cfg("ota5t"));
     let rs = analog::base::ids::DeviceId(nl.devices.iter().position(|d| d.name == "RS").unwrap() as u16);
-    let got: Vec<(analog::intent::Term, Vec<String>)> = p.intent.kelvins.iter().filter(|k| k.device == rs).map(|k| (k.term, k.sense.iter().map(|s| nl.devices[s.0 .0 as usize].name.clone()).collect())).collect();
+    let got: Vec<(analog::intent::Term, Vec<String>)> = p
+        .intent
+        .kelvins
+        .iter()
+        .filter(|k| k.device == rs)
+        .map(|k| (k.term, k.sense.iter().map(|s| nl.devices[s.0 .0 as usize].name.clone()).collect()))
+        .collect();
     use analog::intent::Term::{N, P};
     assert_eq!(got, [(P, vec!["XM1".to_string()]), (N, vec!["XM2".to_string()])]);
 }
@@ -963,10 +1220,15 @@ fn audit_on_corpus() {
     use annotator::evidence::DeviceOp;
     let run = |src: &str, name: &str, gm_us: f64| {
         let nl = net(src);
-        let op = DeviceOp { id_ua: 10.0, headroom_mv: 200.0, gm_us, power_uw: 0.0, vgs_mv: None, vbs_mv: None, vth_mv: None, gmb_us: None, gds_us: None };
-        let ev = annotator::Evidence { op: Some(annotator::OpFacts { dev: vec![Some(op); nl.devices.len()], net_mv: vec![None; nl.nets.len()] }), ..Default::default() };
+        let op =
+            DeviceOp { id_ua: 10.0, headroom_mv: 200.0, gm_us, power_uw: 0.0, vgs_mv: None, vbs_mv: None, vth_mv: None, gmb_us: None, gds_us: None };
+        let ev = annotator::Evidence {
+            op: Some(annotator::OpFacts { dev: vec![Some(op); nl.devices.len()], net_mv: vec![None; nl.nets.len()] }),
+            ..Default::default()
+        };
         let p = annotator::annotate_with(&nl, &cfg(name), &ev);
-        let low: Vec<Vec<String>> = p.intent.diagnostics.iter().filter(|d| d.kind == "vgst_low").map(|d| names(&nl, d.devices.iter().copied())).collect();
+        let low: Vec<Vec<String>> =
+            p.intent.diagnostics.iter().filter(|d| d.kind == "vgst_low").map(|d| names(&nl, d.devices.iter().copied())).collect();
         low
     };
     for (name, src) in all() {

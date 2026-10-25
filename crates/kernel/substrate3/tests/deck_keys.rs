@@ -13,10 +13,12 @@
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 
+use analog::base::{DeviceGroup, DeviceId, DeviceKind, LayerId, Process};
 use analog::cell::{SeriesParallel, Unitization};
 use analog::Constraints;
-use substrate3::cells::{bjt::Bjt, cap_array::CapArray, capacitor::Capacitor, diode::Diode, finfet::FinFet, inductor::Inductor, mosfet::Mosfet, resistor::Resistor, Cell};
-use analog::base::{DeviceGroup, DeviceId, DeviceKind, LayerId, Process};
+use substrate3::cells::{
+    bjt::Bjt, cap_array::CapArray, capacitor::Capacitor, diode::Diode, finfet::FinFet, inductor::Inductor, mosfet::Mosfet, resistor::Resistor, Cell,
+};
 use verify::sidecar::KEYS;
 
 /// A process view, recording every `rule()` name asked of it.
@@ -86,7 +88,10 @@ fn group_of(kind: DeviceKind, dev_nf: &[u16], w: i32, l: i32, dummy_required: bo
         series_parallel: sp,
         dummy_required,
         route_matching_required: dummy_required,
-        class: None, kind: None, series: Vec::new(), style: None,
+        class: None,
+        kind: None,
+        series: Vec::new(),
+        style: None,
     });
     (group, c)
 }
@@ -109,7 +114,7 @@ fn generators_read_exactly_the_required_keys() {
     let pdk = verify::Pdk::builtin("sky130").expect("sky130 loads");
     let rec = Recording(&pdk, RefCell::default());
     let p: &dyn Process = &rec;
-    use DeviceKind::{Npn, Nmos, Pmos, Pnp};
+    use DeviceKind::{Nmos, Npn, Pmos, Pnp};
     use SeriesParallel::{Parallel, Series};
     // Sizes as each generator's own self-check draws them.
     let mut drawn = Vec::new();
@@ -181,21 +186,23 @@ fn generators_read_exactly_the_required_keys() {
     // "dummy_max_l_nm": absent = dummies at the active L, the pre-cap drawing.
     // "res_sheet_mohm": a resistor recipe's slot; absent = no model, so only
     // unsegmented resistors (the value never changes silently).
-    let flags = ["npn_isolation", "pnp_cells_only", "res_contact_w", "res_contact_h", "dummy_max_l_nm", "res_sheet_mohm", "bjt_emitter_w", "bjt_emitter_l"];
+    let flags =
+        ["npn_isolation", "pnp_cells_only", "res_contact_w", "res_contact_h", "dummy_max_l_nm", "res_sheet_mohm", "bjt_emitter_w", "bjt_emitter_l"];
     let optional_read: Vec<_> = KEYS
         .iter()
         .filter(|k| !k.required && recorded.contains(k.name) && !raise_deck.contains(&k.name) && !flags.contains(&k.name))
         .map(|k| k.name)
         .collect();
-    assert!(optional_read.is_empty(), "keys generators read with a compiled default but not required (a deck omitting them builds to Philis's number): {optional_read:?}");
+    assert!(
+        optional_read.is_empty(),
+        "keys generators read with a compiled default but not required (a deck omitting them builds to Philis's number): {optional_read:?}"
+    );
     // And a name in no registry row: it must resolve from the loaded PDK
     // (sidecar scalar or deck-derived `<role>_min_*`; `min_gate_l` from the
     // deck's channel rules), or every shipped deck builds to the default.
     let resolved: BTreeSet<&str> = pdk.rules.iter().map(|(n, _)| n.as_str()).chain(["min_gate_l"]).collect();
-    let defaulted: Vec<_> = recorded
-        .iter()
-        .filter(|n| !resolved.contains(n.as_str()) && !raise_deck.contains(&n.as_str()) && !flags.contains(&n.as_str()))
-        .collect();
+    let defaulted: Vec<_> =
+        recorded.iter().filter(|n| !resolved.contains(n.as_str()) && !raise_deck.contains(&n.as_str()) && !flags.contains(&n.as_str())).collect();
     assert!(defaulted.is_empty(), "names generators read that sky130 does not state, so they build to Philis's compiled default: {defaulted:?}");
 
     let sidecar = pdk.cell.as_object().expect("cell section");
@@ -207,4 +214,3 @@ fn generators_read_exactly_the_required_keys() {
     let stale: Vec<_> = KEYS.iter().filter(|k| k.reader == "unread" && recorded.contains(k.name)).map(|k| k.name).collect();
     assert!(stale.is_empty(), "keys registered as unread that generators read: {stale:?}");
 }
-

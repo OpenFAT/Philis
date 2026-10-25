@@ -1,10 +1,10 @@
 //! Antenna ratio (routing tier).
 
+use super::Stack;
 use crate::base::geom::Shape;
 use crate::base::ids::NetId;
 use crate::base::routes::Routes;
 use crate::rule::Rule;
-use super::Stack;
 
 /// Conductor-area / gate-area ratio on a gate net stays under the limit at
 /// every etch stage (MFG-04): per layer at its own stage from the deck's
@@ -71,7 +71,9 @@ impl Antenna {
             per_net.iter().enumerate().filter(|(k, _)| *k != self.net.0 as usize).flat_map(|(_, v)| v.iter().copied()).collect::<Vec<_>>()
         };
         let others = [foreign(&r.wires), foreign(&r.cell)].concat();
-        if let Some(w) = self.stack.and_then(|s| s.antenna(r.shapes(self.net), r.cell_metal(self.net), &others, r.gate_pins(self.net), self.gate_area_nm2)) {
+        if let Some(w) =
+            self.stack.and_then(|s| s.antenna(r.shapes(self.net), r.cell_metal(self.net), &others, r.gate_pins(self.net), self.gate_area_nm2))
+        {
             return w;
         }
         let area: i64 = r.shapes(self.net).iter().chain(r.cell_metal(self.net)).map(|s| i64::from(s.rect.w) * i64::from(s.rect.h)).sum();

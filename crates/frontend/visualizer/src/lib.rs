@@ -69,9 +69,7 @@ fn layer_label(names: &LayerMap, (l, d): (u16, u16)) -> String {
 fn bounds(polys: &[Poly]) -> Option<(i32, i32, i32, i32)> {
     let mut pts = polys.iter().flat_map(|p| p.pts.iter());
     let &[x, y] = pts.next()?;
-    Some(pts.fold((x, y, x, y), |(x0, y0, x1, y1), &[x, y]| {
-        (x0.min(x), y0.min(y), x1.max(x), y1.max(y))
-    }))
+    Some(pts.fold((x, y, x, y), |(x0, y0, x1, y1), &[x, y]| (x0.min(x), y0.min(y), x1.max(x), y1.max(y))))
 }
 
 // ── GDS parser: BOUNDARY, BOX, PATH, SREF, AREF, TEXT ──
@@ -136,10 +134,7 @@ fn path_to_polys(layer: u16, datatype: u16, half_w: i32, pts: &[[i32; 2]]) -> Ve
             let len = (dx * dx + dy * dy).sqrt();
             let nx = (-dy / len * hw as f64) as i32;
             let ny = (dx / len * hw as f64) as i32;
-            vec![
-                [x0 + nx, y0 + ny], [x1 + nx, y1 + ny],
-                [x1 - nx, y1 - ny], [x0 - nx, y0 - ny],
-            ]
+            vec![[x0 + nx, y0 + ny], [x1 + nx, y1 + ny], [x1 - nx, y1 - ny], [x0 - nx, y0 - ny]]
         };
         out.push(Poly { layer, datatype, pts: rect });
     }
@@ -194,11 +189,14 @@ fn parse_gds_cells(data: &[u8]) -> HashMap<String, GdsCell> {
             0x07 => {
                 // ENDSTR
                 if let Some(name) = cur_name.take() {
-                    cells.insert(name, GdsCell {
-                        polys: std::mem::take(&mut cur_polys),
-                        srefs: std::mem::take(&mut cur_srefs),
-                        texts: std::mem::take(&mut cur_texts),
-                    });
+                    cells.insert(
+                        name,
+                        GdsCell {
+                            polys: std::mem::take(&mut cur_polys),
+                            srefs: std::mem::take(&mut cur_srefs),
+                            texts: std::mem::take(&mut cur_texts),
+                        },
+                    );
                 }
             }
 
@@ -281,12 +279,16 @@ fn parse_gds_cells(data: &[u8]) -> HashMap<String, GdsCell> {
                 let mut pts: Vec<[i32; 2]> = Vec::with_capacity(np);
                 for j in 0..np {
                     let o = i + 4 + j * 8;
-                    if o + 8 > data.len() { break; }
+                    if o + 8 > data.len() {
+                        break;
+                    }
                     pts.push([read_i32(data, o), read_i32(data, o + 4)]);
                 }
 
                 if in_boundary {
-                    if pts.len() > 1 && pts.first() == pts.last() { pts.pop(); }
+                    if pts.len() > 1 && pts.first() == pts.last() {
+                        pts.pop();
+                    }
                     if pts.len() >= 3 {
                         cur_polys.push(Poly { layer, datatype, pts });
                     }
@@ -298,22 +300,27 @@ fn parse_gds_cells(data: &[u8]) -> HashMap<String, GdsCell> {
                 } else if in_sref && !pts.is_empty() {
                     cur_srefs.push(SRef {
                         name: sref_name.clone(),
-                        x: pts[0][0], y: pts[0][1],
-                        mirror_x: sref_mirror, angle_deg: sref_angle,
-                        cols: 1, rows: 1,
-                        col_vec: (0, 0), row_vec: (0, 0),
+                        x: pts[0][0],
+                        y: pts[0][1],
+                        mirror_x: sref_mirror,
+                        angle_deg: sref_angle,
+                        cols: 1,
+                        rows: 1,
+                        col_vec: (0, 0),
+                        row_vec: (0, 0),
                     });
                 } else if in_aref && pts.len() >= 3 {
                     let (x0, y0) = (pts[0][0], pts[0][1]);
                     cur_srefs.push(SRef {
                         name: sref_name.clone(),
-                        x: x0, y: y0,
-                        mirror_x: sref_mirror, angle_deg: sref_angle,
-                        cols: aref_cols, rows: aref_rows,
-                        col_vec: ((pts[1][0] - x0) / aref_cols.max(1) as i32,
-                                  (pts[1][1] - y0) / aref_cols.max(1) as i32),
-                        row_vec: ((pts[2][0] - x0) / aref_rows.max(1) as i32,
-                                  (pts[2][1] - y0) / aref_rows.max(1) as i32),
+                        x: x0,
+                        y: y0,
+                        mirror_x: sref_mirror,
+                        angle_deg: sref_angle,
+                        cols: aref_cols,
+                        rows: aref_rows,
+                        col_vec: ((pts[1][0] - x0) / aref_cols.max(1) as i32, (pts[1][1] - y0) / aref_cols.max(1) as i32),
+                        row_vec: ((pts[2][0] - x0) / aref_rows.max(1) as i32, (pts[2][1] - y0) / aref_rows.max(1) as i32),
                     });
                 } else if in_text && !pts.is_empty() {
                     text_xy = (pts[0][0], pts[0][1]);
@@ -323,10 +330,7 @@ fn parse_gds_cells(data: &[u8]) -> HashMap<String, GdsCell> {
             // ENDEL
             0x11 => {
                 if in_text && !text_string.is_empty() {
-                    cur_texts.push(TextEntry {
-                        x: text_xy.0, y: text_xy.1,
-                        text: text_string.clone(),
-                    });
+                    cur_texts.push(TextEntry { x: text_xy.0, y: text_xy.1, text: text_string.clone() });
                 }
                 in_boundary = false;
                 in_path = false;
@@ -343,7 +347,9 @@ fn parse_gds_cells(data: &[u8]) -> HashMap<String, GdsCell> {
 
 fn transform_point(x: i32, y: i32, mirror_x: bool, angle_deg: f64) -> (i32, i32) {
     let (px, mut py) = (x as f64, y as f64);
-    if mirror_x { py = -py; }
+    if mirror_x {
+        py = -py;
+    }
     let rad = angle_deg.to_radians();
     let (s, c) = (rad.sin(), rad.cos());
     ((px * c - py * s).round() as i32, (px * s + py * c).round() as i32)
@@ -352,22 +358,30 @@ fn transform_point(x: i32, y: i32, mirror_x: bool, angle_deg: f64) -> (i32, i32)
 fn flatten_cell(
     cells: &HashMap<String, GdsCell>,
     name: &str,
-    tx: i32, ty: i32,
-    mirror: bool, angle: f64,
+    tx: i32,
+    ty: i32,
+    mirror: bool,
+    angle: f64,
     out: &mut Vec<Poly>,
     out_texts: &mut Vec<TextEntry>,
     depth: usize,
 ) {
-    if depth > 64 { return; }
+    if depth > 64 {
+        return;
+    }
     let cell = match cells.get(name) {
         Some(c) => c,
         None => return,
     };
     for poly in &cell.polys {
-        let pts: Vec<[i32; 2]> = poly.pts.iter().map(|&[x, y]| {
-            let (rx, ry) = transform_point(x, y, mirror, angle);
-            [rx + tx, ry + ty]
-        }).collect();
+        let pts: Vec<[i32; 2]> = poly
+            .pts
+            .iter()
+            .map(|&[x, y]| {
+                let (rx, ry) = transform_point(x, y, mirror, angle);
+                [rx + tx, ry + ty]
+            })
+            .collect();
         out.push(Poly { layer: poly.layer, datatype: poly.datatype, pts });
     }
     for t in &cell.texts {
@@ -395,8 +409,7 @@ fn find_top_cell(cells: &HashMap<String, GdsCell>) -> Option<String> {
             referenced.insert(sref.name.clone());
         }
     }
-    cells.keys().find(|k| !referenced.contains(*k)).cloned()
-        .or_else(|| cells.keys().next().cloned())
+    cells.keys().find(|k| !referenced.contains(*k)).cloned().or_else(|| cells.keys().next().cloned())
 }
 
 /// Parse a GDS file and return all polygons + text labels (flattened hierarchy).
@@ -499,50 +512,238 @@ const PEN_UP: (u8, u8) = (255, 255);
 
 fn glyph(ch: char) -> &'static [(u8, u8)] {
     match ch {
-        'A' | 'a' => &[(0,0),(0,5),(0,5),(2,7),(2,7),(4,7),(4,7),(4,0), PEN_UP,PEN_UP, (0,3),(4,3)],
-        'B' | 'b' => &[(0,0),(0,7),(0,7),(3,7),(3,7),(4,6),(4,6),(4,5),(4,5),(3,4),(3,4),(0,4), PEN_UP,PEN_UP, (3,4),(4,3),(4,3),(4,1),(4,1),(3,0),(3,0),(0,0)],
-        'C' | 'c' => &[(4,1),(3,0),(3,0),(1,0),(1,0),(0,1),(0,1),(0,6),(0,6),(1,7),(1,7),(3,7),(3,7),(4,6)],
-        'D' | 'd' => &[(0,0),(0,7),(0,7),(3,7),(3,7),(4,6),(4,6),(4,1),(4,1),(3,0),(3,0),(0,0)],
-        'E' | 'e' => &[(4,0),(0,0),(0,0),(0,7),(0,7),(4,7), PEN_UP,PEN_UP, (0,4),(3,4)],
-        'F' | 'f' => &[(0,0),(0,7),(0,7),(4,7), PEN_UP,PEN_UP, (0,4),(3,4)],
-        'G' | 'g' => &[(4,6),(3,7),(3,7),(1,7),(1,7),(0,6),(0,6),(0,1),(0,1),(1,0),(1,0),(3,0),(3,0),(4,1),(4,1),(4,3),(4,3),(2,3)],
-        'H' | 'h' => &[(0,0),(0,7), PEN_UP,PEN_UP, (4,0),(4,7), PEN_UP,PEN_UP, (0,4),(4,4)],
-        'I' | 'i' => &[(1,0),(3,0), PEN_UP,PEN_UP, (2,0),(2,7), PEN_UP,PEN_UP, (1,7),(3,7)],
-        'J' | 'j' => &[(1,1),(2,0),(2,0),(3,0),(3,0),(4,1),(4,1),(4,7)],
-        'K' | 'k' => &[(0,0),(0,7), PEN_UP,PEN_UP, (4,7),(0,3), PEN_UP,PEN_UP, (1,4),(4,0)],
-        'L' | 'l' => &[(0,7),(0,0),(0,0),(4,0)],
-        'M' | 'm' => &[(0,0),(0,7),(0,7),(2,4),(2,4),(4,7),(4,7),(4,0)],
-        'N' | 'n' => &[(0,0),(0,7),(0,7),(4,0),(4,0),(4,7)],
-        'O' | 'o' => &[(1,0),(0,1),(0,1),(0,6),(0,6),(1,7),(1,7),(3,7),(3,7),(4,6),(4,6),(4,1),(4,1),(3,0),(3,0),(1,0)],
-        'P' | 'p' => &[(0,0),(0,7),(0,7),(3,7),(3,7),(4,6),(4,6),(4,4),(4,4),(3,3),(3,3),(0,3)],
-        'Q' | 'q' => &[(1,0),(0,1),(0,1),(0,6),(0,6),(1,7),(1,7),(3,7),(3,7),(4,6),(4,6),(4,1),(4,1),(3,0),(3,0),(1,0), PEN_UP,PEN_UP, (3,2),(5,0)],
-        'R' | 'r' => &[(0,0),(0,7),(0,7),(3,7),(3,7),(4,6),(4,6),(4,5),(4,5),(3,4),(3,4),(0,4), PEN_UP,PEN_UP, (2,4),(4,0)],
-        'S' | 's' => &[(4,6),(3,7),(3,7),(1,7),(1,7),(0,6),(0,6),(0,5),(0,5),(1,4),(1,4),(3,3),(3,3),(4,2),(4,2),(4,1),(4,1),(3,0),(3,0),(1,0),(1,0),(0,1)],
-        'T' | 't' => &[(0,7),(4,7), PEN_UP,PEN_UP, (2,0),(2,7)],
-        'U' | 'u' => &[(0,7),(0,1),(0,1),(1,0),(1,0),(3,0),(3,0),(4,1),(4,1),(4,7)],
-        'V' | 'v' => &[(0,7),(2,0),(2,0),(4,7)],
-        'W' | 'w' => &[(0,7),(1,0),(1,0),(2,3),(2,3),(3,0),(3,0),(4,7)],
-        'X' | 'x' => &[(0,0),(4,7), PEN_UP,PEN_UP, (0,7),(4,0)],
-        'Y' | 'y' => &[(0,7),(2,4),(2,4),(4,7), PEN_UP,PEN_UP, (2,4),(2,0)],
-        'Z' | 'z' => &[(0,7),(4,7),(4,7),(0,0),(0,0),(4,0)],
-        '0' => &[(1,0),(0,1),(0,1),(0,6),(0,6),(1,7),(1,7),(3,7),(3,7),(4,6),(4,6),(4,1),(4,1),(3,0),(3,0),(1,0), PEN_UP,PEN_UP, (1,1),(3,6)],
-        '1' => &[(1,6),(2,7),(2,7),(2,0), PEN_UP,PEN_UP, (1,0),(3,0)],
-        '2' => &[(0,6),(1,7),(1,7),(3,7),(3,7),(4,6),(4,6),(4,5),(4,5),(0,1),(0,1),(0,0),(0,0),(4,0)],
-        '3' => &[(0,6),(1,7),(1,7),(3,7),(3,7),(4,6),(4,6),(4,5),(4,5),(3,4),(3,4),(2,4), PEN_UP,PEN_UP, (3,4),(4,3),(4,3),(4,1),(4,1),(3,0),(3,0),(1,0),(1,0),(0,1)],
-        '4' => &[(0,7),(0,3),(0,3),(4,3), PEN_UP,PEN_UP, (3,7),(3,0)],
-        '5' => &[(4,7),(0,7),(0,7),(0,4),(0,4),(3,4),(3,4),(4,3),(4,3),(4,1),(4,1),(3,0),(3,0),(1,0),(1,0),(0,1)],
-        '6' => &[(3,7),(1,7),(1,7),(0,6),(0,6),(0,1),(0,1),(1,0),(1,0),(3,0),(3,0),(4,1),(4,1),(4,3),(4,3),(3,4),(3,4),(0,4)],
-        '7' => &[(0,7),(4,7),(4,7),(1,0)],
-        '8' => &[(1,4),(0,5),(0,5),(0,6),(0,6),(1,7),(1,7),(3,7),(3,7),(4,6),(4,6),(4,5),(4,5),(3,4),(3,4),(1,4), PEN_UP,PEN_UP, (1,4),(0,3),(0,3),(0,1),(0,1),(1,0),(1,0),(3,0),(3,0),(4,1),(4,1),(4,3),(4,3),(3,4)],
-        '9' => &[(4,3),(1,3),(1,3),(0,4),(0,4),(0,6),(0,6),(1,7),(1,7),(3,7),(3,7),(4,6),(4,6),(4,1),(4,1),(3,0)],
-        '_' => &[(0,0),(4,0)],
-        '-' => &[(1,3),(3,3)],
-        '(' => &[(3,0),(1,1),(1,1),(1,6),(1,6),(3,7)],
-        ')' => &[(1,0),(3,1),(3,1),(3,6),(3,6),(1,7)],
-        ',' => &[(2,1),(1,0)],
-        '.' => &[(2,0),(2,1),(2,1),(2,0)],
+        'A' | 'a' => &[(0, 0), (0, 5), (0, 5), (2, 7), (2, 7), (4, 7), (4, 7), (4, 0), PEN_UP, PEN_UP, (0, 3), (4, 3)],
+        'B' | 'b' => &[
+            (0, 0),
+            (0, 7),
+            (0, 7),
+            (3, 7),
+            (3, 7),
+            (4, 6),
+            (4, 6),
+            (4, 5),
+            (4, 5),
+            (3, 4),
+            (3, 4),
+            (0, 4),
+            PEN_UP,
+            PEN_UP,
+            (3, 4),
+            (4, 3),
+            (4, 3),
+            (4, 1),
+            (4, 1),
+            (3, 0),
+            (3, 0),
+            (0, 0),
+        ],
+        'C' | 'c' => &[(4, 1), (3, 0), (3, 0), (1, 0), (1, 0), (0, 1), (0, 1), (0, 6), (0, 6), (1, 7), (1, 7), (3, 7), (3, 7), (4, 6)],
+        'D' | 'd' => &[(0, 0), (0, 7), (0, 7), (3, 7), (3, 7), (4, 6), (4, 6), (4, 1), (4, 1), (3, 0), (3, 0), (0, 0)],
+        'E' | 'e' => &[(4, 0), (0, 0), (0, 0), (0, 7), (0, 7), (4, 7), PEN_UP, PEN_UP, (0, 4), (3, 4)],
+        'F' | 'f' => &[(0, 0), (0, 7), (0, 7), (4, 7), PEN_UP, PEN_UP, (0, 4), (3, 4)],
+        'G' | 'g' => &[
+            (4, 6),
+            (3, 7),
+            (3, 7),
+            (1, 7),
+            (1, 7),
+            (0, 6),
+            (0, 6),
+            (0, 1),
+            (0, 1),
+            (1, 0),
+            (1, 0),
+            (3, 0),
+            (3, 0),
+            (4, 1),
+            (4, 1),
+            (4, 3),
+            (4, 3),
+            (2, 3),
+        ],
+        'H' | 'h' => &[(0, 0), (0, 7), PEN_UP, PEN_UP, (4, 0), (4, 7), PEN_UP, PEN_UP, (0, 4), (4, 4)],
+        'I' | 'i' => &[(1, 0), (3, 0), PEN_UP, PEN_UP, (2, 0), (2, 7), PEN_UP, PEN_UP, (1, 7), (3, 7)],
+        'J' | 'j' => &[(1, 1), (2, 0), (2, 0), (3, 0), (3, 0), (4, 1), (4, 1), (4, 7)],
+        'K' | 'k' => &[(0, 0), (0, 7), PEN_UP, PEN_UP, (4, 7), (0, 3), PEN_UP, PEN_UP, (1, 4), (4, 0)],
+        'L' | 'l' => &[(0, 7), (0, 0), (0, 0), (4, 0)],
+        'M' | 'm' => &[(0, 0), (0, 7), (0, 7), (2, 4), (2, 4), (4, 7), (4, 7), (4, 0)],
+        'N' | 'n' => &[(0, 0), (0, 7), (0, 7), (4, 0), (4, 0), (4, 7)],
+        'O' | 'o' => {
+            &[(1, 0), (0, 1), (0, 1), (0, 6), (0, 6), (1, 7), (1, 7), (3, 7), (3, 7), (4, 6), (4, 6), (4, 1), (4, 1), (3, 0), (3, 0), (1, 0)]
+        }
+        'P' | 'p' => &[(0, 0), (0, 7), (0, 7), (3, 7), (3, 7), (4, 6), (4, 6), (4, 4), (4, 4), (3, 3), (3, 3), (0, 3)],
+        'Q' | 'q' => &[
+            (1, 0),
+            (0, 1),
+            (0, 1),
+            (0, 6),
+            (0, 6),
+            (1, 7),
+            (1, 7),
+            (3, 7),
+            (3, 7),
+            (4, 6),
+            (4, 6),
+            (4, 1),
+            (4, 1),
+            (3, 0),
+            (3, 0),
+            (1, 0),
+            PEN_UP,
+            PEN_UP,
+            (3, 2),
+            (5, 0),
+        ],
+        'R' | 'r' => {
+            &[(0, 0), (0, 7), (0, 7), (3, 7), (3, 7), (4, 6), (4, 6), (4, 5), (4, 5), (3, 4), (3, 4), (0, 4), PEN_UP, PEN_UP, (2, 4), (4, 0)]
+        }
+        'S' | 's' => &[
+            (4, 6),
+            (3, 7),
+            (3, 7),
+            (1, 7),
+            (1, 7),
+            (0, 6),
+            (0, 6),
+            (0, 5),
+            (0, 5),
+            (1, 4),
+            (1, 4),
+            (3, 3),
+            (3, 3),
+            (4, 2),
+            (4, 2),
+            (4, 1),
+            (4, 1),
+            (3, 0),
+            (3, 0),
+            (1, 0),
+            (1, 0),
+            (0, 1),
+        ],
+        'T' | 't' => &[(0, 7), (4, 7), PEN_UP, PEN_UP, (2, 0), (2, 7)],
+        'U' | 'u' => &[(0, 7), (0, 1), (0, 1), (1, 0), (1, 0), (3, 0), (3, 0), (4, 1), (4, 1), (4, 7)],
+        'V' | 'v' => &[(0, 7), (2, 0), (2, 0), (4, 7)],
+        'W' | 'w' => &[(0, 7), (1, 0), (1, 0), (2, 3), (2, 3), (3, 0), (3, 0), (4, 7)],
+        'X' | 'x' => &[(0, 0), (4, 7), PEN_UP, PEN_UP, (0, 7), (4, 0)],
+        'Y' | 'y' => &[(0, 7), (2, 4), (2, 4), (4, 7), PEN_UP, PEN_UP, (2, 4), (2, 0)],
+        'Z' | 'z' => &[(0, 7), (4, 7), (4, 7), (0, 0), (0, 0), (4, 0)],
+        '0' => &[
+            (1, 0),
+            (0, 1),
+            (0, 1),
+            (0, 6),
+            (0, 6),
+            (1, 7),
+            (1, 7),
+            (3, 7),
+            (3, 7),
+            (4, 6),
+            (4, 6),
+            (4, 1),
+            (4, 1),
+            (3, 0),
+            (3, 0),
+            (1, 0),
+            PEN_UP,
+            PEN_UP,
+            (1, 1),
+            (3, 6),
+        ],
+        '1' => &[(1, 6), (2, 7), (2, 7), (2, 0), PEN_UP, PEN_UP, (1, 0), (3, 0)],
+        '2' => &[(0, 6), (1, 7), (1, 7), (3, 7), (3, 7), (4, 6), (4, 6), (4, 5), (4, 5), (0, 1), (0, 1), (0, 0), (0, 0), (4, 0)],
+        '3' => &[
+            (0, 6),
+            (1, 7),
+            (1, 7),
+            (3, 7),
+            (3, 7),
+            (4, 6),
+            (4, 6),
+            (4, 5),
+            (4, 5),
+            (3, 4),
+            (3, 4),
+            (2, 4),
+            PEN_UP,
+            PEN_UP,
+            (3, 4),
+            (4, 3),
+            (4, 3),
+            (4, 1),
+            (4, 1),
+            (3, 0),
+            (3, 0),
+            (1, 0),
+            (1, 0),
+            (0, 1),
+        ],
+        '4' => &[(0, 7), (0, 3), (0, 3), (4, 3), PEN_UP, PEN_UP, (3, 7), (3, 0)],
+        '5' => &[(4, 7), (0, 7), (0, 7), (0, 4), (0, 4), (3, 4), (3, 4), (4, 3), (4, 3), (4, 1), (4, 1), (3, 0), (3, 0), (1, 0), (1, 0), (0, 1)],
+        '6' => &[
+            (3, 7),
+            (1, 7),
+            (1, 7),
+            (0, 6),
+            (0, 6),
+            (0, 1),
+            (0, 1),
+            (1, 0),
+            (1, 0),
+            (3, 0),
+            (3, 0),
+            (4, 1),
+            (4, 1),
+            (4, 3),
+            (4, 3),
+            (3, 4),
+            (3, 4),
+            (0, 4),
+        ],
+        '7' => &[(0, 7), (4, 7), (4, 7), (1, 0)],
+        '8' => &[
+            (1, 4),
+            (0, 5),
+            (0, 5),
+            (0, 6),
+            (0, 6),
+            (1, 7),
+            (1, 7),
+            (3, 7),
+            (3, 7),
+            (4, 6),
+            (4, 6),
+            (4, 5),
+            (4, 5),
+            (3, 4),
+            (3, 4),
+            (1, 4),
+            PEN_UP,
+            PEN_UP,
+            (1, 4),
+            (0, 3),
+            (0, 3),
+            (0, 1),
+            (0, 1),
+            (1, 0),
+            (1, 0),
+            (3, 0),
+            (3, 0),
+            (4, 1),
+            (4, 1),
+            (4, 3),
+            (4, 3),
+            (3, 4),
+        ],
+        '9' => &[(4, 3), (1, 3), (1, 3), (0, 4), (0, 4), (0, 6), (0, 6), (1, 7), (1, 7), (3, 7), (3, 7), (4, 6), (4, 6), (4, 1), (4, 1), (3, 0)],
+        '_' => &[(0, 0), (4, 0)],
+        '-' => &[(1, 3), (3, 3)],
+        '(' => &[(3, 0), (1, 1), (1, 1), (1, 6), (1, 6), (3, 7)],
+        ')' => &[(1, 0), (3, 1), (3, 1), (3, 6), (3, 6), (1, 7)],
+        ',' => &[(2, 1), (1, 0)],
+        '.' => &[(2, 0), (2, 1), (2, 1), (2, 0)],
         ' ' => &[],
-        _ => &[(0,0),(4,7), PEN_UP,PEN_UP, (0,7),(4,0)], // fallback: X
+        _ => &[(0, 0), (4, 7), PEN_UP, PEN_UP, (0, 7), (4, 0)], // fallback: X
     }
 }
 
@@ -640,20 +841,15 @@ pub fn export_svg(gds_bytes: &[u8], layer_names: &LayerMap) -> String {
     layers.dedup();
 
     let byte = |v: f32| (v * 255.0) as u8;
-    let mut svg = format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vx} {vy} {vw} {vh}" width="800" height="800" style="background:#14141a">"#
-    );
+    let mut svg =
+        format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vx} {vy} {vw} {vh}" width="800" height="800" style="background:#14141a">"#);
     // GDS is y-up, SVG y-down.
     let flip = vy * 2 + vh;
     svg.push_str(&format!(r#"<g transform="translate(0,{flip}) scale(1,-1)">"#));
     for &layer in &layers {
         let (c, fill) = layer_style(layer_names, layer);
         let o = outline_color(c);
-        let fill = if fill {
-            format!("rgba({},{},{},{})", byte(c[0]), byte(c[1]), byte(c[2]), c[3])
-        } else {
-            "none".into()
-        };
+        let fill = if fill { format!("rgba({},{},{},{})", byte(c[0]), byte(c[1]), byte(c[2]), c[3]) } else { "none".into() };
         svg.push_str(&format!(
             r#"<g id="{}" fill="{fill}" stroke="rgba({},{},{},1)" stroke-width="{}">"#,
             layer_label(layer_names, layer),
@@ -755,11 +951,7 @@ fn make_pipeline(
         fragment: Some(wgpu::FragmentState {
             module: shader,
             entry_point: Some("fs"),
-            targets: &[Some(wgpu::ColorTargetState {
-                format,
-                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
+            targets: &[Some(wgpu::ColorTargetState { format, blend: Some(wgpu::BlendState::ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL })],
             compilation_options: Default::default(),
         }),
         primitive: wgpu::PrimitiveState { topology, ..Default::default() },
@@ -775,14 +967,10 @@ impl Gpu {
         let sz = win.inner_size();
         let inst = wgpu::Instance::default();
         let surface = inst.create_surface(win).unwrap();
-        let adapter = pollster::block_on(inst.request_adapter(&wgpu::RequestAdapterOptions {
-            compatible_surface: Some(&surface),
-            ..Default::default()
-        }))
-        .expect("no GPU adapter found");
-        let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None))
-                .unwrap();
+        let adapter =
+            pollster::block_on(inst.request_adapter(&wgpu::RequestAdapterOptions { compatible_surface: Some(&surface), ..Default::default() }))
+                .expect("no GPU adapter found");
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None)).unwrap();
 
         let caps = surface.get_capabilities(&adapter);
         let fmt = caps.formats[0];
@@ -798,12 +986,8 @@ impl Gpu {
         };
         surface.configure(&device, &config);
 
-        let module = |src: &str| {
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(src.into()),
-            })
-        };
+        let module =
+            |src: &str| device.create_shader_module(wgpu::ShaderModuleDescriptor { label: None, source: wgpu::ShaderSource::Wgsl(src.into()) });
         let (shader, overlay_shader) = (module(SHADER), module(OVERLAY_SHADER));
         let cam_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
@@ -816,11 +1000,7 @@ impl Gpu {
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
+                ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
                 count: None,
             }],
         });
@@ -830,11 +1010,7 @@ impl Gpu {
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: cam_buf.as_entire_binding() }],
         });
         let layout = |bgls: &[&wgpu::BindGroupLayout]| {
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: bgls,
-                push_constant_ranges: &[],
-            })
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: bgls, push_constant_ranges: &[] })
         };
         let (pll, overlay_pll) = (layout(&[&bgl]), layout(&[]));
         use wgpu::PrimitiveTopology::{LineList, TriangleList};
@@ -899,11 +1075,9 @@ impl Gpu {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            for (mesh, pipeline, world) in [
-                (&self.fill, &self.fill_pipeline, true),
-                (&self.line, &self.line_pipeline, true),
-                (&self.overlay, &self.overlay_pipeline, false),
-            ] {
+            for (mesh, pipeline, world) in
+                [(&self.fill, &self.fill_pipeline, true), (&self.line, &self.line_pipeline, true), (&self.overlay, &self.overlay_pipeline, false)]
+            {
                 let Some(buf) = &mesh.buf else { continue };
                 rp.set_pipeline(pipeline);
                 if world {
@@ -993,10 +1167,7 @@ impl App {
     fn cursor_ndc(&self) -> [f32; 2] {
         self.win.as_ref().map_or([0.0; 2], |w| {
             let s = w.inner_size();
-            [
-                2.0 * self.cursor[0] as f32 / s.width as f32 - 1.0,
-                -(2.0 * self.cursor[1] as f32 / s.height as f32 - 1.0),
-            ]
+            [2.0 * self.cursor[0] as f32 / s.width as f32 - 1.0, -(2.0 * self.cursor[1] as f32 / s.height as f32 - 1.0)]
         })
     }
 }
@@ -1006,9 +1177,7 @@ impl ApplicationHandler for App {
         if self.win.is_some() {
             return;
         }
-        let attrs = Window::default_attributes()
-            .with_title(&self.title)
-            .with_inner_size(LogicalSize::new(1280u32, 720u32));
+        let attrs = Window::default_attributes().with_title(&self.title).with_inner_size(LogicalSize::new(1280u32, 720u32));
         let w = std::sync::Arc::new(el.create_window(attrs).unwrap());
         let s = w.inner_size();
         self.cam.aspect = s.width as f32 / s.height.max(1) as f32;
@@ -1044,8 +1213,7 @@ impl ApplicationHandler for App {
                 self.cursor = [position.x, position.y];
                 if let (true, Some(w)) = (self.drag, &self.win) {
                     let s = w.inner_size();
-                    self.cam.offset[0] +=
-                        (2.0 * dx as f32 / s.width as f32) * self.cam.aspect / self.cam.scale;
+                    self.cam.offset[0] += (2.0 * dx as f32 / s.width as f32) * self.cam.aspect / self.cam.scale;
                     self.cam.offset[1] -= (2.0 * dy as f32 / s.height as f32) / self.cam.scale;
                 }
             }
@@ -1187,11 +1355,7 @@ pub fn polys_from_shapes(shapes: &[analog::base::Shape], gds: &[(u16, u16)]) -> 
         .map(|s| {
             let r = s.rect;
             let (layer, datatype) = gds.get(s.layer.0 as usize).copied().unwrap_or((s.layer.0, 0));
-            Poly {
-                layer,
-                datatype,
-                pts: vec![[r.x, r.y], [r.x + r.w, r.y], [r.x + r.w, r.y + r.h], [r.x, r.y + r.h]],
-            }
+            Poly { layer, datatype, pts: vec![[r.x, r.y], [r.x + r.w, r.y], [r.x + r.w, r.y + r.h], [r.x, r.y + r.h]] }
         })
         .collect()
 }

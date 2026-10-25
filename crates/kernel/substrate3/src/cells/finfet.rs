@@ -8,9 +8,9 @@
 //! the deck's.
 
 use crate::cells::builder::dim;
+use analog::base::{DeviceGroup, DeviceKind, Macro, Process, Rect};
 use analog::matching::pattern::{self, Outer};
 use analog::Constraints;
-use analog::base::{DeviceGroup, DeviceKind, Macro, Process, Rect};
 
 use crate::cells::builder::{pin, req, sizing, unitization, Builder, Sizing};
 use crate::cells::Cell;
@@ -119,7 +119,8 @@ impl Cell for FinFet {
         let v1_in_m1 = process.endcap("li", "mcon").unwrap_or(0).max(process.enclosure("li", "mcon").unwrap_or(0));
         let v1_in_m2 = process.endcap("met1", "mcon").unwrap_or(0).max(process.enclosure("met1", "mcon").unwrap_or(0));
         // A full-width V1 (ASAP7 V1.M2.AUX.2) is exactly as wide as its strap.
-        let m2_w = if process.full_width("mcon", "met1") { v1_w } else { process.width("met1").unwrap_or(r.m1_w).max(v1_w + 2 * v1_in_m2.min(v1_in_m1)) };
+        let m2_w =
+            if process.full_width("mcon", "met1") { v1_w } else { process.width("met1").unwrap_or(r.m1_w).max(v1_w + 2 * v1_in_m2.min(v1_in_m1)) };
         let v1_pad = v1_w + 2 * v1_in_m1;
         let (own_sel, tap_sel) = if pmos { (req(process, "psdm"), req(process, "nsdm")) } else { (req(process, "nsdm"), req(process, "psdm")) };
 
@@ -236,7 +237,15 @@ impl Cell for FinFet {
                 b.rect(v0, Rect { x: g + r.gate_w / 2 - r.v0 / 2, y: gv0_y - off, w: r.v0, h: r.v0 });
                 let c = g + r.gate_w / 2;
                 let phi = if (i % 2 == 0) != *s_odd { 1 } else { -1 };
-                b.unit(analog::base::Unit { owner: k as u8, x: c, y: h / 2, weight: i64::from(r.gate_w) * i64::from(h), phi: (phi, 0), sa: c - a.x, sb: a.x + a.w - c });
+                b.unit(analog::base::Unit {
+                    owner: k as u8,
+                    x: c,
+                    y: h / 2,
+                    weight: i64::from(r.gate_w) * i64::from(h),
+                    phi: (phi, 0),
+                    sa: c - a.x,
+                    sb: a.x + a.w - c,
+                });
             }
             // One M1 strap per member over its own gate contacts.
             for &k in &members {
@@ -282,10 +291,8 @@ impl Cell for FinFet {
         // clear of the device select and of the gates' field ends.
         let tap_h = r.fin_p.max(r.lisd_w);
         // Its rail (at the tap's centre) a spacing above the source strap.
-        let tap_min = (sel.y + sel.h + r.sel_enc)
-            .max(gate_hi + r.gate_field)
-            .max(h + r.act_s)
-            .max(s_strap_y + r.m1_w + r.m1_s - (tap_h - r.m1_w) / 2);
+        let tap_min =
+            (sel.y + sel.h + r.sel_enc).max(gate_hi + r.gate_field).max(h + r.act_s).max(s_strap_y + r.m1_w + r.m1_s - (tap_h - r.m1_w) / 2);
         // The tap fin is a row of the device's fin lattice, and every row
         // between is drawn: an exact pitch (ASAP7 FIN.S.1) reads a missing
         // row as a double pitch.
@@ -319,7 +326,15 @@ impl Cell for FinFet {
         if pmos {
             if let Some(well) = process.layer("nwell") {
                 let top = tsel.y + tsel.h;
-                b.rect(well, Rect { x: x0 - r.well_enc, y: sel.y.min(-r.well_enc), w: x1 - x0 + 2 * r.well_enc, h: top.max(tap_y + tap_h + r.well_enc) - sel.y.min(-r.well_enc) });
+                b.rect(
+                    well,
+                    Rect {
+                        x: x0 - r.well_enc,
+                        y: sel.y.min(-r.well_enc),
+                        w: x1 - x0 + 2 * r.well_enc,
+                        h: top.max(tap_y + tap_h + r.well_enc) - sel.y.min(-r.well_enc),
+                    },
+                );
             }
         }
         b.finish()
@@ -465,7 +480,9 @@ mod tests {
         for kind in [DeviceKind::Nmos, DeviceKind::Pmos] {
             for nf in [&[1u16][..], &[2, 2], &[2, 4], &[4, 4]] {
                 let (g, c) = group(kind, nf, 1680);
-                dirty.extend(crate::cells::testkit::dirty_group_with::<FinFet>(&g, &c, &pdk, &["S", "B"]).into_iter().map(|d| format!("{kind:?} {nf:?} {d}")));
+                dirty.extend(
+                    crate::cells::testkit::dirty_group_with::<FinFet>(&g, &c, &pdk, &["S", "B"]).into_iter().map(|d| format!("{kind:?} {nf:?} {d}")),
+                );
             }
         }
         assert!(dirty.is_empty(), "{}", dirty.join("\n"));

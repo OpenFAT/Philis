@@ -28,9 +28,9 @@
 
 use crate::cells::builder::dim;
 
+use analog::base::{DeviceGroup, Drawn, DrawnKind, KeepWhy, Macro, MatchClass, Node, Process, Rect, Unit};
 use analog::matching::pattern::{self, Fill, Grid};
 use analog::Constraints;
-use analog::base::{DeviceGroup, Drawn, DrawnKind, KeepWhy, Macro, MatchClass, Node, Process, Rect, Unit};
 
 use crate::cells::builder::{cut_lattice, pin, req, sizing, Builder, Sizing};
 use crate::cells::Cell;
@@ -224,7 +224,11 @@ fn ca_half_side(p: &dyn Process, unit_w: i32, unit_l: i32, lsb: u8, msb: u8) -> 
 /// Rows × columns holding `2^m` units, columns ≥ rows unless `tall`.
 fn dims(m: u8, tall: bool) -> (usize, usize) {
     let (r, c) = (1usize << (m / 2), 1usize << (m - m / 2));
-    if tall { (c, r) } else { (r, c) }
+    if tall {
+        (c, r)
+    } else {
+        (r, c)
+    }
 }
 
 impl CapArray {
@@ -290,7 +294,8 @@ impl CapArray {
         let half = ca_half_side(process, s.unit_w, s.unit_l, lsb, msb.len() as u8)?;
         let lat = cut_lattice(process);
         let unit = |v: i32| ((v + lat - 1) / lat * lat).max(process.width("plate").unwrap_or(0));
-        (half >= process.width("plate").unwrap_or(0) && half <= unit(s.unit_w).min(unit(s.unit_l))).then_some(CapArray { pattern: Pattern::Split { lsb, bridge_top_lsb }, tall: false })
+        (half >= process.width("plate").unwrap_or(0) && half <= unit(s.unit_w).min(unit(s.unit_l)))
+            .then_some(CapArray { pattern: Pattern::Split { lsb, bridge_top_lsb }, tall: false })
     }
 
     /// ARR-02/03 figures for this variant under the t0/t gradient `g` (1/µm).
@@ -339,7 +344,16 @@ impl CapArray {
     /// `side`: a centred square plate of that side instead (a split DAC's
     /// bridge half); the bottom plate stays the cell. Returns the plate.
     #[allow(clippy::too_many_arguments)]
-    fn mim_unit(b: &mut Builder, process: &dyn Process, st: &PlateStack, cell: Rect, encp: i32, slot: Option<u8>, ring: bool, side: Option<i32>) -> Rect {
+    fn mim_unit(
+        b: &mut Builder,
+        process: &dyn Process,
+        st: &PlateStack,
+        cell: Rect,
+        encp: i32,
+        slot: Option<u8>,
+        ring: bool,
+        side: Option<i32>,
+    ) -> Rect {
         let plate_role = st.plate.expect("MIM");
         let lat = cut_lattice(process);
         b.rect(req(process, st.bot), cell);
@@ -365,8 +379,23 @@ impl CapArray {
                 b.rect(cut, Rect { x: x0 + i * pitch, y: y0 + j * pitch, w: v, h: v });
             }
         }
-        b.unit(Unit { owner, x: cell.x + cell.w / 2, y: cell.y + cell.h / 2, weight: i64::from(plate.w) * i64::from(plate.h), phi: (0, 0), sa: 0, sb: 0 });
-        b.drawn(Drawn { owner, device: None, kind: DrawnKind::Capacitor, nodes: [Node::Pin("P"), Node::Pin("N"), Node::Unused], w: plate.w, l: plate.h });
+        b.unit(Unit {
+            owner,
+            x: cell.x + cell.w / 2,
+            y: cell.y + cell.h / 2,
+            weight: i64::from(plate.w) * i64::from(plate.h),
+            phi: (0, 0),
+            sa: 0,
+            sb: 0,
+        });
+        b.drawn(Drawn {
+            owner,
+            device: None,
+            kind: DrawnKind::Capacitor,
+            nodes: [Node::Pin("P"), Node::Pin("N"), Node::Unused],
+            w: plate.w,
+            l: plate.h,
+        });
         b.keepout(plate, KeepWhy::CapPlate { owner });
         plate
     }
@@ -496,7 +525,11 @@ impl CapArray {
         let (gr, gc) = (rows + 2 * o, cols + 2 * o);
         let dummy_slot = if general { n + 1 } else { 0 };
         let owner = |r: usize, c: usize| -> Option<u8> {
-            if r >= o && c >= o && r < rows + o && c < cols + o { slots[(r - o) * cols + c - o] } else { None }
+            if r >= o && c >= o && r < rows + o && c < cols + o {
+                slots[(r - o) * cols + c - o]
+            } else {
+                None
+            }
         };
         // Per column, the slots with a unit there (dummies are slot 0), in slot order.
         let tracks: Vec<Vec<u8>> = (0..gc)
@@ -535,7 +568,16 @@ impl CapArray {
                 let s = slot.unwrap_or(dummy_slot);
                 if mim {
                     let side = half.filter(|_| slot == Some(n));
-                    let plate = Self::mim_unit(&mut b, process, &st, Rect { x: x0, y: y0, w: uw, h: uh }, encp, slot, o == 1 && (r == 0 || c == 0 || r == gr - 1 || c == gc - 1), side);
+                    let plate = Self::mim_unit(
+                        &mut b,
+                        process,
+                        &st,
+                        Rect { x: x0, y: y0, w: uw, h: uh },
+                        encp,
+                        slot,
+                        o == 1 && (r == 0 || c == 0 || r == gr - 1 || c == gc - 1),
+                        side,
+                    );
                     if let Some(owner) = slot {
                         plates.push((r - o, plate, owner));
                     }
@@ -624,7 +666,8 @@ impl CapArray {
                 let cy = bus.y + w1 / 2;
                 let xa = x_right - e2 - vd / 2;
                 let xb = xa + up(side + space(st.bot));
-                let pad = |b: &mut Builder, cx: i32| b.rect(m2, tall(Rect { x: cx - vd / 2 - e2, y: cy - vd / 2 - e2, w: vd + 2 * e2, h: vd + 2 * e2 }));
+                let pad =
+                    |b: &mut Builder, cx: i32| b.rect(m2, tall(Rect { x: cx - vd / 2 - e2, y: cy - vd / 2 - e2, w: vd + 2 * e2, h: vd + 2 * e2 }));
                 pad(&mut b, xa);
                 island(&mut b, xa, cy);
                 b.rect(req(process, st.top), Rect { x: xa - vt / 2 - e4, y: cy - jw / 2, w: xb - xa + vt + 2 * e4, h: jw });
@@ -732,8 +775,8 @@ fn group_sizing(group: &DeviceGroup, c: &Constraints, process: &dyn Process) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use analog::cell::{SeriesParallel, Unitization};
     use analog::base::{DeviceId, DeviceKind};
+    use analog::cell::{SeriesParallel, Unitization};
 
     fn bank(n: u8) -> (DeviceGroup, Constraints) {
         let dev_nf: Vec<u16> = (0..=n).map(|i| if i == 0 { 1 } else { 1 << (i - 1) }).collect();
@@ -749,7 +792,10 @@ mod tests {
                 series_parallel: SeriesParallel::Parallel,
                 dummy_required: true,
                 route_matching_required: true,
-                class: None, kind: None, series: Vec::new(), style: None,
+                class: None,
+                kind: None,
+                series: Vec::new(),
+                style: None,
             }],
             ..Default::default()
         };
@@ -928,7 +974,9 @@ mod tests {
                     let mine: Vec<usize> = (0..slots.len()).filter(|&i| slots[i] == Some(d as u8)).collect();
                     assert_eq!(mine.len(), usize::from(n), "{counts:?} {pattern:?}: device {d}");
                     if n % 2 == 0 {
-                        let (sr, sc) = mine.iter().fold((0, 0), |(r, c), &i| (r + 2 * (i / cols) as i64 - rows as i64 + 1, c + 2 * (i % cols) as i64 - cols as i64 + 1));
+                        let (sr, sc) = mine
+                            .iter()
+                            .fold((0, 0), |(r, c), &i| (r + 2 * (i / cols) as i64 - rows as i64 + 1, c + 2 * (i % cols) as i64 - cols as i64 + 1));
                         assert_eq!((sr, sc), (0, 0), "{counts:?} {pattern:?}: device {d} off centre");
                     }
                 }
@@ -1095,7 +1143,12 @@ mod tests {
             let step = 2.0 * (c(half + lat) - c(half));
             assert!((2.0 * c(half) - want).abs() <= step, "({l}, {mb}): 2·C({half}) = {} aF vs C_A {want} aF", 2.0 * c(half));
             assert!(k(f64::from(half)) >= k(3000.0));
-            eprintln!("({l}, {mb}): half {half} nm, k {:.3e} vs k_u {:.3e} /nm (Δk {:.3e})", k(f64::from(half)), k(3000.0), k(f64::from(half)) - k(3000.0));
+            eprintln!(
+                "({l}, {mb}): half {half} nm, k {:.3e} vs k_u {:.3e} /nm (Δk {:.3e})",
+                k(f64::from(half)),
+                k(3000.0),
+                k(f64::from(half)) - k(3000.0)
+            );
             let (g, cs) = split_set(l, mb);
             let n = cs.unitization[0].dev_nf.len() - 1;
             let m = CapArray::split(&g, &cs, &ov, l, false).expect("offered").draw(&g, &cs, &ov);

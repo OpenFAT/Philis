@@ -53,7 +53,18 @@ impl PerformanceBudget {
     /// RTE-21 reuses it.
     #[must_use]
     pub fn ground_c(metric: String, nets: Vec<NetId>, weights: Vec<f32>, af_per_nm: f32) -> Self {
-        Self { metric, nets, weights, af_per_nm, limit: 1.0, r_nets: Vec::new(), r_weights: Vec::new(), diff_pairs: Vec::new(), diff_weights: Vec::new(), coupling: Vec::new() }
+        Self {
+            metric,
+            nets,
+            weights,
+            af_per_nm,
+            limit: 1.0,
+            r_nets: Vec::new(),
+            r_weights: Vec::new(),
+            diff_pairs: Vec::new(),
+            diff_weights: Vec::new(),
+            coupling: Vec::new(),
+        }
     }
 
     /// Spent fraction of the bound's headroom (of `|bound|` when `limit = 0`).
@@ -102,7 +113,9 @@ impl RuleBatch<Routes> for PerformanceBudget {
     /// The nets that spend the margin (positive weight): ground C, series R
     /// and both nets of a coupling term.
     fn touched(&self, out: &mut Vec<u32>) {
-        out.extend(self.nets.iter().zip(&self.weights).chain(self.r_nets.iter().zip(&self.r_weights)).filter(|(_, &w)| w > 0.0).map(|(n, _)| u32::from(n.0)));
+        out.extend(
+            self.nets.iter().zip(&self.weights).chain(self.r_nets.iter().zip(&self.r_weights)).filter(|(_, &w)| w > 0.0).map(|(n, _)| u32::from(n.0)),
+        );
         out.extend(self.coupling.iter().filter(|c| c.2 > 0.0).flat_map(|c| [u32::from(c.0 .0), u32::from(c.1 .0)]));
     }
 }
@@ -123,10 +136,10 @@ mod tests {
         // 1 aF/nm. Net 0 spends 1% of the margin per aF, net 1 0.01%.
         let b = PerformanceBudget::ground_c("ugf".into(), vec![NetId(0), NetId(1)], vec![1e-2, 1e-4], 1.0);
         // 50 aF on the sensitive net + 4000 aF on the numb one: 0.5 + 0.4.
-        let ok = Routes { wires: vec![wire(50), wire(4_000)], ..Default::default()  };
+        let ok = Routes { wires: vec![wire(50), wire(4_000)], ..Default::default() };
         assert!(b.violations(&ok) == 0 && (b.worst_usage(&ok).unwrap() - 0.9).abs() < 1e-4);
         // Swap them and the same total C blows the spec 40×.
-        let bad = Routes { wires: vec![wire(4_000), wire(50)], ..Default::default()  };
+        let bad = Routes { wires: vec![wire(4_000), wire(50)], ..Default::default() };
         assert_eq!(b.violations(&bad), 1);
         assert!(b.residual(&bad) > 30.0);
         let mut ids = Vec::new();

@@ -6,8 +6,7 @@ use std::collections::HashSet;
 use std::fmt::Write as _;
 
 /// `(module, type, verify::Pdk::builtin name)`.
-const PDKS: [(&str, &str, &str); 3] =
-    [("gf180mcu", "Gf180mcu", "gf180mcu"), ("ihp_sg13g2", "IhpSg13g2", "ihp_sg13g2"), ("asap7", "Asap7", "asap7")];
+const PDKS: [(&str, &str, &str); 3] = [("gf180mcu", "Gf180mcu", "gf180mcu"), ("ihp_sg13g2", "IhpSg13g2", "ihp_sg13g2"), ("asap7", "Asap7", "asap7")];
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");

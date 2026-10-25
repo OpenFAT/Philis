@@ -2,10 +2,10 @@
 //! → propagation → reception). What isolation ([`crate::emit::isolation`])
 //! and guard rings ([`crate::rings`]) read.
 
-use analog::intent::{Aggressor, Inject, MatchClass, MatchSpec, Victim};
-use analog::metadata::{NetClass, NetClassification};
 use analog::base::ids::DeviceId;
 use analog::base::{DeviceKind, Netlist};
+use analog::intent::{Aggressor, Inject, MatchClass, MatchSpec, Victim};
+use analog::metadata::{NetClass, NetClassification};
 
 /// A net whose voltage swings hard enough to inject: Clock, DigitalSwitching, Noisy.
 fn aggressor_net(c: NetClass) -> bool {
@@ -120,7 +120,9 @@ pub fn injectors(
         let tag = match d.kind {
             DeviceKind::Nmos => reached(&["D", "S"]).map(|r| (Inject::MinorityElectron, r.1)),
             DeviceKind::Pmos => reached(&["D", "S"]).map(|r| (Inject::MinorityHole, r.1)),
-            DeviceKind::Diode => reached(&["N"]).map(|r| (Inject::MinorityElectron, r.1)).or_else(|| reached(&["P"]).map(|r| (Inject::MinorityHole, r.1))),
+            DeviceKind::Diode => {
+                reached(&["N"]).map(|r| (Inject::MinorityElectron, r.1)).or_else(|| reached(&["P"]).map(|r| (Inject::MinorityHole, r.1)))
+            }
             DeviceKind::Npn | DeviceKind::Pnp => {
                 if reached(&["C", "B", "E"]).is_some() && !missing.contains(&("GuardRing", "bipolar injectors unclassified")) {
                     missing.push(("GuardRing", "bipolar injectors unclassified"));
@@ -250,7 +252,17 @@ mod tests {
         nl.ports.clear();
         let p = crate::annotate(&nl, &crate::AnnotationConfig::default());
         let mut dev = vec![None; nl.devices.len()];
-        dev[2] = Some(crate::evidence::DeviceOp { id_ua: 1.0, headroom_mv: 100.0, gm_us: 10.0, power_uw: 0.0, vgs_mv: None, vbs_mv: Some(200.0), vth_mv: None, gmb_us: None, gds_us: None });
+        dev[2] = Some(crate::evidence::DeviceOp {
+            id_ua: 1.0,
+            headroom_mv: 100.0,
+            gm_us: 10.0,
+            power_uw: 0.0,
+            vgs_mv: None,
+            vbs_mv: Some(200.0),
+            vth_mv: None,
+            gmb_us: None,
+            gds_us: None,
+        });
         let op = crate::OpFacts { dev, net_mv: vec![None; nl.nets.len()] };
         let tags = injectors(&nl, &p.net_classes, Some(&op), 50_000.0, &mut Vec::new());
         assert_eq!(tags.len(), 1);
@@ -262,9 +274,11 @@ mod tests {
     fn drv_injectors_get_rings() {
         let nl = drv(Some(100_000_000));
         let p = crate::annotate(&nl, &crate::AnnotationConfig::default());
-        let tagged: Vec<DeviceId> = p.intent.aggressors.iter().filter(|a| matches!(a.inject, Inject::MinorityElectron | Inject::MinorityHole)).map(|a| a.device).collect();
+        let tagged: Vec<DeviceId> =
+            p.intent.aggressors.iter().filter(|a| matches!(a.inject, Inject::MinorityElectron | Inject::MinorityHole)).map(|a| a.device).collect();
         assert_eq!(tagged.len(), 2);
-        let rings: Vec<DeviceId> = p.constraints.guard_rings.iter().filter(|r| r.role == analog::cell::RingRole::Injector).map(|r| r.device).collect();
+        let rings: Vec<DeviceId> =
+            p.constraints.guard_rings.iter().filter(|r| r.role == analog::cell::RingRole::Injector).map(|r| r.device).collect();
         assert_eq!(rings, tagged);
     }
 }

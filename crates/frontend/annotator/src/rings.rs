@@ -4,9 +4,9 @@
 //! worse than none). Anything else gets no ring: the cells carry their own
 //! taps (CELL-13).
 
-use analog::cell::{GuardRingRequirement, GuardRingType, RingRole};
 use analog::base::ids::{DeviceId, NetId};
 use analog::base::{DeviceKind, Netlist, SubstrateKind};
+use analog::cell::{GuardRingRequirement, GuardRingType, RingRole};
 
 /// Which minority carrier a device injects into the substrate.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

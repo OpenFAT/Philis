@@ -22,10 +22,10 @@
 
 use std::collections::HashMap;
 
-use analog::intent::{AxisDir, ConstraintId, Diagnostic, KelvinReq, MatchClass, MatchKind, Order, Term};
-use analog::metadata::NetClass;
 use analog::base::ids::{DeviceId, NetId};
 use analog::base::Netlist;
+use analog::intent::{AxisDir, ConstraintId, Diagnostic, KelvinReq, MatchClass, MatchKind, Order, Term};
+use analog::metadata::NetClass;
 use serde_json::Value;
 
 use crate::symmetry::Seed;
@@ -44,14 +44,17 @@ pub fn parse(json: &str, nl: &Netlist) -> Result<(AnnotationConfig, Vec<Diagnost
     for (i, e) in entries.iter().enumerate() {
         let id = ConstraintId(u32::MAX - i as u32);
         let kind = e.get("constraint").and_then(Value::as_str).unwrap_or("");
-        let strs = |k: &str| -> Vec<String> { e.get(k).and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(String::from).collect() };
+        let strs = |k: &str| -> Vec<String> {
+            e.get(k).and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(String::from).collect()
+        };
         macro_rules! unknown {
             ($what:expr) => {
                 diags.push(Diagnostic { kind: "sidecar_unknown_name", devices: vec![], message: format!("entry {i} ({kind}): unknown {}", $what) })
             };
         }
         // All named devices, or `Err` naming the first unknown one.
-        let devices = |names: &[String]| -> Result<Vec<DeviceId>, String> { names.iter().map(|n| device(n).ok_or_else(|| format!("instance {n}"))).collect() };
+        let devices =
+            |names: &[String]| -> Result<Vec<DeviceId>, String> { names.iter().map(|n| device(n).ok_or_else(|| format!("instance {n}"))).collect() };
         match kind {
             "PowerPorts" | "GroundPorts" | "ClockPorts" => {
                 let ports = strs("ports");
@@ -66,25 +69,25 @@ pub fn parse(json: &str, nl: &Netlist) -> Result<(AnnotationConfig, Vec<Diagnost
                 };
                 list.extend(ports);
             }
-            "DoNotIdentify" => {
-                match devices(&strs("instances")) {
-                    Ok(ds) => cfg.do_not_identify.extend(ds.iter().map(|d| u32::from(d.0))),
-                    Err(n) => unknown!(n),
-                }
-            }
-            "GroupBlocks" => {
-                match devices(&strs("instances")) {
-                    Ok(ds) => {
-                        if let Some(name) = e.get("instance_name").and_then(Value::as_str) {
-                            alias.insert(name.to_ascii_lowercase(), ds.clone());
-                        }
-                        cfg.groups.push((i as u32, ds));
+            "DoNotIdentify" => match devices(&strs("instances")) {
+                Ok(ds) => cfg.do_not_identify.extend(ds.iter().map(|d| u32::from(d.0))),
+                Err(n) => unknown!(n),
+            },
+            "GroupBlocks" => match devices(&strs("instances")) {
+                Ok(ds) => {
+                    if let Some(name) = e.get("instance_name").and_then(Value::as_str) {
+                        alias.insert(name.to_ascii_lowercase(), ds.clone());
                     }
-                    Err(n) => unknown!(n),
+                    cfg.groups.push((i as u32, ds));
                 }
-            }
+                Err(n) => unknown!(n),
+            },
             "SymmetricBlocks" => {
-                cfg.symmetry_dir = Some(if e.get("direction").and_then(Value::as_str) == Some("H") { analog::intent::AxisDir::H } else { analog::intent::AxisDir::V });
+                cfg.symmetry_dir = Some(if e.get("direction").and_then(Value::as_str) == Some("H") {
+                    analog::intent::AxisDir::H
+                } else {
+                    analog::intent::AxisDir::V
+                });
                 for pair in e.get("pairs").and_then(Value::as_array).into_iter().flatten() {
                     let names: Vec<&str> = pair.as_array().into_iter().flatten().filter_map(Value::as_str).collect();
                     let resolve = |n: &str| alias.get(&n.to_ascii_lowercase()).cloned().or_else(|| device(n).map(|d| vec![d]));
@@ -97,7 +100,11 @@ pub fn parse(json: &str, nl: &Netlist) -> Result<(AnnotationConfig, Vec<Diagnost
                         [one] if one.len() == 1 => cfg.seeds.push(Seed::SelfDevice(one[0], id)),
                         [one] if one.len() == 2 => cfg.seeds.push(Seed::Devices(one[0], one[1], id)),
                         [a, b] if a.len() == b.len() => cfg.seeds.extend(a.iter().zip(b).map(|(&x, &y)| Seed::Devices(x, y, id))),
-                        _ => diags.push(Diagnostic { kind: "sidecar_unsupported", devices: got.concat(), message: format!("entry {i}: symmetric group {names:?}") }),
+                        _ => diags.push(Diagnostic {
+                            kind: "sidecar_unsupported",
+                            devices: got.concat(),
+                            message: format!("entry {i}: symmetric group {names:?}"),
+                        }),
                     }
                 }
             }
@@ -169,13 +176,15 @@ pub fn parse(json: &str, nl: &Netlist) -> Result<(AnnotationConfig, Vec<Diagnost
                     }
                 }
             }
-            "OffsetBudget" => {
-                match (devices(&strs("instances")), e.get("sigma_mv").and_then(Value::as_f64)) {
-                    (Ok(ds), Some(s)) => cfg.offset_budgets.push((ds, s as f32)),
-                    (Err(n), _) => unknown!(n),
-                    (Ok(_), None) => diags.push(Diagnostic { kind: "sidecar_unsupported", devices: vec![], message: format!("entry {i}: OffsetBudget without sigma_mv") }),
-                }
-            }
+            "OffsetBudget" => match (devices(&strs("instances")), e.get("sigma_mv").and_then(Value::as_f64)) {
+                (Ok(ds), Some(s)) => cfg.offset_budgets.push((ds, s as f32)),
+                (Err(n), _) => unknown!(n),
+                (Ok(_), None) => diags.push(Diagnostic {
+                    kind: "sidecar_unsupported",
+                    devices: vec![],
+                    message: format!("entry {i}: OffsetBudget without sigma_mv"),
+                }),
+            },
             "Kelvin" => {
                 let pin = |s: &str| -> Option<(DeviceId, Term)> {
                     let (d, t) = s.split_once('/')?;
@@ -204,7 +213,9 @@ pub fn parse(json: &str, nl: &Netlist) -> Result<(AnnotationConfig, Vec<Diagnost
                 match (net(name), e.get("ff").and_then(Value::as_f64)) {
                     (Some(n), Some(ff)) => cfg.loads.push((n, (ff * 1000.0) as f32)),
                     (None, _) => unknown!(format!("net {name}")),
-                    (Some(_), None) => diags.push(Diagnostic { kind: "sidecar_unsupported", devices: vec![], message: format!("entry {i}: Load without ff") }),
+                    (Some(_), None) => {
+                        diags.push(Diagnostic { kind: "sidecar_unsupported", devices: vec![], message: format!("entry {i}: Load without ff") })
+                    }
                 }
             }
             "Order" => {
@@ -219,7 +230,8 @@ pub fn parse(json: &str, nl: &Netlist) -> Result<(AnnotationConfig, Vec<Diagnost
                     }
                 };
                 let names = strs("instances");
-                let steps: Option<Vec<Vec<DeviceId>>> = names.iter().map(|n| alias.get(&n.to_ascii_lowercase()).cloned().or_else(|| device(n).map(|d| vec![d]))).collect();
+                let steps: Option<Vec<Vec<DeviceId>>> =
+                    names.iter().map(|n| alias.get(&n.to_ascii_lowercase()).cloned().or_else(|| device(n).map(|d| vec![d]))).collect();
                 match steps {
                     Some(mut steps) => {
                         if flip {
@@ -248,11 +260,19 @@ pub fn parse(json: &str, nl: &Netlist) -> Result<(AnnotationConfig, Vec<Diagnost
                     (dev.kind == analog::base::DeviceKind::Nmos).then(|| dev.terminals.iter().find(|(t, _)| t == "B").map(|t| t.1)).flatten()
                 };
                 if ds.is_empty() || ds.iter().any(|d| bulk(d).is_none() || bulk(d) != bulk(&ds[0])) {
-                    diags.push(Diagnostic { kind: "sidecar_unsupported", devices: ds, message: format!("entry {i}: IsolatedTub members must be NMOS on one bulk net") });
+                    diags.push(Diagnostic {
+                        kind: "sidecar_unsupported",
+                        devices: ds,
+                        message: format!("entry {i}: IsolatedTub members must be NMOS on one bulk net"),
+                    });
                     continue;
                 }
                 if ds.iter().any(|d| cfg.tubs.iter().any(|(m, _)| m.contains(d))) {
-                    diags.push(Diagnostic { kind: "sidecar_unsupported", devices: ds, message: format!("entry {i}: device already in an IsolatedTub") });
+                    diags.push(Diagnostic {
+                        kind: "sidecar_unsupported",
+                        devices: ds,
+                        message: format!("entry {i}: device already in an IsolatedTub"),
+                    });
                     continue;
                 }
                 // One dnwell needs its members side by side: a user group (GroupBlocks proximity) keeps them so.
@@ -300,7 +320,10 @@ mod tests {
         let (cfg, _) = parse(r#"[{"constraint":"Align","instances":["XM1"]},{"constraint":"GroupBlocks","instances":["XM1","XM5"]}]"#, &nl).unwrap();
         let p = crate::annotate(&nl, &cfg);
         let user = |arm: &[Box<dyn analog::RuleBatch<analog::base::Layout>>]| {
-            arm.iter().filter(|b| b.meta().map(|m| m.origin) == Some(analog::intent::Origin::User { index: 1 })).map(|b| b.kind().ends_with("Proximity")).collect::<Vec<_>>()
+            arm.iter()
+                .filter(|b| b.meta().map(|m| m.origin) == Some(analog::intent::Origin::User { index: 1 }))
+                .map(|b| b.kind().ends_with("Proximity"))
+                .collect::<Vec<_>>()
         };
         assert_eq!((user(&p.placement.budget), user(&p.placement.cost)), (vec![true], vec![true]));
     }

@@ -3,10 +3,10 @@
 //! compound and in a shared-bias group, AA-01) live here, not in the disjoint
 //! `Problem::blocks`.
 
-use analog::intent::{Compound, ConstraintId, GroupKind, GroupNode, ReqType};
-use analog::metadata::{NetClass, NetClassification};
 use analog::base::ids::DeviceId;
 use analog::base::BipartiteHypergraph;
+use analog::intent::{Compound, ConstraintId, GroupKind, GroupNode, ReqType};
+use analog::metadata::{NetClass, NetClassification};
 
 use crate::catalog::roles_of;
 use crate::pattern::PatternMatch;
@@ -204,9 +204,9 @@ pub fn render(tree: &[GroupNode], names: &[&str]) -> String {
 mod tests {
     use super::*;
     use crate::{netrole, pattern, size, AnnotationConfig};
-    use analog::intent::{AxisDir, SymKind};
     use analog::base::ids::AxisId;
     use analog::base::Netlist;
+    use analog::intent::{AxisDir, SymKind};
 
     fn compound(pairs: &[(u16, u16)], selfs: &[u16]) -> Compound {
         Compound {

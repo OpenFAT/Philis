@@ -16,14 +16,11 @@ pub mod sp;
 
 pub use anneal::{place_sp, DpMode, PlaceInput, Start};
 
-use analog::Requirements;
 use analog::base::ids::BranchId;
 use analog::base::{Layout, Macro, Orient, Report};
+use analog::Requirements;
 
-use crate::gp::mechanics::{
-    analog_phi, analog_theta, choose_variants,
-    pex, report, snap, variant_extents, Nets, SplitMix64,
-};
+use crate::gp::mechanics::{analog_phi, analog_theta, choose_variants, pex, report, snap, variant_extents, Nets, SplitMix64};
 
 /// Inner moves per epoch = `MOVES_PER_CELL · n`.
 const MOVES_PER_CELL: usize = 60;
@@ -48,9 +45,13 @@ pub struct Schedule {
 }
 impl Schedule {
     /// Today's constants: refine gp, don't randomise it. SP: P0 0.6 (Lampaert eq 4.37–4.38), α 0.9.
-    pub fn cold() -> Self { Self { range0: 0.4, max_temps: 220, t0_scale: 0.02, p0: 0.6, alpha: 0.9, moves_per_kid: 20 } }
+    pub fn cold() -> Self {
+        Self { range0: 0.4, max_temps: 220, t0_scale: 0.02, p0: 0.6, alpha: 0.9, moves_per_kid: 20 }
+    }
     /// FLOW-08 step 3's warm start from an incumbent [policy, measure]; SP: P0 0.1.
-    pub fn warm() -> Self { Self { range0: 0.05, max_temps: 60, t0_scale: 0.002, p0: 0.1, alpha: 0.9, moves_per_kid: 20 } }
+    pub fn warm() -> Self {
+        Self { range0: 0.05, max_temps: 60, t0_scale: 0.002, p0: 0.1, alpha: 0.9, moves_per_kid: 20 }
+    }
 }
 /// Runaway guard for the terminal legalizer (it exits early when clean/stalled).
 const LEGALIZE_SWEEPS: u32 = 64;
@@ -190,13 +191,7 @@ impl<'a> Sa<'a> {
     /// Apply `mutate`, repair any newly broken hard batch by projection, and
     /// keep the result iff [`accept`] says so; otherwise roll back. Pairs with
     /// no moved member cancel in the encroachment comparison, so it is exact.
-    fn trial(
-        &mut self,
-        l: &mut Layout,
-        rng: &mut SplitMix64,
-        temp: f64,
-        mutate: impl FnOnce(&mut Layout, &mut Nets, &[Vec<u32>]),
-    ) -> bool {
+    fn trial(&mut self, l: &mut Layout, rng: &mut SplitMix64, temp: f64, mutate: impl FnOnce(&mut Layout, &mut Nets, &[Vec<u32>])) -> bool {
         self.stats.proposals += 1;
         self.snap.save(l);
         let phi0 = analog_phi(self.reqs, l);
@@ -216,9 +211,7 @@ impl<'a> Sa<'a> {
 
         let s = &self.snap;
         self.moved.clear();
-        self.moved.extend((0..l.x.len()).filter(|&i| {
-            l.x[i] != s.x[i] || l.y[i] != s.y[i] || l.hw[i] != s.hw[i] || l.hh[i] != s.hh[i]
-        }));
+        self.moved.extend((0..l.x.len()).filter(|&i| l.x[i] != s.x[i] || l.y[i] != s.y[i] || l.hw[i] != s.hw[i] || l.hh[i] != s.hh[i]));
         let ov1 = self.encroach_moved(l);
         self.snap.swap_geometry(l);
         let ov0 = self.encroach_moved(l);
@@ -553,9 +546,7 @@ fn try_group_shift(
     clamp_x: &impl Fn(i32, i32) -> i32,
     clamp_y: &impl Fn(i32, i32) -> i32,
 ) -> bool {
-    let fits = g.members.iter().all(|&m| {
-        clamp_x(l.x[m] + dx, l.hw[m]) == l.x[m] + dx && clamp_y(l.y[m] + dy, l.hh[m]) == l.y[m] + dy
-    });
+    let fits = g.members.iter().all(|&m| clamp_x(l.x[m] + dx, l.hw[m]) == l.x[m] + dx && clamp_y(l.y[m] + dy, l.hh[m]) == l.y[m] + dy);
     if !fits || (dx, dy) == (0, 0) {
         return false;
     }

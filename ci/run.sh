@@ -19,9 +19,7 @@ step() {
 
 case "${1:-}" in
   local)
-    # ponytail: report only; the tree is not rustfmt-clean yet, so fmt never fails the tier.
-    n=$(cargo fmt --check "${pkgs[@]}" -- -l 2>/dev/null | grep -c '\.rs$')
-    echo "cargo fmt --check: $n unformatted files (report only, not gating)"
+    step cargo fmt --check "${pkgs[@]}"
     step cargo clippy "${pkgs[@]}" --all-targets
     # substrate3's lib tests draw and DRC every device variant (~160 s): merge.
     fast=()

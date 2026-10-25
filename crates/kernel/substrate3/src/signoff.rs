@@ -24,14 +24,14 @@
 
 use std::collections::{HashMap, HashSet};
 
+use analog::base::{LayerId, Rect, Shape};
 use gdsconv::GdsLayer;
 use layir::Element;
-use analog::base::{LayerId, Rect, Shape};
 use scir::{ChildId, ParamValue, SignalId};
 use spice::{Primitive, Spice};
+use substrate::context::Context;
 use substrate::geometry::bbox::Bbox;
 use substrate::geometry::transform::{TransformRef, Transformation};
-use substrate::context::Context;
 use substrate::layout::Layout;
 use substrate::schematic::Schematic;
 use verify::{Intent, LabeledPin, Pdk, RefDeviceIn, RefInput, RefKind, Signoff};
@@ -187,7 +187,8 @@ where
     let pdk = P::deck();
     let (shapes, pins, unmapped) = geometry(&layout.layir, &P::gds, pdk)?;
     let mut r = Report::default();
-    let findings = verify::drc(&shapes, &pins, pdk).into_iter().map(|f| ("drc", f)).chain(verify::erc(&shapes, &pins, pdk).into_iter().map(|f| ("erc", f)));
+    let findings =
+        verify::drc(&shapes, &pins, pdk).into_iter().map(|f| ("drc", f)).chain(verify::erc(&shapes, &pins, pdk).into_iter().map(|f| ("erc", f)));
     for (domain, f) in findings {
         let row = RuleCheck { name: format!("{domain}/{}:{}", f.rule, f.layer), margin: f.margin };
         match (f.warning, domain) {
@@ -245,19 +246,13 @@ pub fn check_by<L: Clone>(
 type Unmapped = Vec<(GdsLayer, usize)>;
 
 /// Flat deck-layer rects, port labels, and what no deck layer drew.
-fn geometry<L: Clone>(
-    lib: &layir::Library<L>,
-    gds: &impl Fn(&L) -> GdsLayer,
-    pdk: &Pdk,
-) -> Result<(Vec<Shape>, Vec<LabeledPin>, Unmapped), Error> {
+fn geometry<L: Clone>(lib: &layir::Library<L>, gds: &impl Fn(&L) -> GdsLayer, pdk: &Pdk) -> Result<(Vec<Shape>, Vec<LabeledPin>, Unmapped), Error> {
     let children: HashSet<_> = lib.cells().flat_map(|(_, c)| c.instances().map(|(_, i)| i.child())).collect();
     let tops: Vec<_> = lib.cells().filter(|(id, _)| !children.contains(id)).map(|(id, _)| id).collect();
     let [top] = tops[..] else { return Err(Error::Top(tops.len())) };
 
     let table = pdk.layer_gds();
-    let deck_layer = |g: GdsLayer| {
-        table.iter().position(|&pair| pair == (g.0, g.1) && pair != (0, 0)).map(|i| LayerId(i as u16))
-    };
+    let deck_layer = |g: GdsLayer| table.iter().position(|&pair| pair == (g.0, g.1) && pair != (0, 0)).map(|i| LayerId(i as u16));
 
     let mut flat = Vec::new();
     flatten(lib, top, Transformation::identity(), &mut flat);
@@ -377,7 +372,13 @@ fn walk(
                     let parent = conn(inst, &info.name)?;
                     let own: Vec<Bit> = bits(info).collect();
                     if own.len() != parent.len() {
-                        return Err(Error::Netlist(format!("{prefix}{}.{}: width {} connected to {}", inst.name(), info.name, own.len(), parent.len())));
+                        return Err(Error::Netlist(format!(
+                            "{prefix}{}.{}: width {} connected to {}",
+                            inst.name(),
+                            info.name,
+                            own.len(),
+                            parent.len()
+                        )));
                     }
                     child_bound.extend(own.into_iter().zip(parent));
                 }
@@ -440,5 +441,9 @@ fn walk(
 /// A SPICE length in metres: `>= 0.01` is bare micrometres (`w=1.2`),
 /// smaller is already metres (`w=1.2u`), as Philis's parser reads them.
 fn si_length(v: f64) -> f64 {
-    if v.abs() >= 0.01 { v * 1e-6 } else { v }
+    if v.abs() >= 0.01 {
+        v * 1e-6
+    } else {
+        v
+    }
 }

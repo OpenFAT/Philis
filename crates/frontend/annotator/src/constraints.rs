@@ -20,12 +20,12 @@
 //!
 //! Guard rings are not emitted here: [`crate::rings::plan`] places them by role (REL-07).
 
-use analog::cell::{SeriesParallel, Unitization};
-use analog::intent::{MatchClass, MatchKind, MatchSpec, Origin};
-use analog::Constraints;
 use analog::base::ids::DeviceId;
 use analog::base::netlist::DeviceKind;
 use analog::base::Netlist;
+use analog::cell::{SeriesParallel, Unitization};
+use analog::intent::{MatchClass, MatchKind, MatchSpec, Origin};
+use analog::Constraints;
 
 use crate::block::{Block, BlockKind};
 use crate::size::Drawn;
@@ -126,10 +126,7 @@ pub fn assemble(netlist: &Netlist, drawn: &[Drawn], blocks: &[Block], sets: &[Ma
         for class in classes {
             let (kind, _, _, unit_w, unit_l) = class;
             let devices: Vec<DeviceId> = b.devices.iter().copied().filter(|&d| !covered[d.0 as usize] && class_of(d) == class).collect();
-            let dev_nf: Vec<u16> = devices
-                .iter()
-                .map(|&d| fingers(&netlist.devices[d.0 as usize]))
-                .collect();
+            let dev_nf: Vec<u16> = devices.iter().map(|&d| fingers(&netlist.devices[d.0 as usize])).collect();
             c.unitization.push(Unitization {
                 devices,
                 device_type: kind,
@@ -140,7 +137,10 @@ pub fn assemble(netlist: &Netlist, drawn: &[Drawn], blocks: &[Block], sets: &[Ma
                 series_parallel: series_parallel(kind),
                 dummy_required: true,
                 route_matching_required: true,
-                class: None, kind: None, series: Vec::new(), style: None,
+                class: None,
+                kind: None,
+                series: Vec::new(),
+                style: None,
             });
         }
     }
@@ -168,12 +168,19 @@ pub fn assemble(netlist: &Netlist, drawn: &[Drawn], blocks: &[Block], sets: &[Ma
             series_parallel: SeriesParallel::Parallel,
             dummy_required: false,
             route_matching_required: false,
-            class: None, kind: None, series: Vec::new(), style: None,
+            class: None,
+            kind: None,
+            series: Vec::new(),
+            style: None,
         });
     }
     c
 }
 
 fn gcd(a: u16, b: u16) -> u16 {
-    if b == 0 { a } else { gcd(b, a % b) }
+    if b == 0 {
+        a
+    } else {
+        gcd(b, a % b)
+    }
 }

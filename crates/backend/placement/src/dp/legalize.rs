@@ -2,10 +2,10 @@
 //! its per-pair gap ([`PlaceRules::gaps`]) apart on some axis. Every overlap is a defect — `cellgen` emits
 //! one self-contained macro per cell, so nothing shares diffusion.
 
-use analog::Requirements;
 use crate::gp::mechanics::{analog_violations, snap};
 use crate::gp::PlaceRules;
 use analog::base::Layout;
+use analog::Requirements;
 
 /// Relax encroaching pairs apart along their cheaper axis, then re-project
 /// violated hard batches (a pushed symmetry partner is re-mirrored), until
@@ -15,12 +15,7 @@ use analog::base::Layout;
 ///
 /// ponytail: O(n²) pairwise relaxation; a constraint graph + LP compaction if
 /// blocks reach thousands of devices.
-pub fn separate_overlaps(
-    l: &mut Layout,
-    reqs: &Requirements<Layout>,
-    rules: &PlaceRules,
-    max_sweeps: u32,
-) -> f64 {
+pub fn separate_overlaps(l: &mut Layout, reqs: &Requirements<Layout>, rules: &PlaceRules, max_sweeps: u32) -> f64 {
     let n = l.x.len();
     let g = rules.grid.max(1);
     let encroachment = |l: &Layout| rules.encroachment(l);
@@ -140,10 +135,7 @@ mod tests {
     fn every_pair_separates_regardless_of_grouping() {
         // Four devices in two groups, all landing on each other.
         let mut l = layout(&[(0, 0), (0, 0), (100, 0), (100, 0)], 500);
-        l.groups = vec![
-            vec![DeviceId(0), DeviceId(1)],
-            vec![DeviceId(2), DeviceId(3)],
-        ];
+        l.groups = vec![vec![DeviceId(0), DeviceId(1)], vec![DeviceId(2), DeviceId(3)]];
         let reqs = Requirements::<Layout>::default();
         let residual = separate_overlaps(&mut l, &reqs, &PlaceRules::uniform(5, 0), 64);
         assert_eq!(residual, 0.0);

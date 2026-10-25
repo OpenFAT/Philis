@@ -87,7 +87,14 @@ pub(crate) fn refuse(code: &'static str, message: impl Into<String>) -> Refused 
 /// # Errors
 /// A [`Refused`] from a foundry engine; [`SignoffEngine::Gpurify`] never
 /// refuses (its failures are `engine/…` rows, as [`crate::signoff_checked`]).
-pub fn signoff(engine: SignoffEngine, shapes: &[Shape], pins: &[LabeledPin], reference: &RefInput, intent: &Intent, pdk: &Pdk) -> Result<Signoff, Refused> {
+pub fn signoff(
+    engine: SignoffEngine,
+    shapes: &[Shape],
+    pins: &[LabeledPin],
+    reference: &RefInput,
+    intent: &Intent,
+    pdk: &Pdk,
+) -> Result<Signoff, Refused> {
     match engine {
         SignoffEngine::Gpurify => Ok(crate::signoff_checked(shapes, pins, reference, intent, pdk)),
         SignoffEngine::Klayout => foundry(engine, shapes, pins, reference, pdk, klayout::run),
@@ -121,7 +128,14 @@ pub struct Run<'a> {
 /// deck then pairs `PHILIS` with no layout cell `philis`).
 pub const TOP: &str = "PHILIS";
 
-fn foundry(engine: SignoffEngine, shapes: &[Shape], pins: &[LabeledPin], reference: &RefInput, pdk: &Pdk, run: fn(&Run) -> Result<Verdict, Refused>) -> Result<Signoff, Refused> {
+fn foundry(
+    engine: SignoffEngine,
+    shapes: &[Shape],
+    pins: &[LabeledPin],
+    reference: &RefInput,
+    pdk: &Pdk,
+    run: fn(&Run) -> Result<Verdict, Refused>,
+) -> Result<Signoff, Refused> {
     let t0 = Instant::now();
     let (mut v, kept) = in_scratch(engine, shapes, pins, reference, pdk, run, |v| v.drc.is_empty() && v.lvs_match)?;
     if let Some(dir) = kept {
@@ -171,8 +185,18 @@ pub fn drc(engine: SignoffEngine, shapes: &[Shape], pins: &[LabeledPin], pdk: &P
 /// directory is removed unless the run had findings (`clean` is false) or a
 /// tool ran without a verdict (`foundry/run`); then its path is returned
 /// (or named in the refusal) so the logs can be read.
-fn in_scratch<T>(engine: SignoffEngine, shapes: &[Shape], pins: &[LabeledPin], reference: &RefInput, pdk: &Pdk, f: fn(&Run) -> Result<T, Refused>, clean: fn(&T) -> bool) -> Result<(T, Option<PathBuf>), Refused> {
-    let name = pdk.name.ok_or_else(|| refuse("foundry/no-pdk", format!("the {} engine finds its decks by built-in PDK name; this Pdk was loaded from text", engine.name())))?;
+fn in_scratch<T>(
+    engine: SignoffEngine,
+    shapes: &[Shape],
+    pins: &[LabeledPin],
+    reference: &RefInput,
+    pdk: &Pdk,
+    f: fn(&Run) -> Result<T, Refused>,
+    clean: fn(&T) -> bool,
+) -> Result<(T, Option<PathBuf>), Refused> {
+    let name = pdk.name.ok_or_else(|| {
+        refuse("foundry/no-pdk", format!("the {} engine finds its decks by built-in PDK name; this Pdk was loaded from text", engine.name()))
+    })?;
     let bytes = crate::gds_out::gds(shapes, pins, pdk, TOP).map_err(|e| refuse("foundry/gds", e))?;
     let dir = scratch(engine)?;
     let gds = dir.join(format!("{TOP}.gds"));
@@ -219,9 +243,12 @@ pub(crate) fn deck(engine: &str, pdk: &str, file: &str, what: &str) -> Result<Pa
 
 /// `name` on `PATH`.
 pub(crate) fn tool(name: &str) -> Result<PathBuf, Refused> {
-    std::env::var_os("PATH")
-        .and_then(|path| std::env::split_paths(&path).map(|d| d.join(name)).find(|p| p.is_file()))
-        .ok_or_else(|| refuse("foundry/no-tool", format!("{name} is not on PATH (nix shell nixpkgs#klayout nixpkgs#magic-vlsi nixpkgs#netgen-vlsi, or the flake's dev shell)")))
+    std::env::var_os("PATH").and_then(|path| std::env::split_paths(&path).map(|d| d.join(name)).find(|p| p.is_file())).ok_or_else(|| {
+        refuse(
+            "foundry/no-tool",
+            format!("{name} is not on PATH (nix shell nixpkgs#klayout nixpkgs#magic-vlsi nixpkgs#netgen-vlsi, or the flake's dev shell)"),
+        )
+    })
 }
 
 /// Run `cmd`, returning stdout + stderr (also written to `log`) and whether
@@ -242,7 +269,10 @@ pub(crate) fn tail(text: &str, n: usize) -> String {
 /// `card` with `suffix` appended to its `w=`/`l=` values (µm as
 /// [`crate::Pdk::reference_spice`] writes them, unitless).
 pub(crate) fn suffix_lengths(card: &str, suffix: &str) -> String {
-    card.split(' ').map(|t| if t.starts_with("w=") || t.starts_with("l=") { format!("{t}{suffix}") } else { t.to_string() }).collect::<Vec<_>>().join(" ")
+    card.split(' ')
+        .map(|t| if t.starts_with("w=") || t.starts_with("l=") { format!("{t}{suffix}") } else { t.to_string() })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The thread count handed to the tools.

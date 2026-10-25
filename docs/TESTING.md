@@ -103,7 +103,7 @@ Substrate2 members); every step runs and the tier fails if any did:
 
 | tier | today |
 |---|---|
-| local | `cargo fmt --check` (reports a count, not gating yet), `cargo clippy --all-targets`, `cargo test --lib --no-fail-fast` on every crate but substrate3 (its lib tests DRC every device variant, ~160 s, and run at merge) |
+| local | `cargo fmt --check` (gating; `rustfmt.toml`: 150 columns, the code's own width), `cargo clippy --all-targets`, `cargo test --lib --no-fail-fast` on every crate but substrate3 (its lib tests DRC every device variant, ~160 s, and run at merge) |
 | merge | `cargo test --no-fail-fast`: every lib and integration test, `engine`'s `pair`, `conformance` and `deps` included |
 | nightly | merge, then `cargo test --no-fail-fast -- --ignored` (verify's field solves; the foundry engines' runs, which need `klayout`, `magic` and `netgen` on `PATH`: the dev shell has them) |
 | release | nightly with `--release` |

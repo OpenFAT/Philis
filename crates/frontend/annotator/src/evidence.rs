@@ -3,10 +3,10 @@
 //! derived from it. Every field is optional: [`Evidence::default`] is the
 //! structure-only annotation [`crate::annotate`] runs.
 
-use analog::intent::{DeviceFacts, DeviceRole, Region};
-use analog::metadata::{NetClass, NetClassification};
 use analog::base::ids::{DeviceId, NetId};
 use analog::base::{DeviceKind, Netlist};
+use analog::intent::{DeviceFacts, DeviceRole, Region};
+use analog::metadata::{NetClass, NetClassification};
 
 /// What the flow knows beyond the netlist. Ports are `Netlist.ports` (FLOW-07).
 #[derive(Clone, Debug, Default)]
@@ -130,9 +130,7 @@ pub fn device_facts(
             let region = dev_op(d).map_or(Region::Unknown, |o| region(&o, max_id));
             let sat = region == Region::Saturation;
             let gate_in = |cs: &[NetClass]| gate.is_some_and(|g| cs.contains(&g));
-            let role = if region == Region::Triode
-                && gate_in(&[NetClass::Clock, NetClass::DigitalSwitching, NetClass::DigitalStatic])
-            {
+            let role = if region == Region::Triode && gate_in(&[NetClass::Clock, NetClass::DigitalSwitching, NetClass::DigitalStatic]) {
                 DeviceRole::Switch
             } else if net("D").is_some() && net("D") == net("G") {
                 DeviceRole::Diode
@@ -175,10 +173,7 @@ mod tests {
 
     /// Every device biased as `o`; nets unknown.
     pub(crate) fn all_ops(nl: &Netlist, o: DeviceOp) -> Evidence {
-        Evidence {
-            op: Some(OpFacts { dev: vec![Some(o); nl.devices.len()], net_mv: vec![None; nl.nets.len()] }),
-            ..Default::default()
-        }
+        Evidence { op: Some(OpFacts { dev: vec![Some(o); nl.devices.len()], net_mv: vec![None; nl.nets.len()] }), ..Default::default() }
     }
 
     fn sc_switches() -> Netlist {

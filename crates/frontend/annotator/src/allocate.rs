@@ -6,11 +6,11 @@
 //! row touching it). Allowances are 1σ ΔV_T, mV: a Current FET set's ledger
 //! converts them to % itself (`MatchedSet::budget_in`).
 
+use analog::base::ids::DeviceId;
+use analog::base::Netlist;
 use analog::intent::{Diagnostic, Half, MatchSpec};
 use analog::matching::class::Family;
 use analog::matching::mismatch::sigma_pair;
-use analog::base::ids::DeviceId;
-use analog::base::Netlist;
 
 use crate::evidence::{Sensitivities, SpecSens};
 
@@ -58,7 +58,8 @@ pub fn allocate(sets: &[SetIn], sens: &Sensitivities, beta: f64, max_eta: f32) -
         }
         for (sign, m, _) in margins(s, beta) {
             if m <= 0.0 {
-                let mut devices: Vec<DeviceId> = touched.iter().flat_map(|&k| sets[k].sides.iter().flat_map(|(a, b)| a.iter().chain(b))).copied().collect();
+                let mut devices: Vec<DeviceId> =
+                    touched.iter().flat_map(|&k| sets[k].sides.iter().flat_map(|(a, b)| a.iter().chain(b))).copied().collect();
                 devices.sort_unstable_by_key(|d| d.0);
                 devices.dedup();
                 let bound = if sign < 0.0 { "min" } else { "max" };

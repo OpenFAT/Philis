@@ -5,6 +5,10 @@
 //! `substrate3::pdk::Mos` primitive instead of upstream's `Nfet01v8`.
 //! Copyright (c) 2023, Substrate Labs. BSD 3-Clause License.
 
+use sky130::layers::Sky130Layer;
+use sky130::layout::{NtapTile, PtapTile};
+use sky130::mos::{GateDir, MosKind, MosLength, NmosTile, PmosTile};
+use sky130::{Sky130, Sky130OpenSchema};
 use substrate3::block::Block;
 use substrate3::context::Context;
 use substrate3::error::Result;
@@ -17,17 +21,13 @@ use substrate3::geometry::transform::TransformMut;
 use substrate3::geometry::union::BoundingUnion;
 use substrate3::layir::Shape;
 use substrate3::layout::{CellBundle, Layout};
+use substrate3::pdk::Mos;
 use substrate3::schematic::{CellBuilder, ConvertSchema, Schematic};
 use substrate3::spice::Spice;
 use substrate3::types::codegen::{PortGeometryBundle, View};
 use substrate3::types::layout::PortGeometry;
 use substrate3::types::schematic::IoNodeBundle;
 use substrate3::types::{InOut, Input, Io, Output, Signal};
-use sky130::layers::Sky130Layer;
-use sky130::layout::{NtapTile, PtapTile};
-use substrate3::pdk::Mos;
-use sky130::mos::{GateDir, MosKind, MosLength, NmosTile, PmosTile};
-use sky130::{Sky130, Sky130OpenSchema};
 
 #[derive(Io, Clone, Default, Debug)]
 pub struct InverterIo {

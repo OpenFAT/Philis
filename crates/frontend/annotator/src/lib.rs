@@ -165,11 +165,25 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
     for (a, b) in passive::degenerated_pairs(&hg, &drawn, &roles) {
         if !claimed[a.0 as usize] && !claimed[b.0 as usize] {
             (claimed[a.0 as usize], claimed[b.0 as usize]) = (true, true);
-            blocks.push(Block { kind: BlockKind::DiffPair, template: "diff_pair_with_degen", devices: vec![a, b], injected: false, sub_blocks: Vec::new(), selfs: Vec::new() });
+            blocks.push(Block {
+                kind: BlockKind::DiffPair,
+                template: "diff_pair_with_degen",
+                devices: vec![a, b],
+                injected: false,
+                sub_blocks: Vec::new(),
+                selfs: Vec::new(),
+            });
         }
     }
     let glue = (0..netlist.devices.len() as u16).filter(|&d| !claimed[d as usize]).map(DeviceId);
-    blocks.push(Block { kind: BlockKind::Glue, template: "glue", devices: glue.collect(), injected: false, sub_blocks: Vec::new(), selfs: Vec::new() });
+    blocks.push(Block {
+        kind: BlockKind::Glue,
+        template: "glue",
+        devices: glue.collect(),
+        injected: false,
+        sub_blocks: Vec::new(),
+        selfs: Vec::new(),
+    });
 
     let groups: Vec<Vec<DeviceId>> = blocks.iter().map(|b| b.devices.clone()).collect();
     let abutment = groups
@@ -225,16 +239,25 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
         .collect();
     seeds.sort_by_key(|&(a, b, _)| (ck(a), ck(b)));
     // User seeds first (EXT-26).
-    let mut seeds: Vec<symmetry::Seed> = cfg.seeds.iter().copied().chain(seeds.into_iter().map(|(a, b, i)| symmetry::Seed::Devices(a, b, analog::intent::ConstraintId(i as u32)))).collect();
+    let mut seeds: Vec<symmetry::Seed> = cfg
+        .seeds
+        .iter()
+        .copied()
+        .chain(seeds.into_iter().map(|(a, b, i)| symmetry::Seed::Devices(a, b, analog::intent::ConstraintId(i as u32))))
+        .collect();
     // EXT-27: couples of identical instance pairs whose ports pair up, after the leaf seeds;
     // a device already seeded (leaf symmetry inside an instance) keeps its own couple.
     let inst_pairs = hier::same_template(netlist, &drawn);
-    let hier_couples: Vec<(DeviceId, DeviceId)> = inst_pairs.iter().flat_map(|&(a, b)| hier::corresponding(netlist, &drawn, a, b).unwrap_or_default()).collect();
-    let seeded: std::collections::HashSet<DeviceId> = seeds.iter().flat_map(|s| match *s {
-        symmetry::Seed::Devices(a, b, _) => vec![a, b],
-        symmetry::Seed::SelfDevice(a, _) => vec![a],
-        symmetry::Seed::Nets(..) => vec![],
-    }).collect();
+    let hier_couples: Vec<(DeviceId, DeviceId)> =
+        inst_pairs.iter().flat_map(|&(a, b)| hier::corresponding(netlist, &drawn, a, b).unwrap_or_default()).collect();
+    let seeded: std::collections::HashSet<DeviceId> = seeds
+        .iter()
+        .flat_map(|s| match *s {
+            symmetry::Seed::Devices(a, b, _) => vec![a, b],
+            symmetry::Seed::SelfDevice(a, _) => vec![a],
+            symmetry::Seed::Nets(..) => vec![],
+        })
+        .collect();
     let mut k = 0;
     for &(a, b) in &inst_pairs {
         if hier::ports_pair(netlist, a, b) {
@@ -274,23 +297,49 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
         let fixed = |c: C| matches!(c, C::Supply | C::Ground | C::Substrate | C::Clock);
         classify::bias_lines(&hg).into_iter().zip(&net_classes).map(|(b, c)| b && !fixed(c.class)).collect::<Vec<bool>>()
     })
-        .into_iter()
-        .map(|a| {
-            a.into_iter()
-                .map(|i| {
-                    let mut v: Vec<DeviceId> = hier::devices(netlist, i).into_iter().map(|(d, _)| d).collect();
-                    v.sort_by_key(ck2);
-                    v
-                })
-                .collect()
-        })
-        .collect();
+    .into_iter()
+    .map(|a| {
+        a.into_iter()
+            .map(|i| {
+                let mut v: Vec<DeviceId> = hier::devices(netlist, i).into_iter().map(|(d, _)| d).collect();
+                v.sort_by_key(ck2);
+                v
+            })
+            .collect()
+    })
+    .collect();
     let array_devs: Vec<Vec<DeviceId>> = array_steps.iter().map(|a| a.concat()).collect();
-    let array_orders: Vec<analog::intent::Order> =
-        array_steps.into_iter().map(|steps| analog::intent::Order { steps, dir: analog::intent::AxisDir::H, reversible: true, weight: 1.0 }).collect();
-    let reqs = graph::requirements(&all, &intent.compounds, &shared, &passive_groups, &cfg.groups, &hier_couples, &array_devs, &netlist.device_inst, &hg, &net_classes, &canon, &cfg.policy);
+    let array_orders: Vec<analog::intent::Order> = array_steps
+        .into_iter()
+        .map(|steps| analog::intent::Order { steps, dir: analog::intent::AxisDir::H, reversible: true, weight: 1.0 })
+        .collect();
+    let reqs = graph::requirements(
+        &all,
+        &intent.compounds,
+        &shared,
+        &passive_groups,
+        &cfg.groups,
+        &hier_couples,
+        &array_devs,
+        &netlist.device_inst,
+        &hg,
+        &net_classes,
+        &canon,
+        &cfg.policy,
+    );
     intent.tree = graph::hsmpg(netlist.devices.len(), &reqs, &canon);
-    intent.sets = sets::matched_sets(&reqs, &intent.compounds, &shared, &passive_sets, &block::leaves(&blocks), &canon, &drawn, &hg, &cfg.process.unit, &mut intent.diagnostics);
+    intent.sets = sets::matched_sets(
+        &reqs,
+        &intent.compounds,
+        &shared,
+        &passive_sets,
+        &block::leaves(&blocks),
+        &canon,
+        &drawn,
+        &hg,
+        &cfg.process.unit,
+        &mut intent.diagnostics,
+    );
     // EXT-16: kind, class and style per set; the unit floors depend on the class.
     let leaves = block::leaves(&blocks);
     let n = netlist.devices.len();
@@ -300,7 +349,8 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
     for s in &intent.sets {
         let has = |d: DeviceId| s.members.iter().any(|m| m.device == d);
         let pair = |b: usize| leaves[b].devices.len() == 2 && leaves[b].devices.iter().all(|&d| has(d));
-        let kinds: Vec<BlockKind> = sets::inside(&leaf_idx, s.members.iter().map(|m| m.device.0 as usize), pair).into_iter().map(|b| leaves[b].kind).collect();
+        let kinds: Vec<BlockKind> =
+            sets::inside(&leaf_idx, s.members.iter().map(|m| m.device.0 as usize), pair).into_iter().map(|b| leaves[b].kind).collect();
         roles.push(kinds);
     }
     // The sidecar entry whose devices cover a set's members (EXT-26).
@@ -324,7 +374,8 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
     }
     let input = |i: usize| roles[i].contains(&BlockKind::DiffPair);
     let mut set_roles = Vec::with_capacity(intent.sets.len());
-    let input_compounds: std::collections::HashSet<u16> = (0..intent.sets.len()).filter(|&j| input(j)).filter_map(|j| intent.sets[j].compound).collect();
+    let input_compounds: std::collections::HashSet<u16> =
+        (0..intent.sets.len()).filter(|&j| input(j)).filter_map(|j| intent.sets[j].compound).collect();
     for i in 0..intent.sets.len() {
         let s = &intent.sets[i];
         let role = if input(i) {
@@ -408,7 +459,12 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
                 }
             }
         }
-        let rail = |i: usize| matches!(net_classes[i].class, analog::metadata::NetClass::Supply | analog::metadata::NetClass::Ground | analog::metadata::NetClass::Substrate);
+        let rail = |i: usize| {
+            matches!(
+                net_classes[i].class,
+                analog::metadata::NetClass::Supply | analog::metadata::NetClass::Ground | analog::metadata::NetClass::Substrate
+            )
+        };
         if (0..load_af.len()).any(|i| channel[i] && !plate[i] && load_af[i].is_none() && !rail(i)) {
             missing.push(("ParasiticBudget", "external load of drain-only nets: sidecar Load (AA-25)"));
         }
@@ -433,11 +489,14 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
     // then the signal stages, then the EXT-27 arrays.
     intent.order.extend(cfg.order.iter().cloned());
     let norm = |steps: &[Vec<DeviceId>]| -> Vec<Vec<u16>> {
-        steps.iter().map(|s| {
-            let mut v: Vec<u16> = s.iter().map(|d| d.0).collect();
-            v.sort_unstable();
-            v
-        }).collect()
+        steps
+            .iter()
+            .map(|s| {
+                let mut v: Vec<u16> = s.iter().map(|d| d.0).collect();
+                v.sort_unstable();
+                v
+            })
+            .collect()
     };
     let user_steps: Vec<Vec<Vec<u16>>> = cfg.order.iter().map(|o| norm(&o.steps)).collect();
     let chains = flow::current_paths(&hg, ev.op.as_ref(), &net_classes, &canon);
@@ -468,7 +527,9 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
     for (d, f) in intent.devices.iter().enumerate() {
         let g = (f.role == analog::intent::DeviceRole::CurrentSource).then(|| pattern::pin_net(&hg, d as u32, "G")).flatten();
         let g = g.filter(|g| intent.nets[g.0 as usize].evidence != analog::intent::EvidenceLevel::User);
-        if let Some(g) = g.filter(|g| matches!(net_classes[g.0 as usize].class, analog::metadata::NetClass::Signal | analog::metadata::NetClass::Sensitive)) {
+        if let Some(g) =
+            g.filter(|g| matches!(net_classes[g.0 as usize].class, analog::metadata::NetClass::Signal | analog::metadata::NetClass::Sensitive))
+        {
             classify::set_class(&mut net_classes[g.0 as usize], analog::metadata::NetClass::Bias, load_af[g.0 as usize]);
             intent.nets[g.0 as usize].evidence = analog::intent::EvidenceLevel::OpPoint;
         }
@@ -478,18 +539,12 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
     intent.aggressors.extend(substrate::injectors(netlist, &net_classes, ev.op.as_ref(), cfg.policy.inj_series_ohm, &mut missing));
     let victim = substrate::victim_mask(n, &intent.victims);
     let mut aggressor = vec![false; n];
-    intent.aggressors.iter().filter(|a| matches!(a.inject, analog::intent::Inject::Switching | analog::intent::Inject::Capacitive)).for_each(|a| aggressor[a.device.0 as usize] = true);
-    let mut routing = extract::routing(
-        &hg,
-        &net_classes,
-        &gates,
-        &cfg.process,
-        &mut intent,
-        &set_roles,
-        &cfg.policy,
-        &netlist.ports,
-        ev.op.as_ref(),
-    );
+    intent
+        .aggressors
+        .iter()
+        .filter(|a| matches!(a.inject, analog::intent::Inject::Switching | analog::intent::Inject::Capacitive))
+        .for_each(|a| aggressor[a.device.0 as usize] = true);
+    let mut routing = extract::routing(&hg, &net_classes, &gates, &cfg.process, &mut intent, &set_roles, &cfg.policy, &netlist.ports, ev.op.as_ref());
     // EXT-25: R/C classes from the spec sensitivities (the rows themselves are the
     // library's, which owns the post-layout loop); evidence wins only where it is not Unknown.
     match (&ev.sens, cfg.process.wire_af_per_um) {
@@ -527,7 +582,8 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
     let in_set = sets::device_index(n, set_devs.iter().map(Vec::as_slice));
     let in_compound = sets::device_index(n, compound_devs.iter().map(Vec::as_slice));
     let shares = |idx: &[Vec<usize>], a: usize, v: usize| idx[a].iter().any(|i| idx[v].contains(i));
-    let related = |a: usize, v: usize| (block_of[a] != usize::MAX && block_of[a] == block_of[v]) || shares(&in_set, a, v) || shares(&in_compound, a, v);
+    let related =
+        |a: usize, v: usize| (block_of[a] != usize::MAX && block_of[a] == block_of[v]) || shares(&in_set, a, v) || shares(&in_compound, a, v);
     let p = &cfg.process;
     // GAP-09 (b): a sidecar GroupBlocks pull (≤ proximity_nm) on an aggressor–victim
     // pair that Isolation would push ≥ isolation_min_nm apart: the user pull wins.
@@ -542,7 +598,9 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
     if let Some(why) = emit::isolation(&aggressor, &victim, &related, p.substrate, p.epi_nm, &mut placement) {
         missing.push(("Isolation", why));
     }
-    if std::env::var("LOCAL_NO_SB").is_err() { emit::substrate_balance(&aggressor, &blocks, &block_of, &mut placement); }
+    if std::env::var("LOCAL_NO_SB").is_err() {
+        emit::substrate_balance(&aggressor, &blocks, &block_of, &mut placement);
+    }
 
     // Stable ids in emission order (permutation-invariant since EXT-06). A
     // pre-tagged batch (sidecar `GroupBlocks`) keeps its origin; else a

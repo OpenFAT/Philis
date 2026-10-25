@@ -17,14 +17,12 @@
 //! EXT-24 also writes the intent's common nodes, stars, Kelvin requests, DAC
 //! plate RC classes and shield references.
 
-use analog::intent::{Aggressor, CommonNodeReq, Half, Inject, Intent, KelvinReq, MatchKind, RcClass, StarReq, Term};
-use analog::metadata::{NetClass, NetClassification};
-use analog::routing::{
-    Antenna, CouplingBudget, CrosstalkExclusion, Differential, ParasiticBudget, Shield,
-};
-use analog::Requirements;
 use analog::base::ids::DeviceId;
 use analog::base::{BipartiteHypergraph, NetId, Routes};
+use analog::intent::{Aggressor, CommonNodeReq, Half, Inject, Intent, KelvinReq, MatchKind, RcClass, StarReq, Term};
+use analog::metadata::{NetClass, NetClassification};
+use analog::routing::{Antenna, CouplingBudget, CrosstalkExclusion, Differential, ParasiticBudget, Shield};
+use analog::Requirements;
 
 fn victim_net(c: NetClass) -> bool {
     matches!(c, NetClass::Sensitive | NetClass::Bias | NetClass::Reference)
@@ -75,15 +73,13 @@ pub fn routing(
     let mut gate_nm2 = vec![0i64; hg.net_names.len()];
     for (d, nets) in hg.device_nets.iter().enumerate() {
         if gate_um2[d] > 0.0 {
-            if let Some(t) = hg.terminals[d]
-                .iter()
-                .position(|t| crate::terms::term_role(hg.kinds[d], t) == crate::terms::TermRole::FetGate)
-            {
+            if let Some(t) = hg.terminals[d].iter().position(|t| crate::terms::term_role(hg.kinds[d], t) == crate::terms::TermRole::FetGate) {
                 gate_nm2[nets[t].0 as usize] += (f64::from(gate_um2[d]) * 1e6) as i64;
             }
         }
     }
-    let antenna: Vec<Antenna> = process.antenna_max_ratio
+    let antenna: Vec<Antenna> = process
+        .antenna_max_ratio
         .into_iter()
         .flat_map(|ratio| {
             gate_nm2.iter().enumerate().filter(|&(_, &a)| a > 0).map(move |(n, &a)| Antenna {
@@ -106,14 +102,20 @@ pub fn routing(
     // Σ coupling per victim: several minimum-spaced aggressors pass every pairwise
     // crosstalk rule and still blow this. The victim's own shield is the remedy,
     // not an aggressor, and the quiet rails weigh nothing.
-    let weights: &'static [f32] =
-        Box::leak(CouplingBudget::default_weights(classes, hg.net_names.len()).into_boxed_slice());
+    let weights: &'static [f32] = Box::leak(CouplingBudget::default_weights(classes, hg.net_names.len()).into_boxed_slice());
     let mut diff: Vec<Differential> = Vec::new();
     let mut xtalk: Vec<CrosstalkExclusion> = Vec::new();
     for c in &intent.compounds {
         for &(x, y) in &c.net_pairs {
             if x != y && !rail(class(x)) && !rail(class(y)) && fresh(x, y, 0) {
-                diff.push(Differential { pos: x, neg: y, max_len_delta_pct10: policy.diff_pct10, same_layer_required: true, stack: process.stack, aggressor_weight: Some(weights) });
+                diff.push(Differential {
+                    pos: x,
+                    neg: y,
+                    max_len_delta_pct10: policy.diff_pct10,
+                    same_layer_required: true,
+                    stack: process.stack,
+                    aggressor_weight: Some(weights),
+                });
             }
         }
     }
@@ -165,7 +167,12 @@ pub fn routing(
     if let Some((g, true)) = ground {
         intent.diagnostics.push(analog::intent::Diagnostic {
             kind: "shared_shield_return",
-            devices: intent.aggressors.iter().filter(|a| a.inject == Inject::Switching && hg.device_nets[a.device.0 as usize].contains(&g)).map(|a| a.device).collect(),
+            devices: intent
+                .aggressors
+                .iter()
+                .filter(|a| a.inject == Inject::Switching && hg.device_nets[a.device.0 as usize].contains(&g))
+                .map(|a| a.device)
+                .collect(),
             message: format!("shield return {} carries a switching aggressor's current (SUB-30)", hg.net_names[g.0 as usize]),
         });
     }
@@ -212,7 +219,12 @@ pub fn routing(
 /// lowest-id Ground net, `shared` — its noise rides on the shield. Lowest id
 /// within each tier; `None` without a Ground net.
 #[must_use]
-pub fn quiet_ground(classes: &[NetClassification], net_names: &[String], aggressors: &[Aggressor], hg: &BipartiteHypergraph) -> Option<(NetId, bool)> {
+pub fn quiet_ground(
+    classes: &[NetClassification],
+    net_names: &[String],
+    aggressors: &[Aggressor],
+    hg: &BipartiteHypergraph,
+) -> Option<(NetId, bool)> {
     let grounds = || classes.iter().filter(|c| c.class == NetClass::Ground).map(|c| c.net);
     let analog = |n: &NetId| ["avss", "vssa", "agnd"].iter().any(|k| net_names[n.0 as usize].to_ascii_lowercase().contains(k));
     let quiet = |n: &NetId| !aggressors.iter().any(|a| a.inject == Inject::Switching && hg.device_nets[a.device.0 as usize].contains(n));
@@ -281,7 +293,9 @@ fn common_nodes(
         } else {
             others.iter().position(|o| o.1 == "D" || o.1 == "C").map(|i| others.remove(i)).map(|(d, t)| (d, if t == "D" { Term::D } else { Term::C }))
         };
-        let amps = |ds: &mut dyn Iterator<Item = DeviceId>| -> Option<f64> { ds.map(|d| op?.dev.get(d.0 as usize).copied().flatten().map(|o| o.id_ua.abs())).sum() };
+        let amps = |ds: &mut dyn Iterator<Item = DeviceId>| -> Option<f64> {
+            ds.map(|d| op?.dev.get(d.0 as usize).copied().flatten().map(|o| o.id_ua.abs())).sum()
+        };
         let carries = match (amps(&mut others.iter().map(|o| o.0)), amps(&mut ids.iter().copied())) {
             (Some(i_others), Some(i_members)) => i_others > STAR_CURRENT_SHARE * i_members,
             _ => !others.is_empty(),
@@ -309,7 +323,9 @@ fn common_nodes(
     // DAC plates: the shared top plate is capacitive, each bottom plate a driven R.
     for (s, _) in intent.sets.iter().zip(set_roles).filter(|(_, &r)| r == crate::class::SetRole::DacBank) {
         let devs: Vec<DeviceId> = s.members.iter().map(|m| m.device).collect();
-        let Some(&plate) = hg.device_nets[devs[0].0 as usize].iter().find(|n| devs.iter().all(|d| hg.device_nets[d.0 as usize].contains(n))) else { continue };
+        let Some(&plate) = hg.device_nets[devs[0].0 as usize].iter().find(|n| devs.iter().all(|d| hg.device_nets[d.0 as usize].contains(n))) else {
+            continue;
+        };
         let mut set_rc = |n: NetId, rc| {
             if let Some(f) = intent.nets.get_mut(n.0 as usize) {
                 f.rc = rc;
@@ -323,7 +339,6 @@ fn common_nodes(
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

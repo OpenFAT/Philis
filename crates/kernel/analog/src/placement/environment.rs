@@ -1,7 +1,7 @@
 //! Layout-dependent environment of matched devices (placement tier, budget).
 
-use crate::rule::RuleBatch;
 use crate::base::{place_rect, DeviceId, Layout, Rect};
+use crate::rule::RuleBatch;
 
 /// Allowed relative difference between members' distances inside range: a
 /// design tolerance (no deck models WPE/OSE magnitudes), not a process number.
@@ -131,7 +131,9 @@ impl LiveEnvironment {
                 let (x0, x1, y0, y1) = (r.x, r.x + r.w, r.y, r.y + r.h);
                 let cx = p.0.clamp(x0, x1);
                 let cy = p.1.clamp(y0, y1);
-                for q in [(x0 - 1, cy), (x1 + 1, cy), (cx, y0 - 1), (cx, y1 + 1), (x0 - 1, y0 - 1), (x1 + 1, y0 - 1), (x0 - 1, y1 + 1), (x1 + 1, y1 + 1)] {
+                for q in
+                    [(x0 - 1, cy), (x1 + 1, cy), (cx, y0 - 1), (cx, y1 + 1), (x0 - 1, y0 - 1), (x1 + 1, y0 - 1), (x0 - 1, y1 + 1), (x1 + 1, y1 + 1)]
+                {
                     if !covered(q) {
                         best = best.min(f64::from(q.0 - p.0).hypot(f64::from(q.1 - p.1)) as f32);
                     }
@@ -146,7 +148,11 @@ impl LiveEnvironment {
         };
         let mean_wpe = |d: DeviceId| {
             let (s, n) = l.units.of_device(l, d).fold((0.0f32, 0u32), |(s, n), u| (s + wpe((u.x, u.y)).min(1e7), n + 1));
-            if n == 0 { f32::INFINITY } else { s / n as f32 }
+            if n == 0 {
+                f32::INFINITY
+            } else {
+                s / n as f32
+            }
         };
         let ose = |c: u16| {
             let c = usize::from(c);

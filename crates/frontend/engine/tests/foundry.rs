@@ -42,7 +42,12 @@ fn signs_off(pdk: &str, engine: SignoffEngine, known: &[&str]) {
 
 /// Rows of one check (`drc/`, `lvs/`), each with its margin, logs path cut.
 fn rows(s: &verify::Signoff, check: &str) -> Vec<(String, i64)> {
-    s.report.hard_violations.iter().filter(|v| v.rule.starts_with(check)).map(|v| (v.rule.split(" (logs in").next().unwrap_or_default().to_string(), v.margin)).collect()
+    s.report
+        .hard_violations
+        .iter()
+        .filter(|v| v.rule.starts_with(check))
+        .map(|v| (v.rule.split(" (logs in").next().unwrap_or_default().to_string(), v.margin))
+        .collect()
 }
 
 /// The layout of `pair` against a schematic whose devices are twice as wide.
@@ -66,9 +71,19 @@ fn narrowed_fails_drc(pdk: &str, engine: SignoffEngine) {
     let mut out = engine::run(&pair(pdk), &p, engine).unwrap_or_else(|r| panic!("{pdk} {engine:?}: {r}"));
     let before = rows(&out.signoff, "drc/");
     let metals = p.routing_layers();
-    let shape = out.placed.iter_mut().flat_map(|m| m.shapes.iter_mut()).chain(out.routes.wires.iter_mut().flatten()).find(|s| metals.contains(&s.layer)).expect("pair draws routing metal");
+    let shape = out
+        .placed
+        .iter_mut()
+        .flat_map(|m| m.shapes.iter_mut())
+        .chain(out.routes.wires.iter_mut().flatten())
+        .find(|s| metals.contains(&s.layer))
+        .expect("pair draws routing metal");
     let half = p.min_width(shape.layer.0).expect("a metal has a minimum width") / 2;
-    if shape.rect.w < shape.rect.h { shape.rect.w = half } else { shape.rect.h = half }
+    if shape.rect.w < shape.rect.h {
+        shape.rect.w = half
+    } else {
+        shape.rect.h = half
+    }
     let s = engine::signoff(&netlist, &out.placed, &out.routes, &p, engine).unwrap_or_else(|r| panic!("{pdk} {engine:?}: {r}"));
     let after = rows(&s, "drc/");
     let grew = after.iter().any(|(r, n)| before.iter().find(|(b, _)| b == r).is_none_or(|(_, m)| n > m));
@@ -79,27 +94,41 @@ fn narrowed_fails_drc(pdk: &str, engine: SignoffEngine) {
 // both negative controls caught.
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
-fn pair_signs_off_on_sky130_under_klayout() { signs_off("sky130", Klayout, &[]) }
+fn pair_signs_off_on_sky130_under_klayout() {
+    signs_off("sky130", Klayout, &[])
+}
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
-fn pair_signs_off_on_sky130_under_magic() { signs_off("sky130", Magic, &[]) }
+fn pair_signs_off_on_sky130_under_magic() {
+    signs_off("sky130", Magic, &[])
+}
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
-fn a_resized_schematic_fails_lvs_on_sky130_under_klayout() { resized_fails_lvs("sky130", Klayout) }
+fn a_resized_schematic_fails_lvs_on_sky130_under_klayout() {
+    resized_fails_lvs("sky130", Klayout)
+}
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
-fn a_resized_schematic_fails_lvs_on_sky130_under_magic() { resized_fails_lvs("sky130", Magic) }
+fn a_resized_schematic_fails_lvs_on_sky130_under_magic() {
+    resized_fails_lvs("sky130", Magic)
+}
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
-fn a_narrowed_metal_fails_drc_on_sky130_under_klayout() { narrowed_fails_drc("sky130", Klayout) }
+fn a_narrowed_metal_fails_drc_on_sky130_under_klayout() {
+    narrowed_fails_drc("sky130", Klayout)
+}
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
-fn a_narrowed_metal_fails_drc_on_sky130_under_magic() { narrowed_fails_drc("sky130", Magic) }
+fn a_narrowed_metal_fails_drc_on_sky130_under_magic() {
+    narrowed_fails_drc("sky130", Magic)
+}
 
 // gf180mcu: clean and matched under both foundry engines, both controls caught.
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
-fn pair_signs_off_on_gf180mcu_under_klayout() { signs_off("gf180mcu", Klayout, &[]) }
+fn pair_signs_off_on_gf180mcu_under_klayout() {
+    signs_off("gf180mcu", Klayout, &[])
+}
 /// magic grows each imported contact by 5 nm (`grow 145 shrink 140`) onto a
 /// 10 nm grid, rounding half up: contacts drawn exactly at CO.7 (150 nm to
 /// the gate) and CO.3 (70 nm poly enclosure) read 5 nm short on their +x/+y
@@ -108,42 +137,64 @@ fn pair_signs_off_on_gf180mcu_under_klayout() { signs_off("gf180mcu", Klayout, &
 /// CO.7 above, so it, not this test, gates those two rules.
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
-fn pair_signs_off_on_gf180mcu_under_magic() { signs_off("gf180mcu", Magic, &["(CO.7 - 2 * CO.6)", "(CO.3)"]) }
+fn pair_signs_off_on_gf180mcu_under_magic() {
+    signs_off("gf180mcu", Magic, &["(CO.7 - 2 * CO.6)", "(CO.3)"])
+}
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
-fn a_resized_schematic_fails_lvs_on_gf180mcu_under_klayout() { resized_fails_lvs("gf180mcu", Klayout) }
+fn a_resized_schematic_fails_lvs_on_gf180mcu_under_klayout() {
+    resized_fails_lvs("gf180mcu", Klayout)
+}
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
-fn a_resized_schematic_fails_lvs_on_gf180mcu_under_magic() { resized_fails_lvs("gf180mcu", Magic) }
+fn a_resized_schematic_fails_lvs_on_gf180mcu_under_magic() {
+    resized_fails_lvs("gf180mcu", Magic)
+}
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
-fn a_narrowed_metal_fails_drc_on_gf180mcu_under_klayout() { narrowed_fails_drc("gf180mcu", Klayout) }
+fn a_narrowed_metal_fails_drc_on_gf180mcu_under_klayout() {
+    narrowed_fails_drc("gf180mcu", Klayout)
+}
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
-fn a_narrowed_metal_fails_drc_on_gf180mcu_under_magic() { narrowed_fails_drc("gf180mcu", Magic) }
+fn a_narrowed_metal_fails_drc_on_gf180mcu_under_magic() {
+    narrowed_fails_drc("gf180mcu", Magic)
+}
 
 // ihp_sg13g2: clean and matched under both foundry engines, and both
 // negative controls caught.
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
-fn pair_signs_off_on_ihp_sg13g2_under_klayout() { signs_off("ihp_sg13g2", Klayout, &[]) }
+fn pair_signs_off_on_ihp_sg13g2_under_klayout() {
+    signs_off("ihp_sg13g2", Klayout, &[])
+}
 // magic's ContBar rules on square cuts: pdks/magic/ihp_sg13g2/PROVENANCE.md.
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
-fn pair_signs_off_on_ihp_sg13g2_under_magic() { signs_off("ihp_sg13g2", Magic, &["(CntB.b)", "(CntB.h1)"]) }
+fn pair_signs_off_on_ihp_sg13g2_under_magic() {
+    signs_off("ihp_sg13g2", Magic, &["(CntB.b)", "(CntB.h1)"])
+}
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
-fn a_resized_schematic_fails_lvs_on_ihp_sg13g2_under_klayout() { resized_fails_lvs("ihp_sg13g2", Klayout) }
+fn a_resized_schematic_fails_lvs_on_ihp_sg13g2_under_klayout() {
+    resized_fails_lvs("ihp_sg13g2", Klayout)
+}
 
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
-fn a_resized_schematic_fails_lvs_on_ihp_sg13g2_under_magic() { resized_fails_lvs("ihp_sg13g2", Magic) }
+fn a_resized_schematic_fails_lvs_on_ihp_sg13g2_under_magic() {
+    resized_fails_lvs("ihp_sg13g2", Magic)
+}
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
-fn a_narrowed_metal_fails_drc_on_ihp_sg13g2_under_klayout() { narrowed_fails_drc("ihp_sg13g2", Klayout) }
+fn a_narrowed_metal_fails_drc_on_ihp_sg13g2_under_klayout() {
+    narrowed_fails_drc("ihp_sg13g2", Klayout)
+}
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
-fn a_narrowed_metal_fails_drc_on_ihp_sg13g2_under_magic() { narrowed_fails_drc("ihp_sg13g2", Magic) }
+fn a_narrowed_metal_fails_drc_on_ihp_sg13g2_under_magic() {
+    narrowed_fails_drc("ihp_sg13g2", Magic)
+}
 
 /// asap7 has no open LVS deck and no magic tech: both foundry engines
 /// refuse it by code, before any tool runs, and never fall back to GPurify.
@@ -197,7 +248,11 @@ fn a_narrowed_metal_fails_drc_on_asap7_under_klayout() {
     let metals = p.routing_layers();
     let shape = out.placed.iter_mut().flat_map(|m| m.shapes.iter_mut()).find(|s| metals.contains(&s.layer)).unwrap();
     let half = p.min_width(shape.layer.0).unwrap() / 2;
-    if shape.rect.w < shape.rect.h { shape.rect.w = half } else { shape.rect.h = half }
+    if shape.rect.w < shape.rect.h {
+        shape.rect.w = half
+    } else {
+        shape.rect.h = half
+    }
     let after = verify::foundry::drc(Klayout, &engine::geometry(&out.placed, &out.routes), &[], &p).unwrap();
     let grew = after.iter().any(|(r, n)| before.iter().find(|(b, _)| b == r).is_none_or(|(_, m)| n > m));
     assert!(grew, "asap7 KLayout DRC: a narrowed metal adds nothing: before {before:?}, after {after:?}");

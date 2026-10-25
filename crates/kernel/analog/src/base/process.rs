@@ -122,7 +122,6 @@ pub trait Process {
         let _ = roles;
         None
     }
-
 }
 
 /// Hastings §13.3 matching class (PDF p.712): what a matched set's

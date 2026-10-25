@@ -67,11 +67,7 @@ impl UnitLib {
     /// Build from each cell's variants (`(bbox, units)` per alternative) and
     /// each cell's member devices (`members[cell][owner]`).
     #[must_use]
-    pub fn build<'a>(
-        cell_of: Vec<u16>,
-        members: &[Vec<DeviceId>],
-        variants: impl Iterator<Item = &'a [(Rect, &'a [Unit])]>,
-    ) -> Self {
+    pub fn build<'a>(cell_of: Vec<u16>, members: &[Vec<DeviceId>], variants: impl Iterator<Item = &'a [(Rect, &'a [Unit])]>) -> Self {
         let mut lib = UnitLib { cell_of, ..UnitLib::default() };
         for (cell, alts) in variants.enumerate() {
             lib.slot0.push(lib.bbox.len() as u32);
@@ -104,9 +100,7 @@ impl UnitLib {
     /// cell or variant is unknown.
     pub fn placed(&self, l: &Layout, cell: usize) -> impl Iterator<Item = PlacedUnit> + '_ {
         let v = l.variant.get(cell).copied().unwrap_or(0) as usize;
-        let slot = (cell < self.slot0.len().saturating_sub(1))
-            .then(|| self.slot0[cell] as usize + v)
-            .filter(|&s| s < self.slot0[cell + 1] as usize);
+        let slot = (cell < self.slot0.len().saturating_sub(1)).then(|| self.slot0[cell] as usize + v).filter(|&s| s < self.slot0[cell + 1] as usize);
         let range = slot.map_or(0..0, |s| self.start[s] as usize..self.start[s + 1] as usize);
         // Same transform as `place_macro`: turn about the origin, then shift the
         // turned bbox's lower-left onto the device's placed lower-left.

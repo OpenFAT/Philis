@@ -5,10 +5,10 @@
 //! `Dbu::raw()` in this crate is nanometres. `Pdk::grid` is the manufacturing
 //! grid (sky130: 5 nm), from the deck's `off_grid` rule.
 
+use analog::base::{LayerId, Process};
+use gdsverify::geom::Grid;
 use gdsverify::ingest::deck::{Deck, ParamValue, RuleSpec};
 use gdsverify::ingest::StrTable;
-use gdsverify::geom::Grid;
-use analog::base::{LayerId, Process};
 
 /// The database grid every length in this crate is expressed against:
 /// 1000 dbu/µm, so **1 dbu = 1 nm**.
@@ -87,7 +87,8 @@ impl Pdk {
     /// # Errors
     /// An unknown name, or anything [`Pdk::load`] rejects.
     pub fn builtin(name: &str) -> Result<Self, String> {
-        let cell = crate::pdk_data::cell(name).ok_or_else(|| format!("no built-in PDK {name:?} (built in: {})", crate::pdk_data::NAMES.join(", ")))?;
+        let cell =
+            crate::pdk_data::cell(name).ok_or_else(|| format!("no built-in PDK {name:?} (built in: {})", crate::pdk_data::NAMES.join(", ")))?;
         let mut pdk = Self::load(&crate::overrides::deck_text(name)?, &cell)?;
         pdk.name = crate::pdk_data::NAMES.iter().copied().find(|n| *n == name);
         Ok(pdk)
@@ -102,8 +103,7 @@ impl Pdk {
     /// gdsverify's parse error, or a list of every way the deck is incomplete.
     pub fn load(text: &str, cell: &serde_json::Value) -> Result<Self, String> {
         let mut strings = StrTable::default();
-        let deck = gdsverify::ingest::deck::parse_deck(text, nm_grid(), &mut strings)
-            .map_err(|e| format!("deck rejected: {e}"))?;
+        let deck = gdsverify::ingest::deck::parse_deck(text, nm_grid(), &mut strings).map_err(|e| format!("deck rejected: {e}"))?;
         let roles = parse_roles(cell)?;
         let cell = cell.clone();
 
@@ -114,22 +114,10 @@ impl Pdk {
             })
             .collect();
         let find = |name: &str| {
-            layers
-                .iter()
-                .find(|(n, _)| n == name)
-                .map(|(_, id)| *id)
-                .ok_or_else(|| format!("cell.layers names layer {name:?}, absent from the deck"))
+            layers.iter().find(|(n, _)| n == name).map(|(_, id)| *id).ok_or_else(|| format!("cell.layers names layer {name:?}, absent from the deck"))
         };
-        let routing_metals = roles
-            .routing_metals
-            .iter()
-            .map(|n| find(n))
-            .collect::<Result<Vec<_>, _>>()?;
-        let routing_cuts = roles
-            .routing_vias
-            .iter()
-            .map(|n| find(n))
-            .collect::<Result<Vec<_>, _>>()?;
+        let routing_metals = roles.routing_metals.iter().map(|n| find(n)).collect::<Result<Vec<_>, _>>()?;
+        let routing_cuts = roles.routing_vias.iter().map(|n| find(n)).collect::<Result<Vec<_>, _>>()?;
 
         // Narrowest source last so it wins: deck rule ids, then synthesised
         // `<layer>_min_width`/`_min_spacing`, then explicit `cell.*` values.
@@ -183,18 +171,11 @@ impl Pdk {
     /// reported at once. Each absence used to produce silent wrong geometry.
     fn validate(&self) -> Result<(), String> {
         let mut bad = Vec::new();
-        let named = |id: LayerId| {
-            self.layers
-                .iter()
-                .find(|(_, l)| *l == id)
-                .map_or_else(|| format!("{id:?}"), |(n, _)| n.clone())
-        };
+        let named = |id: LayerId| self.layers.iter().find(|(_, l)| *l == id).map_or_else(|| format!("{id:?}"), |(n, _)| n.clone());
 
         for (role, layer) in &self.roles {
             if !self.layers.iter().any(|(n, _)| n == layer) {
-                bad.push(format!(
-                    "role {role:?} maps to layer {layer:?}, which the deck does not define"
-                ));
+                bad.push(format!("role {role:?} maps to layer {layer:?}, which the deck does not define"));
             }
         }
 
@@ -202,11 +183,7 @@ impl Pdk {
         // is deck layer i. Built that way above, but a future constructor could
         // break it silently, so it is validated rather than assumed.
         for (i, (name, id)) in self.layers.iter().enumerate() {
-            let deck_says = self
-                .deck
-                .layers
-                .id(&self.strings, name)
-                .map_or(u16::MAX, |gv| gv.0);
+            let deck_says = self.deck.layers.id(&self.strings, name).map_or(u16::MAX, |gv| gv.0);
             if id.0 as usize != i || deck_says != id.0 {
                 bad.push(format!(
                     "layer {name:?}: Philis LayerId {} / table row {i} / deck id {deck_says} \
@@ -259,17 +236,15 @@ impl Pdk {
         // continuous and cut-required connectivity leaves isolated islands.
         let conn = &self.deck.connectivity;
         for (i, cut) in self.routing_cuts.iter().enumerate() {
-            let (Some(a), Some(b)) = (self.routing_metals.get(i), self.routing_metals.get(i + 1))
-            else {
+            let (Some(a), Some(b)) = (self.routing_metals.get(i), self.routing_metals.get(i + 1)) else {
                 continue;
             };
             // A deck joins extracted conductors through extracted cuts, each
             // the drawn layer or computed from it (`li_c = li not li_rs`,
             // `via3_m3 = via3 not capm`).
             let is = |x: GvLayerId, drawn: &LayerId| self.reaches(x, drawn.0);
-            let joins = conn.via_cut.iter().zip(&conn.via_connects).any(|(&c, &(x, y))| {
-                is(c, cut) && ((is(x, a) && is(y, b)) || (is(x, b) && is(y, a)))
-            });
+            let joins =
+                conn.via_cut.iter().zip(&conn.via_connects).any(|(&c, &(x, y))| is(c, cut) && ((is(x, a) && is(y, b)) || (is(x, b) && is(y, a))));
             if !joins {
                 bad.push(format!(
                     "cut {} is declared between {} and {}, but connectivity.vias does not join them",
@@ -286,10 +261,7 @@ impl Pdk {
         // Geometry on a layer needs that layer's own numbers; a default would be
         // a guess about a physical process.
         for l in &self.routing_metals {
-            for (what, present) in [
-                ("min_width", self.min_width(l.0).is_some()),
-                ("min_spacing", self.min_spacing(l.0).is_some()),
-            ] {
+            for (what, present) in [("min_width", self.min_width(l.0).is_some()), ("min_spacing", self.min_spacing(l.0).is_some())] {
                 if !present {
                     bad.push(format!("routing layer {} has no {what} rule", named(*l)));
                 }
@@ -297,10 +269,7 @@ impl Pdk {
         }
         for c in &self.routing_cuts {
             if self.min_width(c.0).is_none() {
-                bad.push(format!(
-                    "cut layer {} has no min_width, so its drawn size is unknown",
-                    named(*c)
-                ));
+                bad.push(format!("cut layer {} has no min_width, so its drawn size is unknown", named(*c)));
             }
         }
 
@@ -420,9 +389,7 @@ impl Pdk {
         for (i, pair) in stack.windows(2).enumerate() {
             let (a, b) = (pair[0].0, pair[1].0);
             let cut = self.routing_cuts[i].0;
-            let size = self
-                .min_width(cut)
-                .expect("validate() guarantees every cut layer has a min_width");
+            let size = self.min_width(cut).expect("validate() guarantees every cut layer has a min_width");
             // A centred square's sides are equal, so it clears an asymmetric
             // `min_one_side` only by granting it on every side.
             let enclose = self
@@ -430,12 +397,7 @@ impl Pdk {
                 .max(self.max_enclosure_of(cut, "asymmetric_enclosure", "min_one_side"))
                 .max(self.max_enclosure_of(cut, "adjacent_enclosure", "min_one_side"));
             let enclosed = size + 2 * enclose;
-            cuts.push((
-                LayerId(cut),
-                size,
-                self.pad_for(a, enclosed),
-                self.pad_for(b, enclosed),
-            ));
+            cuts.push((LayerId(cut), size, self.pad_for(a, enclosed), self.pad_for(b, enclosed)));
         }
         cuts
     }
@@ -471,9 +433,7 @@ impl Pdk {
             }
             s
         });
-        let side = enclosed
-            .max(self.min_width(metal).unwrap_or(0))
-            .max(side_for_area);
+        let side = enclosed.max(self.min_width(metal).unwrap_or(0)).max(side_for_area);
         let g = self.grid.max(1);
         side.div_euclid(g) * g + if side.rem_euclid(g) == 0 { 0 } else { g }
     }
@@ -540,21 +500,18 @@ impl Pdk {
             Some(ParamValue::Length(d)) => Some(d.raw() as i32),
             _ => None,
         };
-        let mut steps: Vec<(i32, i32)> = match (
-            self.strings.get("wide_dependent_spacing"),
-            self.strings.get("width_threshold"),
-            self.strings.get("limit"),
-        ) {
-            (Some(kind), Some(thr), Some(lim)) => self
-                .deck
-                .rules
-                .spec
-                .iter()
-                .filter(|s| s.kind == kind && self.deck.rules.layers_of(s).first().map(|l| l.0) == Some(layer))
-                .filter_map(|s| Some((len(s, thr)?, len(s, lim)?)))
-                .collect(),
-            _ => Vec::new(),
-        };
+        let mut steps: Vec<(i32, i32)> =
+            match (self.strings.get("wide_dependent_spacing"), self.strings.get("width_threshold"), self.strings.get("limit")) {
+                (Some(kind), Some(thr), Some(lim)) => self
+                    .deck
+                    .rules
+                    .spec
+                    .iter()
+                    .filter(|s| s.kind == kind && self.deck.rules.layers_of(s).first().map(|l| l.0) == Some(layer))
+                    .filter_map(|s| Some((len(s, thr)?, len(s, lim)?)))
+                    .collect(),
+                _ => Vec::new(),
+            };
         // A spacing table (LEF SPACINGTABLE: a row per width threshold, a
         // column per parallel run length): each row's widest entry, any run.
         if let (Some(table), Some(w), Some(sp), Some(prl)) =
@@ -562,10 +519,12 @@ impl Pdk {
         {
             for s in self.deck.rules.spec.iter().filter(|s| s.kind == table && self.deck.rules.layers_of(s).first().map(|l| l.0) == Some(layer)) {
                 let ps = self.deck.rules.params_of(s);
-                let of = |name| ps.iter().filter(move |(n, _)| *n == name).filter_map(|(_, v)| match v {
-                    ParamValue::Length(d) => Some(d.raw() as i32),
-                    _ => None,
-                });
+                let of = |name| {
+                    ps.iter().filter(move |(n, _)| *n == name).filter_map(|(_, v)| match v {
+                        ParamValue::Length(d) => Some(d.raw() as i32),
+                        _ => None,
+                    })
+                };
                 let (widths, spaces): (Vec<i32>, Vec<i32>) = (of(w).collect(), of(sp).collect());
                 let cols = ps.iter().filter(|(n, _)| *n == prl).count().max(1);
                 for (i, &wi) in widths.iter().enumerate() {
@@ -583,20 +542,13 @@ impl Pdk {
     /// `layer`: an array of at least that many cuts needs that spacing.
     #[must_use]
     pub fn via_array_spacing(&self, layer: u16) -> Option<(i32, i32)> {
-        let (kind, thr, lim) = (
-            self.strings.get("via_array_spacing")?,
-            self.strings.get("array_threshold")?,
-            self.strings.get("limit")?,
-        );
-        self.deck
-            .rules
-            .spec
-            .iter()
-            .filter(|s| s.kind == kind && self.deck.rules.layers_of(s).first().map(|l| l.0) == Some(layer))
-            .find_map(|s| match (self.deck.rules.param(s, thr), self.deck.rules.param(s, lim)) {
+        let (kind, thr, lim) = (self.strings.get("via_array_spacing")?, self.strings.get("array_threshold")?, self.strings.get("limit")?);
+        self.deck.rules.spec.iter().filter(|s| s.kind == kind && self.deck.rules.layers_of(s).first().map(|l| l.0) == Some(layer)).find_map(
+            |s| match (self.deck.rules.param(s, thr), self.deck.rules.param(s, lim)) {
                 (Some(ParamValue::Count(n)), Some(ParamValue::Length(d))) => Some((n as i32, d.raw() as i32)),
                 _ => None,
-            })
+            },
+        )
     }
 
     /// A non-length number from the deck's `cell` section (e.g. a mismatch
@@ -767,7 +719,8 @@ impl Pdk {
                 };
                 // Cumulative: the rule states several routing metals, summed
                 // up to this stage (ihp `antenna(gate, metal1, metal2)`).
-                let metals = self.deck.rules.layers_of(s).iter().skip(1).filter(|&&l| self.routing_metals.iter().any(|m| self.reaches(l, m.0))).count();
+                let metals =
+                    self.deck.rules.layers_of(s).iter().skip(1).filter(|&&l| self.routing_metals.iter().any(|m| self.reaches(l, m.0))).count();
                 Some((r as f32, t, metals > 1))
             })
             .min_by(|a, b| (a.1 > 0.0).cmp(&(b.1 > 0.0)))
@@ -950,20 +903,28 @@ impl Pdk {
     /// cut, its exact `size` (the shorter side).
     #[must_use]
     pub fn min_width(&self, layer: u16) -> Option<i32> {
-        self.rule_limit_nm("min_width", layer).or_else(|| self.derived_min_width(layer)).or_else(|| {
-            let (kind, w, h) = (self.strings.get("cut_size")?, self.strings.get("width")?, self.strings.get("height")?);
-            // A cut sized on a part of the layer (sky130 `licon_std`: licon
-            // outside the precision resistors) sizes the plain cut; the
-            // smallest of several is the ordinary one, not a slot.
-            self.deck.rules.spec.iter().filter_map(|s| {
-                (s.kind == kind && self.deck.rules.layers_of(s).first().is_some_and(|&l| self.drawn_from(l, layer))).then_some(())?;
-                match (self.deck.rules.param(s, w), self.deck.rules.param(s, h)) {
-                    (Some(ParamValue::Length(a)), Some(ParamValue::Length(b))) => Some(a.raw().min(b.raw())),
-                    (Some(ParamValue::Length(a)), _) => Some(a.raw()),
-                    _ => None,
-                }
-            }).min()
-        }).map(|v| v as i32)
+        self.rule_limit_nm("min_width", layer)
+            .or_else(|| self.derived_min_width(layer))
+            .or_else(|| {
+                let (kind, w, h) = (self.strings.get("cut_size")?, self.strings.get("width")?, self.strings.get("height")?);
+                // A cut sized on a part of the layer (sky130 `licon_std`: licon
+                // outside the precision resistors) sizes the plain cut; the
+                // smallest of several is the ordinary one, not a slot.
+                self.deck
+                    .rules
+                    .spec
+                    .iter()
+                    .filter_map(|s| {
+                        (s.kind == kind && self.deck.rules.layers_of(s).first().is_some_and(|&l| self.drawn_from(l, layer))).then_some(())?;
+                        match (self.deck.rules.param(s, w), self.deck.rules.param(s, h)) {
+                            (Some(ParamValue::Length(a)), Some(ParamValue::Length(b))) => Some(a.raw().min(b.raw())),
+                            (Some(ParamValue::Length(a)), _) => Some(a.raw()),
+                            _ => None,
+                        }
+                    })
+                    .min()
+            })
+            .map(|v| v as i32)
     }
 
     /// Whether deck layer `x` is drawing layer `drawn` or computed from it
@@ -1032,7 +993,8 @@ impl Pdk {
     /// part of it ([`Pdk::drawn_from`]), minus `cell.inapplicable_rules`.
     fn rules_on<'a>(&'a self, kind: &str, layers: &'a [u16]) -> impl Iterator<Item = &'a RuleSpec> + 'a {
         let kind = self.strings.get(kind);
-        let skip: Vec<&str> = self.cell.get("inapplicable_rules").and_then(|v| v.as_array()).map_or(Vec::new(), |a| a.iter().filter_map(|x| x.as_str()).collect());
+        let skip: Vec<&str> =
+            self.cell.get("inapplicable_rules").and_then(|v| v.as_array()).map_or(Vec::new(), |a| a.iter().filter_map(|x| x.as_str()).collect());
         self.deck.rules.spec.iter().filter(move |s| {
             let l = self.deck.rules.layers_of(s);
             Some(s.kind) == kind
@@ -1047,9 +1009,11 @@ impl Pdk {
     /// a generator drawing one margin on every side meets both.
     pub(crate) fn enclosure_nm(&self, outer: u16, inner: u16) -> Option<i64> {
         let l = [outer, inner];
-        self.widest_on("min_enclosure", "limit", &l)
-            .max(self.widest_on("noncoincident_enclosure", "limit", &l))
-            .max(self.widest_on("edge_enclosure", "limit", &[inner, outer]))
+        self.widest_on("min_enclosure", "limit", &l).max(self.widest_on("noncoincident_enclosure", "limit", &l)).max(self.widest_on(
+            "edge_enclosure",
+            "limit",
+            &[inner, outer],
+        ))
     }
 
     /// The widest end-cap of `inner` by `outer`, nm: the opposite-sides
@@ -1181,14 +1145,20 @@ impl Pdk {
     /// generator drawing plain `layer` honours every part at once.
     fn derived_min_width(&self, layer: u16) -> Option<i64> {
         let (kind, limit) = (self.strings.get("min_width")?, self.strings.get("limit")?);
-        self.deck.rules.spec.iter().filter(|s| s.kind == kind).filter_map(|s| {
-            let l = *self.deck.rules.layers_of(s).first()?;
-            (l.0 != layer && self.reaches(l, layer)).then_some(())?;
-            match self.deck.rules.param(s, limit) {
-                Some(ParamValue::Length(d)) => Some(d.raw()),
-                _ => None,
-            }
-        }).max()
+        self.deck
+            .rules
+            .spec
+            .iter()
+            .filter(|s| s.kind == kind)
+            .filter_map(|s| {
+                let l = *self.deck.rules.layers_of(s).first()?;
+                (l.0 != layer && self.reaches(l, layer)).then_some(())?;
+                match self.deck.rules.param(s, limit) {
+                    Some(ParamValue::Length(d)) => Some(d.raw()),
+                    _ => None,
+                }
+            })
+            .max()
     }
 
     fn rule_limit_nm(&self, kind: &str, layer: u16) -> Option<i64> {
@@ -1226,9 +1196,7 @@ impl Process for Pdk {
         if let Some((_, l)) = self.roles.iter().find(|(r, _)| r == role) {
             return self.layers.iter().find(|(n, _)| n == l).map(|(_, id)| *id);
         }
-        let at = |prefix: &str, stack: &[LayerId]| {
-            role.strip_prefix(prefix)?.parse::<usize>().ok().and_then(|n| stack.get(n).copied())
-        };
+        let at = |prefix: &str, stack: &[LayerId]| role.strip_prefix(prefix)?.parse::<usize>().ok().and_then(|n| stack.get(n).copied());
         at("met", &self.routing_metals)
             .or_else(|| at("via", &self.routing_cuts))
             .or_else(|| self.layers.iter().find(|(n, _)| n == role).map(|(_, id)| *id))
@@ -1238,13 +1206,7 @@ impl Process for Pdk {
     /// No `min_gate_l` chosen: the deck's shortest legal gate, either polarity.
     fn rule(&self, name: &str, default: i32) -> i32 {
         let deck = || (name == "min_gate_l").then(|| self.min_channel(false, "").0.max(self.min_channel(true, "").0)).filter(|&l| l > 0);
-        self.rules
-            .iter()
-            .rev()
-            .find(|(n, _)| n == name)
-            .map(|(_, v)| *v)
-            .or_else(deck)
-            .unwrap_or(default)
+        self.rules.iter().rev().find(|(n, _)| n == name).map(|(_, v)| *v).or_else(deck).unwrap_or(default)
     }
     fn grid(&self) -> i32 {
         self.grid
@@ -1331,9 +1293,7 @@ fn scalar_rules(deck: &Deck, strings: &StrTable) -> Vec<(String, i32)> {
         .iter()
         .filter_map(|s| {
             keys.iter().find_map(|&k| match deck.rules.param(s, k) {
-                Some(ParamValue::Length(d)) => {
-                    Some((strings.resolve(s.id).to_string(), d.raw() as i32))
-                }
+                Some(ParamValue::Length(d)) => Some((strings.resolve(s.id).to_string(), d.raw() as i32)),
                 _ => None,
             })
         })
@@ -1343,9 +1303,7 @@ fn scalar_rules(deck: &Deck, strings: &StrTable) -> Vec<(String, i32)> {
 /// Layer roles every cell generator resolves unconditionally (`cells::req`).
 /// `nsdm` is not one: a deck without it dopes n+ wherever no p+ is drawn
 /// (IHP SG13G2, whose drawn nSD is the rhigh implant and unmakes a MOS).
-const REQUIRED_ROLES: &[&str] = &[
-    "diff", "poly", "li", "licon", "mcon", "met1", "nwell", "psdm", "tap",
-];
+const REQUIRED_ROLES: &[&str] = &["diff", "poly", "li", "licon", "mcon", "met1", "nwell", "psdm", "tap"];
 
 /// A device construction from the sidecar's `cell.<kind>s` table: which
 /// layers a generator draws for one schematic model and the deck model the
@@ -1505,15 +1463,21 @@ impl Pdk {
         let table = self.cell.get(format!("{kind}s"))?;
         let recipes = table.get("recipes")?.as_object()?;
         let names = |r: &serde_json::Value| -> Vec<String> {
-            let mut v: Vec<String> = r.get("aliases").and_then(|a| a.as_array()).map_or(Vec::new(), |a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect());
+            let mut v: Vec<String> =
+                r.get("aliases").and_then(|a| a.as_array()).map_or(Vec::new(), |a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect());
             v.extend(r.get("model").and_then(|m| m.as_str()).map(String::from));
             v
         };
-        let hit = |r: &serde_json::Value| !model.is_empty() && names(r).iter().any(|n| n == model || n.ends_with(&format!("__{model}")) || model.ends_with(&format!("__{n}")));
+        let hit = |r: &serde_json::Value| {
+            !model.is_empty() && names(r).iter().any(|n| n == model || n.ends_with(&format!("__{model}")) || model.ends_with(&format!("__{n}")))
+        };
         let r = recipes.values().find(|r| hit(r)).or_else(|| recipes.get(table.get("default")?.as_str()?))?;
         Some(Recipe {
             model: r.get("model").and_then(|m| m.as_str()).unwrap_or_default().to_string(),
-            layers: r.get("layers").and_then(|l| l.as_object()).map_or(Vec::new(), |l| l.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string()))).collect()),
+            layers: r
+                .get("layers")
+                .and_then(|l| l.as_object())
+                .map_or(Vec::new(), |l| l.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string()))).collect()),
             rules: r.as_object().map_or(Vec::new(), |o| o.iter().filter_map(|(k, v)| Some((k.clone(), v.as_i64()? as i32))).collect()),
         })
     }
@@ -1609,8 +1573,10 @@ const MAX_CELL_FEATURE_NM: i32 = 5_000;
 
 /// Every role a Philis generator draws on (optional ones resolve to nothing
 /// on a deck without them).
-const DRAWN_ROLES: &[&str] =
-    &["diff", "tap", "poly", "rpoly", "li", "licon", "mcon", "met1", "nwell", "dnwell", "nsdm", "psdm", "npc", "rpm", "pnp", "npn", "hvtp", "lvtn", "fin", "sdt", "lisd", "lig", "gcut"];
+const DRAWN_ROLES: &[&str] = &[
+    "diff", "tap", "poly", "rpoly", "li", "licon", "mcon", "met1", "nwell", "dnwell", "nsdm", "psdm", "npc", "rpm", "pnp", "npn", "hvtp", "lvtn",
+    "fin", "sdt", "lisd", "lig", "gcut",
+];
 
 /// The deck's `cell` section, which gdsverify's reader ignores.
 #[derive(Default)]
@@ -1641,11 +1607,7 @@ fn parse_roles(cell: &serde_json::Value) -> Result<Roles, String> {
             .and_then(|a| a.as_array())
             .ok_or_else(|| format!("cell.layers.{key} is missing or not an array"))?
             .iter()
-            .map(|e| {
-                e.as_str()
-                    .map(String::from)
-                    .ok_or_else(|| format!("cell.layers.{key} contains a non-string entry"))
-            })
+            .map(|e| e.as_str().map(String::from).ok_or_else(|| format!("cell.layers.{key} contains a non-string entry")))
             .collect()
     };
     roles.routing_metals = list("routing_metals")?;
@@ -1712,8 +1674,18 @@ mod tests {
         let sky = load("sky130");
         let r = RefInput {
             devices: vec![
-                RefDeviceIn { kind: RefKind::Nmos, model: Some("nfet_01v8".into()), terminals: vec!["d".into(), "g".into(), "vss".into(), "vss".into()], params: vec![("w".into(), 0.42e-6), ("l".into(), 0.15e-6)] },
-                RefDeviceIn { kind: RefKind::Pmos, model: None, terminals: vec!["vdd".into(); 4], params: vec![("w".into(), 1.15e-6), ("l".into(), 0.15e-6)] },
+                RefDeviceIn {
+                    kind: RefKind::Nmos,
+                    model: Some("nfet_01v8".into()),
+                    terminals: vec!["d".into(), "g".into(), "vss".into(), "vss".into()],
+                    params: vec![("w".into(), 0.42e-6), ("l".into(), 0.15e-6)],
+                },
+                RefDeviceIn {
+                    kind: RefKind::Pmos,
+                    model: None,
+                    terminals: vec!["vdd".into(); 4],
+                    params: vec![("w".into(), 1.15e-6), ("l".into(), 0.15e-6)],
+                },
             ],
             ports: vec!["d".into(), "g".into(), "vss".into(), "vdd".into(), "internal".into()],
             ..RefInput::default()
@@ -1789,13 +1761,11 @@ mod tests {
         assert!((c12 - 147.6).abs() < 0.1 && (c23 - 88.5).abs() < 0.1, "{c12} {c23}");
     }
 
-
     fn sky130_with(edit: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>)) -> Result<Pdk, String> {
         let mut v = crate::pdk_data::cell("sky130").unwrap();
         edit(v.as_object_mut().unwrap());
         Pdk::load(&crate::overrides::deck_text("sky130").unwrap(), &v)
     }
-
 
     /// A misspelt key is an error, not a value silently ignored while the
     /// generator falls back to its default.
@@ -1879,7 +1849,8 @@ mod tests {
         for deck in DECKS {
             let pdk = load(deck);
             assert!(!pdk.routing_layers().is_empty(), "{deck}: empty routing stack");
-            let device: Vec<LayerId> = ["diff", "tap", "poly", "nwell", "nsdm", "psdm", "licon"].iter().filter_map(|r| analog::base::Process::layer(&pdk, r)).collect();
+            let device: Vec<LayerId> =
+                ["diff", "tap", "poly", "nwell", "nsdm", "psdm", "licon"].iter().filter_map(|r| analog::base::Process::layer(&pdk, r)).collect();
             for l in pdk.routing_layers() {
                 assert!(!device.contains(&l), "{deck}: {l:?} is a device layer in the routing stack");
                 assert!(pdk.deck.connectivity.conductors.iter().any(|&c| pdk.reaches(c, l.0)), "{deck}: {l:?} conducts nothing");
@@ -1955,7 +1926,8 @@ mod tests {
         assert_eq!((m1.ua_per_um, m1.ua_per_cut), (2_800.0, 360.0));
         // A deck without EM rules is unknown.
         let sidecar = crate::pdk_data::cell("sky130").unwrap();
-        let text: String = crate::overrides::deck_text("sky130").unwrap().lines().filter(|l| !l.contains("em_current_density")).collect::<Vec<_>>().join("\n");
+        let text: String =
+            crate::overrides::deck_text("sky130").unwrap().lines().filter(|l| !l.contains("em_current_density")).collect::<Vec<_>>().join("\n");
         let bare = Pdk::load(&text, &sidecar).unwrap();
         assert!(bare.routing_metals.iter().all(|&l| bare.em_limit(l).is_none()), "no EM rules: unknown");
     }

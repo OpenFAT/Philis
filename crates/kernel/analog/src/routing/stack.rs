@@ -553,8 +553,20 @@ mod tests {
 
     /// m1 (id 1), via (2), m2 (3); the via stage has no antenna rule.
     fn stack(m1: f32, m2: f32, cumulative: bool) -> Stack {
-        let metal = |id, ratio| Layer { id, area_af_um2: 25.0, fringe_af_um: 40.0, lateral: 3.9 * 8.854 * 360.0, antenna_ratio: ratio, sheet_ohm: 0.125, ..Layer::default() };
-        Stack { layers: vec![metal(1, m1), Layer { id: 2, sheet_ohm: 4.5, cut: true, ..Layer::default() }, metal(3, m2)], antenna_cumulative: cumulative, diode: None }
+        let metal = |id, ratio| Layer {
+            id,
+            area_af_um2: 25.0,
+            fringe_af_um: 40.0,
+            lateral: 3.9 * 8.854 * 360.0,
+            antenna_ratio: ratio,
+            sheet_ohm: 0.125,
+            ..Layer::default()
+        };
+        Stack {
+            layers: vec![metal(1, m1), Layer { id: 2, sheet_ohm: 4.5, cut: true, ..Layer::default() }, metal(3, m2)],
+            antenna_cumulative: cumulative,
+            diode: None,
+        }
     }
 
     #[test]
@@ -636,7 +648,7 @@ mod tests {
     fn a_jumper_splits_the_lower_stage() {
         let s = stack(100.0, 400.0, false);
         let gate = 1_000_000; // 1 µm²
-        // One 180 µm × 1 µm m1 run: ratio 180 at the m1 stage (limit 100).
+                              // One 180 µm × 1 µm m1 run: ratio 180 at the m1 stage (limit 100).
         let long = [shape(1, 0, 0, 180_000, 1_000)];
         assert_eq!(s.antenna(&long, &[], &[], &[], gate), Some((180.0, 100.0)));
         // The same length as 20 µm m1 + a 140 µm m2 bridge + 20 µm m1.

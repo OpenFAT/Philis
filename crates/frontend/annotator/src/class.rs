@@ -1,9 +1,9 @@
 //! Precision class and match kind per matched set (EXT-16; Hastings §13.3,
 //! §10.3, §8.3 class tables via `analog::matching::class::limit`).
 
+use analog::base::netlist::DeviceKind;
 use analog::intent::{ArrayStyle, ClassSource, Diagnostic, MatchClass, MatchKind, MatchSpec};
 use analog::matching::class::{limit, ClassLimit};
-use analog::base::netlist::DeviceKind;
 
 use crate::block::BlockKind;
 
@@ -59,7 +59,9 @@ pub fn class_of(set: &MatchSpec, ctx: &mut ClassCtx) -> (MatchClass, ClassSource
         Some(ClassLimit::Mv(v)) => Some(v),
         _ => None,
     };
-    if let (Some(x), Some(min), Some(moderate), Some(exc)) = (ctx.spec_6sigma, mv(MatchClass::Minimal), mv(MatchClass::Moderate), mv(MatchClass::Exceptional)) {
+    if let (Some(x), Some(min), Some(moderate), Some(exc)) =
+        (ctx.spec_6sigma, mv(MatchClass::Minimal), mv(MatchClass::Moderate), mv(MatchClass::Exceptional))
+    {
         let c = if x >= min {
             MatchClass::Minimal
         } else if x >= moderate {
@@ -100,8 +102,8 @@ pub fn style_of(class: MatchClass, kind: MatchKind, shares_source: bool) -> Arra
 #[cfg(test)]
 mod tests {
     use super::*;
-    use analog::intent::{ConstraintId, Family, Member, Origin};
     use analog::base::ids::DeviceId;
+    use analog::intent::{ConstraintId, Family, Member, Origin};
 
     fn set(family: Family, kind: MatchKind) -> MatchSpec {
         MatchSpec {

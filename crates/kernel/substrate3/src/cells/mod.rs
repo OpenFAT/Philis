@@ -24,8 +24,8 @@ pub mod resistor;
 
 pub use builder::Builder;
 
-use analog::Constraints;
 use analog::base::{DeviceGroup, Macro, Process};
+use analog::Constraints;
 
 /// How the fingers/segments of a matched group interleave.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -56,8 +56,8 @@ pub trait Cell: Clone {
 /// group, drawn alone, so a finding is unambiguously the generator's.
 #[cfg(test)]
 pub(crate) mod testkit {
-    use analog::cell::{SeriesParallel, Unitization};
     use analog::base::{DeviceGroup, DeviceId, DeviceKind};
+    use analog::cell::{SeriesParallel, Unitization};
 
     /// The sky130 deck; `None` (skip) when absent, panic when present but broken.
     pub fn pdk() -> Option<verify::Pdk> {
@@ -79,7 +79,10 @@ pub(crate) mod testkit {
             // `false` keeps the zero-dummy variants in the sweep.
             dummy_required: false,
             route_matching_required: false,
-            class: None, kind: None, series: Vec::new(), style: None,
+            class: None,
+            kind: None,
+            series: Vec::new(),
+            style: None,
         });
         (group, c)
     }
@@ -92,11 +95,7 @@ pub(crate) mod testkit {
         let mut out = Vec::new();
         for dummies in [false, true] {
             c.unitization[0].dummy_required = dummies;
-            out.extend(
-                dirty_group::<G>(&group, &c, pdk)
-                    .into_iter()
-                    .map(|d| format!("{kind:?} n={n} nf={nf} dummies={dummies} {d}")),
-            );
+            out.extend(dirty_group::<G>(&group, &c, pdk).into_iter().map(|d| format!("{kind:?} n={n} nf={nf} dummies={dummies} {d}")));
         }
         out
     }
@@ -110,7 +109,12 @@ pub(crate) mod testkit {
     }
 
     /// [`findings`] with `cells` named ([`analog::base::Macro::cells`]).
-    pub fn findings_in(shapes: &[analog::base::Shape], cells: &[analog::base::NamedCell], labels: &[verify::LabeledPin], pdk: &verify::Pdk) -> Vec<String> {
+    pub fn findings_in(
+        shapes: &[analog::base::Shape],
+        cells: &[analog::base::NamedCell],
+        labels: &[verify::LabeledPin],
+        pdk: &verify::Pdk,
+    ) -> Vec<String> {
         let opts = verify::ExtractOptions { cells: cells.to_vec(), ..Default::default() };
         verify::drc_with(shapes, labels, pdk, &opts)
             .into_iter()

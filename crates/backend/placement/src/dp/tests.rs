@@ -7,13 +7,13 @@ fn rules(c: i32) -> crate::gp::PlaceRules {
     crate::gp::PlaceRules::uniform(5, c)
 }
 use crate::gp::mechanics::{analog_violations, encroachment, hpwl};
-use analog::placement::symmetry::{SymMode, Symmetry, SymmetryGroup};
-use analog::placement::DtiBand;
-use analog::Rule;
 use crate::gp::VariantSpace;
 use analog::base::geom::Rect;
 use analog::base::ids::{AxisId, Target};
 use analog::base::DeviceId;
+use analog::placement::symmetry::{SymMode, Symmetry, SymmetryGroup};
+use analog::placement::DtiBand;
+use analog::Rule;
 
 /// Layout of devices `(x, y, hw, hh)`, each in its own group.
 fn layout(cells: &[(i32, i32, i32, i32)]) -> Layout {
@@ -34,14 +34,7 @@ fn layout(cells: &[(i32, i32, i32, i32)]) -> Layout {
     }
 }
 
-fn run(
-    coarse: &Layout,
-    macros: &[Macro],
-    variants: &[VariantSpace],
-    reqs: &Requirements<Layout>,
-    fixed: &[bool],
-    seed: u64,
-) -> Layout {
+fn run(coarse: &Layout, macros: &[Macro], variants: &[VariantSpace], reqs: &Requirements<Layout>, fixed: &[bool], seed: u64) -> Layout {
     let locks = locks::locks(reqs, coarse.x.len(), variants);
     place(coarse, macros, variants, reqs, fixed, &locks, &mut crate::gp::Prices::new(), &rules(CLEARANCE_NM), &[], seed, Schedule::cold()).0
 }
@@ -92,10 +85,7 @@ fn mixed_polarity_composite_halves_turn_together() {
 #[test]
 fn mirror_pair_keeps_its_reflection_through_rotation() {
     let coarse = rotate_bench();
-    let reqs = Requirements {
-        hard: vec![Box::new(SymmetryGroup(vec![Symmetry { mode: SymMode::Mirror, ..sym(0, 1) }]))],
-        ..Default::default()
-    };
+    let reqs = Requirements { hard: vec![Box::new(SymmetryGroup(vec![Symmetry { mode: SymMode::Mirror, ..sym(0, 1) }]))], ..Default::default() };
     let mut turned = false;
     for seed in 1..=10u64 {
         let l = run(&coarse, &[], &[], &reqs, &[false; 4], seed);
@@ -142,9 +132,7 @@ fn alt(w: i32, h: i32) -> Macro {
 
 /// Three alternatives per cell, not ordered by similarity.
 fn spaces() -> Vec<VariantSpace> {
-    let s = || VariantSpace {
-        alternatives: vec![alt(2_000, 16_000), alt(16_000, 2_000), alt(6_000, 6_000)],
-    };
+    let s = || VariantSpace { alternatives: vec![alt(2_000, 16_000), alt(16_000, 2_000), alt(6_000, 6_000)] };
     vec![s(), s()]
 }
 
@@ -392,10 +380,7 @@ fn gate_never_trades_a_broken_pair_for_overlap() {
     let e = 1_000.0;
     let mut rng = SplitMix64::new(1);
     for draw in 0..100 {
-        assert!(
-            !accept((1, 0.002, e, 0.0), (1, 0.003, e - 2.0, 0.0), -1.0, 1e12, &mut rng),
-            "draw {draw}"
-        );
+        assert!(!accept((1, 0.002, e, 0.0), (1, 0.003, e - 2.0, 0.0), -1.0, 1e12, &mut rng), "draw {draw}");
     }
 }
 
@@ -504,13 +489,7 @@ fn two_pairs_and_a_tail_share_one_axis_legally() {
     let group = || SymmetryGroup(vec![sym(0, 1), sym(2, 3), sym(4, 4)]);
     let reqs = Requirements { hard: vec![Box::new(group())], budget: Vec::new(), cost: vec![Box::new(group())] };
     for seed in 0..4 {
-        let coarse = layout(&[
-            (0, 0, 3_000, 2_000),
-            (100, 50, 3_000, 2_000),
-            (0, 0, 4_000, 1_500),
-            (-50, 20, 4_000, 1_500),
-            (30, 30, 2_500, 2_500),
-        ]);
+        let coarse = layout(&[(0, 0, 3_000, 2_000), (100, 50, 3_000, 2_000), (0, 0, 4_000, 1_500), (-50, 20, 4_000, 1_500), (30, 30, 2_500, 2_500)]);
         let l = run(&coarse, &[], &[], &reqs, &[false; 5], seed);
         assert_eq!(analog_violations(&reqs, &l), 0, "seed {seed}: x = {:?}, y = {:?}", l.x, l.y);
         assert_eq!(encroachment(&l, CLEARANCE_NM), 0.0, "seed {seed}: x = {:?}, y = {:?}", l.x, l.y);
@@ -556,11 +535,7 @@ fn incident_encroachment_difference_matches_full_scan() {
 #[test]
 fn compound_moves_keep_a_mirrored_stage_mirrored() {
     let sym = |a: u16, b: u16| Symmetry { a: Target::Device(DeviceId(a)), b: Target::Device(DeviceId(b)), axis: AxisId(0), mode: SymMode::Perfect };
-    let reqs = Requirements {
-        hard: vec![Box::new(SymmetryGroup(vec![sym(0, 1), sym(2, 3), sym(4, 4)]))],
-        budget: Vec::new(),
-        cost: Vec::new(),
-    };
+    let reqs = Requirements { hard: vec![Box::new(SymmetryGroup(vec![sym(0, 1), sym(2, 3), sym(4, 4)]))], budget: Vec::new(), cost: Vec::new() };
     let mut l = layout(&[
         (-6_000, 0, 1_000, 1_000),
         (6_000, 0, 1_000, 1_000),
@@ -634,14 +609,7 @@ fn scene(k: i32) -> (Nets, Layout, Requirements<Layout>) {
         cost: vec![
             Box::new(vec![analog::placement::Proximity { a: d0, b: d1, max_distance_nm: 10_000 * k }]),
             Box::new(vec![analog::placement::Isolation { a: d0, b: d1, min_distance_nm: 60_000 * k }]),
-            Box::new(vec![DtiBand {
-                a: d0,
-                b: d1,
-                s_max_nm: 200 * k,
-                d_dti_nm: 50_000 * k,
-                branch: BranchId(0),
-                seed_isolate: true,
-            }]),
+            Box::new(vec![DtiBand { a: d0, b: d1, s_max_nm: 200 * k, d_dti_nm: 50_000 * k, branch: BranchId(0), seed_isolate: true }]),
             Box::new(SymmetryGroup(vec![Symmetry { a: d0, b: d1, axis: AxisId(0), mode: SymMode::Perfect }])),
         ],
     };
@@ -674,10 +642,8 @@ fn dp_pushes_a_matched_pair_away_from_a_hot_cell() {
     use analog::placement::HeatSeparation;
     let coarse = layout(&[(0, 0, 1_000, 1_000), (2_000, 0, 1_000, 1_000), (4_000, 0, 1_000, 1_000)]);
     let d = |i: u16| Target::Device(DeviceId(i));
-    let heat = vec![
-        HeatSeparation { victim: d(0), source: d(2), min_gap_nm: 2_000 },
-        HeatSeparation { victim: d(1), source: d(2), min_gap_nm: 2_000 },
-    ];
+    let heat =
+        vec![HeatSeparation { victim: d(0), source: d(2), min_gap_nm: 2_000 }, HeatSeparation { victim: d(1), source: d(2), min_gap_nm: 2_000 }];
     let reqs = Requirements { budget: vec![Box::new(heat.clone())], cost: vec![Box::new(heat.clone())], ..Default::default() };
     for seed in 1..=10u64 {
         let l = run(&coarse, &[], &[], &reqs, &[false; 3], seed);

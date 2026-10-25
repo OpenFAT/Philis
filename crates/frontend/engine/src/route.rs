@@ -116,7 +116,12 @@ pub fn stack(pdk: &Pdk) -> analog::routing::Stack {
                 } else {
                     pdk.cell_f32("latent_merge_nm").map_or_else(|| pdk.min_spacing(l.0).unwrap_or(0), |v| v as i32)
                 },
-                cross_af_um2: pdk.routing_metals.iter().position(|&m| m == l).and_then(|i| pdk.overlap_af_um2(l, *pdk.routing_metals.get(i + 1)?)).unwrap_or(0.0),
+                cross_af_um2: pdk
+                    .routing_metals
+                    .iter()
+                    .position(|&m| m == l)
+                    .and_then(|i| pdk.overlap_af_um2(l, *pdk.routing_metals.get(i + 1)?))
+                    .unwrap_or(0.0),
             })
             .collect(),
         antenna_cumulative: rules.iter().flatten().any(|r| r.2),
@@ -160,7 +165,12 @@ pub(crate) fn match_class(units: &[analog::cell::Unitization], members: &[analog
 /// metal of the cell over it) and soft above, at Minimal soft; aggressors
 /// keep [`PLATE_AGGRESSOR_NM`] off it on every layer.
 #[allow(dead_code)] // ponytail: 1.0-tested; M2 wires EM sizing, matched-cell blockages and antenna diodes (ROADMAP)
-pub(crate) fn blockages(placed: &[Macro], pdk: &Pdk, class_of: impl Fn(usize) -> Option<analog::base::MatchClass>, layers: &[LayerId]) -> Vec<routing::dr::Blockage> {
+pub(crate) fn blockages(
+    placed: &[Macro],
+    pdk: &Pdk,
+    class_of: impl Fn(usize) -> Option<analog::base::MatchClass>,
+    layers: &[LayerId],
+) -> Vec<routing::dr::Blockage> {
     use analog::base::{KeepWhy, MatchClass, Process, Rect};
     let all: u16 = if layers.len() >= 16 { u16::MAX } else { (1u16 << layers.len()) - 1 };
     let s = layers.first().and_then(|l| pdk.route_spacing(l.0)).unwrap_or(0);
@@ -170,7 +180,16 @@ pub(crate) fn blockages(placed: &[Macro], pdk: &Pdk, class_of: impl Fn(usize) ->
     for (c, m) in placed.iter().enumerate() {
         let Some(class) = class_of(c) else { continue };
         let strong = class >= MatchClass::Moderate;
-        let b = |rect: Rect, layers: u16, hard: bool, gate: bool| routing::dr::Blockage { rect, halo: s, layers, hard, own_exempt: !(hard && gate), only_aggressors: false, cell: c as u32, gate };
+        let b = |rect: Rect, layers: u16, hard: bool, gate: bool| routing::dr::Blockage {
+            rect,
+            halo: s,
+            layers,
+            hard,
+            own_exempt: !(hard && gate),
+            only_aggressors: false,
+            cell: c as u32,
+            gate,
+        };
         let mut gates: Vec<Rect> = m.keepouts.iter().filter(|k| matches!(k.why, KeepWhy::Gate { .. })).map(|k| k.rect).collect();
         if gates.is_empty() {
             if let (Some(p), Some(d)) = (poly, diff) {
@@ -199,7 +218,12 @@ pub(crate) fn blockages(placed: &[Macro], pdk: &Pdk, class_of: impl Fn(usize) ->
                     }
                 }
                 KeepWhy::CapPlate { .. } => {
-                    let over = |x: &&Shape| x.rect.x < k.rect.x + k.rect.w && k.rect.x < x.rect.x + x.rect.w && x.rect.y < k.rect.y + k.rect.h && k.rect.y < x.rect.y + x.rect.h;
+                    let over = |x: &&Shape| {
+                        x.rect.x < k.rect.x + k.rect.w
+                            && k.rect.x < x.rect.x + x.rect.w
+                            && x.rect.y < k.rect.y + k.rect.h
+                            && k.rect.y < x.rect.y + x.rect.h
+                    };
                     let top = m.shapes.iter().filter(over).filter_map(|x| layers.iter().position(|&l| l == x.layer)).max();
                     let below: u16 = top.map_or(all, |t| (1u16 << t) - 1);
                     if strong && below != 0 {
@@ -210,7 +234,12 @@ pub(crate) fn blockages(placed: &[Macro], pdk: &Pdk, class_of: impl Fn(usize) ->
                     } else {
                         out.push(b(k.rect, all, false, false));
                     }
-                    out.push(routing::dr::Blockage { halo: PLATE_AGGRESSOR_NM + s, only_aggressors: true, hard: true, ..b(k.rect, all, true, false) });
+                    out.push(routing::dr::Blockage {
+                        halo: PLATE_AGGRESSOR_NM + s,
+                        only_aggressors: true,
+                        hard: true,
+                        ..b(k.rect, all, true, false)
+                    });
                 }
             }
         }
@@ -244,7 +273,11 @@ pub(crate) fn intent(
             for (t, _) in dev.terminals.iter().filter(|(_, n)| *n == c.net) {
                 known &= d.is_some();
                 let ua = d.iter().flatten().find(|(x, _)| x == t).map_or(0.0, |&(_, ua)| ua);
-                if ua > 0.0 { inn += ua } else { outg -= ua }
+                if ua > 0.0 {
+                    inn += ua
+                } else {
+                    outg -= ua
+                }
             }
         }
         out.supplies.push((name.clone(), vdd_mv, c.class == NetClass::Ground));
@@ -310,7 +343,10 @@ pub(crate) fn antenna_diodes(
             // The deck's first diode row: the model `reference_spice` gives LVS, and one ngspice can simulate.
             model: model_table(pdk).into_iter().find(|(_, k)| *k == analog::base::DeviceKind::Diode).map(|(m, _)| m).unwrap_or_default(),
             terminals: vec![("P".into(), ground), ("N".into(), net)],
-            params: vec![(dim("diode_w", 0).0.replace("diode_", ""), dim("diode_w", 0).1), (dim("diode_l", 0).0.replace("diode_", ""), dim("diode_l", 0).1)],
+            params: vec![
+                (dim("diode_w", 0).0.replace("diode_", ""), dim("diode_w", 0).1),
+                (dim("diode_l", 0).0.replace("diode_", ""), dim("diode_l", 0).1),
+            ],
         };
         out.push((device, m));
     }
@@ -380,12 +416,7 @@ pub(crate) fn detailed_router(pdk: &Pdk, stack: &RoutingStack) -> routing::dr::D
         .chain(cuts.iter().map(|&(c, ..)| c))
         .map(|l| (l, pdk.route_spacing(l.0).unwrap_or(0), pdk.wide_spacing(l.0)))
         .collect();
-    cfg.min_width = layers
-        .iter()
-        .copied()
-        .chain(pin_access.map(|(l, _)| l))
-        .filter_map(|l| pdk.min_width(l.0).map(|w| (l, w)))
-        .collect();
+    cfg.min_width = layers.iter().copied().chain(pin_access.map(|(l, _)| l)).filter_map(|l| pdk.min_width(l.0).map(|w| (l, w))).collect();
     // Each cut's required enclosure by the metal below and above it.
     let stack_below: Vec<LayerId> = pin_access.map(|(l, _)| l).into_iter().chain(layers.iter().copied()).collect();
     let stack_above = &layers[usize::from(pin_access.is_none()).min(layers.len())..];
@@ -402,10 +433,7 @@ pub(crate) fn detailed_router(pdk: &Pdk, stack: &RoutingStack) -> routing::dr::D
         .zip(stack_above)
         .map(|((&(c, ..), &lo), &hi)| (c, pdk.cut_enclosure_pair(lo, c), pdk.cut_enclosure_pair(hi, c)))
         .collect();
-    cfg.array_spacing = cuts
-        .iter()
-        .filter_map(|&(c, ..)| pdk.via_array_spacing(c.0).map(|(n, s)| (c, n, s)))
-        .collect();
+    cfg.array_spacing = cuts.iter().filter_map(|&(c, ..)| pdk.via_array_spacing(c.0).map(|(n, s)| (c, n, s))).collect();
     // Electrical path cost (routing::gr::Elec): per base-pitch step, ground C at the
     // layer's wire and the lateral C to an occupied neighbour track (one
     // stride over), over the cheapest layer's ground C.
@@ -423,7 +451,8 @@ pub(crate) fn detailed_router(pdk: &Pdk, stack: &RoutingStack) -> routing::dr::D
     }
     // Series R per track step (sheet · pitch / width) and per via cut, over the
     // least resistive layer's step.
-    let r_step: Vec<Option<f32>> = specs.iter().map(|s| pdk.pex_f32(s.id, "sheet_res_ohm_sq").map(|r| r * p0 as f32 / s.wire.max(1) as f32)).collect();
+    let r_step: Vec<Option<f32>> =
+        specs.iter().map(|s| pdk.pex_f32(s.id, "sheet_res_ohm_sq").map(|r| r * p0 as f32 / s.wire.max(1) as f32)).collect();
     if let Some(least) = r_step.iter().flatten().copied().reduce(f32::min).filter(|&r| r > 0.0) {
         cfg.layer_r = r_step.iter().map(|r| r.unwrap_or(least) / least).collect();
         cfg.via_r = cuts.iter().map(|&(c, ..)| pdk.pex_f32(c, "sheet_res_ohm_sq").unwrap_or(0.0) / least).collect();
@@ -544,8 +573,8 @@ mod tests {
     /// cell in no set gets none.
     #[test]
     fn blockages_follow_class() {
-        use analog::cell::{SeriesParallel, Unitization};
         use analog::base::{DeviceId, DeviceKind, MatchClass, Process, Rect};
+        use analog::cell::{SeriesParallel, Unitization};
         let pdk = Pdk::builtin("sky130").unwrap();
         let layers = routing_stack(&pdk, None).unwrap().layers;
         let unit = |devices: Vec<DeviceId>, class| Unitization {
@@ -615,8 +644,8 @@ mod tests {
     /// rule then skips it); a rail with only known devices keeps its current.
     #[test]
     fn a_supply_with_an_unresolved_device_has_no_current() {
-        use analog::metadata::{NetClass, NetClassification};
         use analog::base::{Device, DeviceKind, Net, NetId, Netlist};
+        use analog::metadata::{NetClass, NetClassification};
         let dev = |name: &str, kind, terminals: &[(&str, u16)]| Device {
             name: name.into(),
             kind,
@@ -626,7 +655,10 @@ mod tests {
         };
         // nets: 0 vdd, 1 vss, 2 x
         let nl = Netlist {
-            devices: vec![dev("M0", DeviceKind::Nmos, &[("D", 0), ("G", 2), ("S", 1), ("B", 1)]), dev("R1", DeviceKind::Resistor, &[("P", 0), ("N", 2)])],
+            devices: vec![
+                dev("M0", DeviceKind::Nmos, &[("D", 0), ("G", 2), ("S", 1), ("B", 1)]),
+                dev("R1", DeviceKind::Resistor, &[("P", 0), ("N", 2)]),
+            ],
             nets: ["vdd", "vss", "x"].iter().map(|n| Net { name: (*n).into() }).collect(),
             ..Default::default()
         };
@@ -729,7 +761,14 @@ pub fn annotation(pdk: &Pdk, base: &annotator::AnnotationConfig) -> annotator::A
 /// # Panics
 /// A deck with no routing stack (`verify` rejects such a deck on load).
 #[must_use]
-pub fn route(tiles: &[Macro], layout: &analog::base::Layout, problem: &annotator::Problem, cfg: &annotator::AnnotationConfig, n_nets: usize, pdk: &Pdk) -> (Vec<Macro>, analog::base::Routes, analog::base::Report) {
+pub fn route(
+    tiles: &[Macro],
+    layout: &analog::base::Layout,
+    problem: &annotator::Problem,
+    cfg: &annotator::AnnotationConfig,
+    n_nets: usize,
+    pdk: &Pdk,
+) -> (Vec<Macro>, analog::base::Routes, analog::base::Report) {
     const EPOCHS: u32 = 4;
     let stack = routing_stack(pdk, None).unwrap_or_else(|e| panic!("routing stack: {e}"));
     let (layers, cuts) = (&stack.layers, &stack.cuts);

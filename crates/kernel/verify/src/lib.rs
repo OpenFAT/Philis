@@ -19,14 +19,14 @@ pub mod sidecar;
 
 use std::time::{Duration, Instant};
 
+use analog::base::{Report, Shape, Violation};
 use gdsverify::check::report::{Measurement, Severity};
 use gdsverify::engine::{StageStatus, Summary};
-use analog::base::{Report, Shape, Violation};
 
 pub use checker::Checker;
 pub use foundry::{Refused, SignoffEngine};
-pub use gdsverify::ingest::deck::DeviceKind;
 pub use gdsverify::engine::Checks;
+pub use gdsverify::ingest::deck::DeviceKind;
 pub use geom::LabeledPin;
 pub use netlist::{extract_spice, Detail};
 pub use pdk::{EmLimit, FetLimit, Pdk};
@@ -47,7 +47,11 @@ pub fn shortfall(limit: Measurement, measured: Measurement) -> i64 {
     // A NaN reading is no graze: it ranks as the worst miss (`as` would make it 0).
     let permille = |l: f64, m: f64| {
         let x = (1000.0 * (m - l).abs() / l.abs().max(1e-12)).ceil();
-        if x.is_nan() { i64::MAX } else { x as i64 }
+        if x.is_nan() {
+            i64::MAX
+        } else {
+            x as i64
+        }
     };
     match (limit, measured) {
         (M::Length(l), M::Length(m)) => (l.raw() - m.raw()).abs(),
@@ -145,12 +149,7 @@ impl std::fmt::Display for Coverage {
 /// [`Duration`] is wall time. Coverage is kept only as the report's
 /// `lvs-coverage/…` hard rows.
 #[must_use]
-pub fn signoff(
-    shapes: &[Shape],
-    pins: &[LabeledPin],
-    reference: &RefInput,
-    pdk: &Pdk,
-) -> (Report, Duration) {
+pub fn signoff(shapes: &[Shape], pins: &[LabeledPin], reference: &RefInput, pdk: &Pdk) -> (Report, Duration) {
     let (report, t, _) = signoff_with_caps(shapes, pins, reference, pdk);
     (report, t)
 }
@@ -174,25 +173,14 @@ pub type CapMatrix = Vec<(String, Option<String>, f64)>;
 
 /// [`signoff`], plus the extracted [`CapMatrix`] (empty when PEX did not run).
 #[must_use]
-pub fn signoff_with_caps(
-    shapes: &[Shape],
-    pins: &[LabeledPin],
-    reference: &RefInput,
-    pdk: &Pdk,
-) -> (Report, Duration, CapMatrix) {
+pub fn signoff_with_caps(shapes: &[Shape], pins: &[LabeledPin], reference: &RefInput, pdk: &Pdk) -> (Report, Duration, CapMatrix) {
     signoff_with_intent(shapes, pins, reference, &Intent::default(), pdk)
 }
 
 /// [`signoff_checked`]'s errors, wall time and caps; warnings are dropped,
 /// coverage is kept as the report's `lvs-coverage/…` hard rows.
 #[must_use]
-pub fn signoff_with_intent(
-    shapes: &[Shape],
-    pins: &[LabeledPin],
-    reference: &RefInput,
-    intent: &Intent,
-    pdk: &Pdk,
-) -> (Report, Duration, CapMatrix) {
+pub fn signoff_with_intent(shapes: &[Shape], pins: &[LabeledPin], reference: &RefInput, intent: &Intent, pdk: &Pdk) -> (Report, Duration, CapMatrix) {
     let s = signoff_checked(shapes, pins, reference, intent, pdk);
     (s.report, s.elapsed, s.caps)
 }
@@ -210,13 +198,7 @@ pub fn signoff_with_intent(
 /// latter is also a hard `lvs-coverage/unverified:{kind}:{model}` row of
 /// margin `n`.
 #[must_use]
-pub fn signoff_checked(
-    shapes: &[Shape],
-    pins: &[LabeledPin],
-    reference: &RefInput,
-    intent: &Intent,
-    pdk: &Pdk,
-) -> Signoff {
+pub fn signoff_checked(shapes: &[Shape], pins: &[LabeledPin], reference: &RefInput, intent: &Intent, pdk: &Pdk) -> Signoff {
     signoff_extract(shapes, pins, reference, intent, &ExtractOptions::default(), pdk)
 }
 
@@ -227,14 +209,7 @@ pub fn signoff_checked(
 /// analytical caps and is a `("pex.field", why)` row of
 /// [`Coverage::skipped_rules`], never a hard row: the analytical PEX ran.
 #[must_use]
-pub fn signoff_extract(
-    shapes: &[Shape],
-    pins: &[LabeledPin],
-    reference: &RefInput,
-    intent: &Intent,
-    opts: &ExtractOptions,
-    pdk: &Pdk,
-) -> Signoff {
+pub fn signoff_extract(shapes: &[Shape], pins: &[LabeledPin], reference: &RefInput, intent: &Intent, opts: &ExtractOptions, pdk: &Pdk) -> Signoff {
     let t0 = Instant::now();
     let mut s = Signoff::default();
     let fail = |s: &mut Signoff, rule: String| {
@@ -351,7 +326,11 @@ fn defer_chip_level(checker: &mut Checker, shapes: &[Shape]) {
 fn split_by_severity(rows: impl Iterator<Item = (Violation, Severity)>) -> (Vec<Violation>, Vec<Violation>) {
     let (mut hard, mut warn) = (Vec::new(), Vec::new());
     for (v, sev) in rows {
-        if sev == Severity::Error { hard.push(v) } else { warn.push(v) }
+        if sev == Severity::Error {
+            hard.push(v)
+        } else {
+            warn.push(v)
+        }
     }
     (hard, warn)
 }
@@ -366,16 +345,9 @@ fn harvest(checker: &Checker, summary: &Summary, s: &mut Signoff) {
     let (hard, warn) = split_by_severity(rows);
     s.report.hard_violations.extend(hard);
     s.warnings.extend(warn);
-    for (stage, status) in [
-        ("drc", &summary.drc),
-        ("erc", &summary.erc),
-        ("lvs", &summary.lvs),
-        ("pex", &summary.pex),
-    ] {
+    for (stage, status) in [("drc", &summary.drc), ("erc", &summary.erc), ("lvs", &summary.lvs), ("pex", &summary.pex)] {
         if let Some(why) = denied(status) {
-            s.report
-                .hard_violations
-                .push(Violation { rule: format!("engine/{stage}: {why}"), margin: 0 });
+            s.report.hard_violations.push(Violation { rule: format!("engine/{stage}: {why}"), margin: 0 });
         }
     }
     s.coverage.skipped_rules = checker.skipped_rules().into_iter().map(|(r, why)| (r.to_string(), why)).collect();
@@ -448,8 +420,7 @@ pub fn erc_with(shapes: &[Shape], pins: &[LabeledPin], pdk: &Pdk, opts: &Extract
 }
 
 fn standalone(shapes: &[Shape], pins: &[LabeledPin], pdk: &Pdk, checks: Checks, opts: &ExtractOptions) -> Vec<Finding> {
-    let engine_fail =
-        |rule: String| vec![Finding { rule, layer: "-".into(), margin: 1, unit: "permille", x: 0, y: 0, warning: false }];
+    let engine_fail = |rule: String| vec![Finding { rule, layer: "-".into(), margin: 1, unit: "permille", x: 0, y: 0, warning: false }];
     let mut checker = match Checker::new(pdk, false) {
         Ok(c) => c,
         Err(e) => return engine_fail(format!("engine/load: {e}")),
@@ -489,8 +460,8 @@ fn standalone(shapes: &[Shape], pins: &[LabeledPin], pdk: &Pdk, checks: Checks, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gdsverify::geom::Dbu;
     use analog::base::{Process, Rect};
+    use gdsverify::geom::Dbu;
 
     fn sky130() -> Pdk {
         Pdk::builtin("sky130").unwrap()
@@ -721,10 +692,7 @@ mod tests {
     fn the_label_short_fallback_still_returns_caps() {
         let pdk = sky130();
         let met1 = pdk.layer("met1").unwrap().0;
-        let pins = [
-            LabeledPin { name: "A".into(), layer: met1, x: 500, y: 500 },
-            LabeledPin { name: "B".into(), layer: met1, x: 1500, y: 500 },
-        ];
+        let pins = [LabeledPin { name: "A".into(), layer: met1, x: 500, y: 500 }, LabeledPin { name: "B".into(), layer: met1, x: 1500, y: 500 }];
         let reference = RefInput { devices: vec![], ports: vec!["A".into(), "B".into()], external_ports: None };
         let s = signoff_checked(&[rect(&pdk, "met1", 0, 0, 2000, 1000)], &pins, &reference, &Intent::default(), &pdk);
         let rules: Vec<&str> = s.report.hard_violations.iter().map(|v| v.rule.as_str()).collect();
@@ -741,9 +709,7 @@ mod tests {
         // clear li_min_area (side 236 → 55696 nm²) and on the 5 nm grid.
         let shapes = [rect(&pdk, "li", 0, 0, 100, 1000)];
         let mut checker = Checker::new(&pdk, true).unwrap();
-        let summary = checker
-            .run(&shapes, &[], Checks { drc: true, erc: false, lvs: false, pex: false })
-            .unwrap();
+        let summary = checker.run(&shapes, &[], Checks { drc: true, erc: false, lvs: false, pex: false }).unwrap();
         assert!(summary.violations >= 1, "a 100 nm li wire must fail min_width");
         let out = checker.outputs();
         let hit = (0..out.violations.len())
@@ -761,10 +727,7 @@ mod tests {
         let pdk = Pdk::builtin("ihp_sg13g2").unwrap();
         let shapes = [rect(&pdk, "met1", 0, 0, 20_000, 1_000), rect(&pdk, "met1", 0, 5_000, 20_000, 1_000)];
         let met1 = pdk.layer("met1").unwrap().0;
-        let pins = [
-            LabeledPin { name: "VDD".into(), layer: met1, x: 500, y: 500 },
-            LabeledPin { name: "VSS".into(), layer: met1, x: 500, y: 5_500 },
-        ];
+        let pins = [LabeledPin { name: "VDD".into(), layer: met1, x: 500, y: 500 }, LabeledPin { name: "VSS".into(), layer: met1, x: 500, y: 5_500 }];
         let no_intent = |c: &Checker| c.skipped_rules().iter().filter(|(r, why)| r.starts_with("EM") && why.contains("NoDesignIntent")).count();
         let mut checker = Checker::new(&pdk, true).unwrap();
         checker.run(&shapes, &pins, Checks { drc: false, erc: true, lvs: false, pex: false }).unwrap();
@@ -808,11 +771,8 @@ mod tests {
     fn set_intent_merges_a_nets_limits() {
         let pdk = Pdk::builtin("sky130").unwrap();
         let mut checker = Checker::new(&pdk, true).unwrap();
-        let intent = Intent {
-            supplies: vec![("VDD".into(), 1_800.0, false)],
-            currents: vec![("VDD".into(), 100.0)],
-            max_drop_mv: vec![("VDD".into(), 5.0)],
-        };
+        let intent =
+            Intent { supplies: vec![("VDD".into(), 1_800.0, false)], currents: vec![("VDD".into(), 100.0)], max_drop_mv: vec![("VDD".into(), 5.0)] };
         assert_eq!(checker.set_intent(&intent), Ok(()));
     }
 
@@ -850,7 +810,13 @@ mod tests {
         let mut checker = Checker::new(&pdk, false).unwrap();
         defer_chip_level(&mut checker, &shapes);
         checker.run(&shapes, &[], Checks::ALL).unwrap();
-        let ran: Vec<&str> = checker.outputs().runs.iter().filter(|r| r.outcome == gdsverify::check::report::Outcome::Ran).map(|r| checker.rule_name(r.rule)).collect();
+        let ran: Vec<&str> = checker
+            .outputs()
+            .runs
+            .iter()
+            .filter(|r| r.outcome == gdsverify::check::report::Outcome::Ran)
+            .map(|r| checker.rule_name(r.rule))
+            .collect();
         assert!(!ran.is_empty(), "no rule ran at all");
         assert!(names.iter().all(|n| !ran.contains(n)), "{ran:?}");
     }
@@ -862,9 +828,7 @@ mod tests {
         let pdk = sky130();
         let shapes = [rect(&pdk, "li", 0, 0, 500, 500)];
         let mut checker = Checker::new(&pdk, true).unwrap();
-        let summary = checker
-            .run(&shapes, &[], Checks { drc: true, erc: false, lvs: false, pex: false })
-            .unwrap();
+        let summary = checker.run(&shapes, &[], Checks { drc: true, erc: false, lvs: false, pex: false }).unwrap();
         assert_eq!(summary.violations, 0, "a 500×500 li plate is legal");
         assert!(summary.rules_clean > 0, "zero findings must come from rules that ran");
         assert_eq!(summary.drc, StageStatus::Ran);
@@ -912,12 +876,7 @@ mod tests {
         assert_eq!(model, "sky130_fd_pr__nfet_01v8");
         // Both bipolars have a row now; an inductor still has none: skipped, not mismatched.
         let one = |kind, n: usize| RefInput {
-            devices: vec![RefDeviceIn {
-                kind,
-                model: None,
-                terminals: ["a", "b", "c"][..n].iter().map(|&t| t.into()).collect(),
-                params: vec![],
-            }],
+            devices: vec![RefDeviceIn { kind, model: None, terminals: ["a", "b", "c"][..n].iter().map(|&t| t.into()).collect(), params: vec![] }],
             ports: vec![],
             external_ports: None,
         };
@@ -931,31 +890,20 @@ mod tests {
     #[test]
     fn a_skipped_reference_device_is_listed_in_coverage() {
         let pdk = sky130();
-        let dev = |kind, terminals: &[&str]| RefDeviceIn {
-            kind,
-            model: None,
-            terminals: terminals.iter().map(|&t| t.into()).collect(),
-            params: vec![],
-        };
+        let dev =
+            |kind, terminals: &[&str]| RefDeviceIn { kind, model: None, terminals: terminals.iter().map(|&t| t.into()).collect(), params: vec![] };
         let reference = RefInput {
             devices: vec![
                 dev(RefKind::Nmos, &["out", "in", "vss", "vss"]),
                 dev(RefKind::Nmos, &["vss", "bias", "out", "vss"]),
-                RefDeviceIn {
-                    model: Some("sky130_fd_pr__cap_vpp_02p4x04p6_m1m2_noshield".into()),
-                    ..dev(RefKind::Capacitor, &["a", "b"])
-                },
+                RefDeviceIn { model: Some("sky130_fd_pr__cap_vpp_02p4x04p6_m1m2_noshield".into()), ..dev(RefKind::Capacitor, &["a", "b"]) },
             ],
             ports: vec![],
             external_ports: None,
         };
         let shapes = [rect(&pdk, "li", 0, 0, 500, 500)];
         let s = signoff_checked(&shapes, &[], &reference, &Intent::default(), &pdk);
-        assert!(
-            matches!(s.coverage.unverified.as_slice(), [(RefKind::Capacitor, _, 1)]),
-            "{:?}",
-            s.coverage.unverified
-        );
+        assert!(matches!(s.coverage.unverified.as_slice(), [(RefKind::Capacitor, _, 1)]), "{:?}", s.coverage.unverified);
     }
 
     /// A compared resistor's value is not checked (only MOS cards carry
@@ -963,7 +911,8 @@ mod tests {
     #[test]
     fn a_compared_resistor_value_is_listed_as_not_compared() {
         let pdk = sky130();
-        let card = |kind, model: Option<&str>| RefDeviceIn { kind, model: model.map(Into::into), terminals: vec!["a".into(), "b".into()], params: vec![] };
+        let card =
+            |kind, model: Option<&str>| RefDeviceIn { kind, model: model.map(Into::into), terminals: vec!["a".into(), "b".into()], params: vec![] };
         let reference = RefInput {
             devices: vec![card(RefKind::Resistor, None), card(RefKind::Capacitor, Some("cap_generic_m1m2"))],
             ports: vec![],
@@ -980,10 +929,9 @@ mod tests {
     #[test]
     fn a_mom_card_is_unverified_not_compared_as_mim() {
         let pdk = sky130();
-        for (model, rule) in [
-            (Some("cap_generic_m1m2"), "lvs-coverage/unverified:Capacitor:cap_generic_m1m2"),
-            (None, "lvs-coverage/unverified:Capacitor:-"),
-        ] {
+        for (model, rule) in
+            [(Some("cap_generic_m1m2"), "lvs-coverage/unverified:Capacitor:cap_generic_m1m2"), (None, "lvs-coverage/unverified:Capacitor:-")]
+        {
             let reference = RefInput {
                 devices: vec![RefDeviceIn {
                     kind: RefKind::Capacitor,
@@ -999,7 +947,8 @@ mod tests {
             assert_eq!(s.coverage.unverified, [(RefKind::Capacitor, model.map(Into::into), 1)]);
             let rules: Vec<&str> = s.report.hard_violations.iter().map(|v| v.rule.as_str()).collect();
             assert!(!rules.iter().any(|r| r.starts_with("lvs/")), "{rules:?}");
-            let cov: Vec<_> = s.report.hard_violations.iter().filter(|v| v.rule.starts_with("lvs-coverage/")).map(|v| (v.rule.as_str(), v.margin)).collect();
+            let cov: Vec<_> =
+                s.report.hard_violations.iter().filter(|v| v.rule.starts_with("lvs-coverage/")).map(|v| (v.rule.as_str(), v.margin)).collect();
             assert_eq!(cov, [(rule, 1)]);
         }
     }
@@ -1050,21 +999,12 @@ mod tests {
         let lvs_rows = |w_m: f64| -> Vec<String> {
             let mut checker = Checker::new(&pdk, true).unwrap();
             checker.set_reference(&reference(w_m)).unwrap();
-            checker
-                .run(&shapes, &[], Checks { drc: false, erc: false, lvs: true, pex: false })
-                .unwrap();
+            checker.run(&shapes, &[], Checks { drc: false, erc: false, lvs: true, pex: false }).unwrap();
             let out = checker.outputs();
-            (0..out.violations.len())
-                .map(|i| checker.rule_name(out.violations.get(i).rule).to_owned())
-                .filter(|r| r.starts_with("lvs."))
-                .collect()
+            (0..out.violations.len()).map(|i| checker.rule_name(out.violations.get(i).rule).to_owned()).filter(|r| r.starts_with("lvs.")).collect()
         };
 
-        assert_eq!(
-            lvs_rows(2e-7),
-            Vec::<String>::new(),
-            "the declared 200 nm width matches the measured channel"
-        );
+        assert_eq!(lvs_rows(2e-7), Vec::<String>::new(), "the declared 200 nm width matches the measured channel");
         let wrong = lvs_rows(3e-7);
         assert!(
             wrong.iter().any(|r| r == "lvs.parameter_mismatch"),
@@ -1099,10 +1039,7 @@ mod tests {
             checker.set_reference(&reference).unwrap();
             checker.run(&shapes, &[], Checks { drc: false, erc: false, lvs: true, pex: false }).unwrap();
             let out = checker.outputs();
-            (0..out.violations.len())
-                .map(|i| checker.rule_name(out.violations.get(i).rule).to_owned())
-                .filter(|r| r.starts_with("lvs."))
-                .collect()
+            (0..out.violations.len()).map(|i| checker.rule_name(out.violations.get(i).rule).to_owned()).filter(|r| r.starts_with("lvs.")).collect()
         };
         assert_eq!(lvs_rows(["d", "g", "s", "b"]), Vec::<String>::new());
         let wrong = lvs_rows(["d", "g", "s", "s"]);
@@ -1132,19 +1069,12 @@ mod tests {
                 terminals: [d, g, s, b].iter().map(|&n| n.into()).collect(),
                 params: vec![("w".into(), 2e-7), ("l".into(), 1e-7)],
             };
-            let reference = RefInput {
-                devices: vec![card("d1", "g1", "s1", b1), card("d2", "g2", "s2", b2)],
-                ports: vec![],
-                external_ports: None,
-            };
+            let reference = RefInput { devices: vec![card("d1", "g1", "s1", b1), card("d2", "g2", "s2", b2)], ports: vec![], external_ports: None };
             let mut checker = Checker::new(&pdk, true).unwrap();
             checker.set_reference(&reference).unwrap();
             checker.run(&shapes, &[], Checks { drc: false, erc: false, lvs: true, pex: false }).unwrap();
             let out = checker.outputs();
-            (0..out.violations.len())
-                .map(|i| checker.rule_name(out.violations.get(i).rule).to_owned())
-                .filter(|r| r.starts_with("lvs."))
-                .collect()
+            (0..out.violations.len()).map(|i| checker.rule_name(out.violations.get(i).rule).to_owned()).filter(|r| r.starts_with("lvs.")).collect()
         };
         assert_eq!(lvs_rows("w1", "w2"), Vec::<String>::new());
         let shared = lvs_rows("w", "w");
@@ -1170,21 +1100,12 @@ mod tests {
         assert_eq!(checker.device_count(&shapes), Some(1));
 
         let with_diode = RefInput {
-            devices: vec![RefDeviceIn {
-                kind: RefKind::Diode,
-                model: None,
-                terminals: vec!["a".into(), "k".into()],
-                params: vec![],
-            }],
+            devices: vec![RefDeviceIn { kind: RefKind::Diode, model: None, terminals: vec!["a".into(), "k".into()], params: vec![] }],
             ports: vec![],
             external_ports: None,
         };
         let mut fresh = Checker::new(&pdk, false).unwrap();
-        assert_eq!(
-            fresh.set_reference(&with_diode).unwrap(),
-            [],
-            "a deck with a diom recogniser must not skip diode cards"
-        );
+        assert_eq!(fresh.set_reference(&with_diode).unwrap(), [], "a deck with a diom recogniser must not skip diode cards");
     }
 
     // A minimal MOS-like stack: poly crossing two overlapping diff plates under
@@ -1205,5 +1126,3 @@ mod tests {
         assert_eq!(checker.device_count(&[]), Some(0));
     }
 }
-
-

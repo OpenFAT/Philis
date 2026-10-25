@@ -2,8 +2,8 @@
 //! unit count; the variant axes are array aspect and metal-stack kind.
 
 use crate::cells::builder::dim;
-use analog::Constraints;
 use analog::base::{DeviceGroup, LayerId, Macro, Process, Rect};
+use analog::Constraints;
 
 use crate::cells::builder::{pin, sizing, Builder, Sizing};
 use crate::cells::Cell;
@@ -133,13 +133,10 @@ impl Geom {
         // where it is stricter than the deck.
         let margin = process.rule("cap_strap_via_spacing_nm", 0);
         let cut_w = [process.width("via1").unwrap_or(ct), process.width("via2").unwrap_or(ct)];
-        let via_pitch = (cut_w[0] + process.space("via1").unwrap_or(0).max(margin))
-            .max(cut_w[1] + process.space("via2").unwrap_or(0).max(margin));
+        let via_pitch = (cut_w[0] + process.space("via1").unwrap_or(0).max(margin)).max(cut_w[1] + process.space("via2").unwrap_or(0).max(margin));
         // The strap column carries rails on every sandwich metal beside a plate
         // that is usually wide: clear the worst (wide-)spacing of all three.
-        let m_space = (1..=3)
-            .filter_map(|n| process.space(&format!("met{n}")))
-            .fold(dim(process, "met1_space"), i32::max);
+        let m_space = (1..=3).filter_map(|n| process.space(&format!("met{n}"))).fold(dim(process, "met1_space"), i32::max);
         // Fingers: the deck's MOM pitch, never under the comb metal's own
         // width and spacing (the MOM keys may be another metal's).
         let comb = ["met1", "met2"];
@@ -199,11 +196,8 @@ impl Geom {
     fn plates(&self, b: &mut Builder, plate: Rect, third: Option<LayerId>) -> (Rect, Rect) {
         b.rect(self.bot_metal, plate);
         let i = self.inset;
-        let top = if plate.w > 2 * i && plate.h > 2 * i {
-            Rect { x: plate.x + i, y: plate.y + i, w: plate.w - 2 * i, h: plate.h - 2 * i }
-        } else {
-            plate
-        };
+        let top =
+            if plate.w > 2 * i && plate.h > 2 * i { Rect { x: plate.x + i, y: plate.y + i, w: plate.w - 2 * i, h: plate.h - 2 * i } } else { plate };
         b.rect(self.top_metal, top);
 
         let Some(third) = third else {
@@ -250,10 +244,7 @@ impl Geom {
         // lateral cap. Still real, still non-overlapping, just no fingers.
         if w < 2 * fw + fs || h < 2 * fw + 2 * fs {
             let half = ((w - fs) / 2).max(1);
-            let (bot, top) = (
-                Rect { x, y, w: half, h },
-                Rect { x: x + half + fs, y, w: w - half - fs, h },
-            );
+            let (bot, top) = (Rect { x, y, w: half, h }, Rect { x: x + half + fs, y, w: w - half - fs, h });
             b.rect(m, bot);
             b.rect(m, top);
             return (bot, top);
@@ -344,8 +335,8 @@ mod tests {
         }
         assert!(dirty.is_empty(), "DRC/ERC-dirty variants:\n{}", dirty.join("\n"));
     }
-    use analog::cell::{SeriesParallel, Unitization};
     use analog::base::{DeviceId, DeviceKind, Shape};
+    use analog::cell::{SeriesParallel, Unitization};
 
     /// A sky130-shaped deck: five metals, four vias, default rule values.
     struct TestPdk {
@@ -361,12 +352,8 @@ mod tests {
 
     impl Process for TestPdk {
         fn layer(&self, role: &str) -> Option<LayerId> {
-            let idx = |p: &str, n: usize| {
-                role.strip_prefix(p).and_then(|d| d.parse::<usize>().ok()).filter(|&i| i <= n)
-            };
-            idx("met", self.metals)
-                .map(|i| LayerId(i as u16))
-                .or_else(|| idx("via", self.vias).map(|i| LayerId(100 + i as u16)))
+            let idx = |p: &str, n: usize| role.strip_prefix(p).and_then(|d| d.parse::<usize>().ok()).filter(|&i| i <= n);
+            idx("met", self.metals).map(|i| LayerId(i as u16)).or_else(|| idx("via", self.vias).map(|i| LayerId(100 + i as u16)))
         }
         fn rule(&self, _name: &str, default: i32) -> i32 {
             default
@@ -395,7 +382,10 @@ mod tests {
                 series_parallel: SeriesParallel::Series,
                 dummy_required: false,
                 route_matching_required: false,
-                class: None, kind: None, series: Vec::new(), style: None,
+                class: None,
+                kind: None,
+                series: Vec::new(),
+                style: None,
             }],
             ..Default::default()
         };
@@ -432,9 +422,7 @@ mod tests {
                 if reached[i] {
                     continue;
                 }
-                if (0..m.shapes.len())
-                    .any(|j| reached[j] && overlaps(&m.shapes[i], &m.shapes[j]))
-                {
+                if (0..m.shapes.len()).any(|j| reached[j] && overlaps(&m.shapes[i], &m.shapes[j])) {
                     reached[i] = true;
                     grew = true;
                 }
@@ -469,8 +457,7 @@ mod tests {
         let (group, c) = one_cap(1, 2000);
         let stack = |kind| {
             let spec = Capacitor { units_x: 1, kind };
-            let mut ls: Vec<u16> =
-                spec.draw(&group, &c, &pdk).shapes.iter().map(|s| s.layer.0).collect();
+            let mut ls: Vec<u16> = spec.draw(&group, &c, &pdk).shapes.iter().map(|s| s.layer.0).collect();
             ls.sort_unstable();
             ls.dedup();
             ls

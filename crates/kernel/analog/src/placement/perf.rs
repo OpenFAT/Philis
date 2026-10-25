@@ -78,9 +78,8 @@ impl PlacePerf {
     #[must_use]
     pub fn mst_len(&self, n: usize, l: &Layout) -> i64 {
         let pts: Vec<_> = self.items[n].iter().map(|(c, b)| Self::item(l, *c, b)).collect();
-        let d = |a: (i64, i64, i64, i64), b: (i64, i64, i64, i64)| {
-            ((a.0 - b.0).abs() - (a.2 + b.2)).max(0) + ((a.1 - b.1).abs() - (a.3 + b.3)).max(0)
-        };
+        let d =
+            |a: (i64, i64, i64, i64), b: (i64, i64, i64, i64)| ((a.0 - b.0).abs() - (a.2 + b.2)).max(0) + ((a.1 - b.1).abs() - (a.3 + b.3)).max(0);
         let mut best: Vec<i64> = pts.iter().map(|&p| d(pts[0], p)).collect();
         let mut done = vec![false; pts.len()];
         done[0] = true;

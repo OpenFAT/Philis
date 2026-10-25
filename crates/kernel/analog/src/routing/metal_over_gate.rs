@@ -35,7 +35,11 @@ impl MetalOverGate {
             .map(|s| {
                 let w = (s.rect.x + s.rect.w).min(g.x + g.w) - s.rect.x.max(g.x);
                 let h = (s.rect.y + s.rect.h).min(g.y + g.h) - s.rect.y.max(g.y);
-                if w > 0 && h > 0 { i64::from(w) * i64::from(h) } else { 0 }
+                if w > 0 && h > 0 {
+                    i64::from(w) * i64::from(h)
+                } else {
+                    0
+                }
             })
             .sum();
         nm2 as f32 * 1e-6

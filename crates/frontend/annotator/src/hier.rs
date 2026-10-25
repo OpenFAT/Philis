@@ -101,9 +101,9 @@ pub fn ports_pair(nl: &Netlist, a: u32, b: u32) -> bool {
 mod tests {
     use super::*;
     use crate::{annotate, size, AnnotationConfig};
-    use analog::intent::GroupKind;
     use analog::base::netlist::{DeviceKind, Net, SubcktInst};
     use analog::base::BipartiteHypergraph;
+    use analog::intent::GroupKind;
 
     /// `(name, kind, g, d, s, b, w nm, l nm)` over formal or internal net names.
     type Dev = (&'static str, DeviceKind, &'static str, &'static str, &'static str, &'static str, i64, i64);
@@ -259,7 +259,11 @@ mod tests {
         let classes = annotate(&nl, &cfg).net_classes;
         let reqs = crate::graph::requirements(&[], &[], &[], &[], &[], &[], &[], &nl.device_inst, &hg, &classes, &canon, &cfg.policy);
         let out1 = net(&mut nl, "out1");
-        let pn: Vec<(u16, u16)> = reqs.iter().filter(|r| r.ty == analog::intent::ReqType::ProxNet && r.source.0 == u32::from(out1.0)).map(|r| (r.a.0.min(r.b.0), r.a.0.max(r.b.0))).collect();
+        let pn: Vec<(u16, u16)> = reqs
+            .iter()
+            .filter(|r| r.ty == analog::intent::ReqType::ProxNet && r.source.0 == u32::from(out1.0))
+            .map(|r| (r.a.0.min(r.b.0), r.a.0.max(r.b.0)))
+            .collect();
         let e = |x: &str, y: &str| (id(&nl, x).0.min(id(&nl, y).0), id(&nl, x).0.max(id(&nl, y).0));
         assert_eq!(pn.len(), 2, "{pn:?}");
         assert!(pn.contains(&e("X1/MN2", "X1/MP4")) && pn.contains(&e("X2/MN2", "X2/MP4")), "{pn:?}");

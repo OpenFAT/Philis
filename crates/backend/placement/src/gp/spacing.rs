@@ -8,9 +8,34 @@ use analog::base::{LayerId, Macro, MatchClass, NetId, Orient, Process};
 /// Placement spacing roles. `*_in` / `*_out`: inside / outside the cell's own n-well.
 /// `other`: a drawn layer no listed role maps to (always spaced at `fallback`).
 pub const ROLES: [&str; 28] = [
-    "nwell", "dnwell", "diff_in", "diff_out", "tap_in", "tap_out", "poly", "nsdm", "psdm", "li", "licon", "mcon",
-    "met1", "npc", "rpm", "res_implant", "diode_mk", "rpoly", "diom", "via1", "met2", "via2", "met3", "via3", "met4",
-    "pnp", "npn", "other",
+    "nwell",
+    "dnwell",
+    "diff_in",
+    "diff_out",
+    "tap_in",
+    "tap_out",
+    "poly",
+    "nsdm",
+    "psdm",
+    "li",
+    "licon",
+    "mcon",
+    "met1",
+    "npc",
+    "rpm",
+    "res_implant",
+    "diode_mk",
+    "rpoly",
+    "diom",
+    "via1",
+    "met2",
+    "via2",
+    "met3",
+    "via3",
+    "met4",
+    "pnp",
+    "npn",
+    "other",
 ];
 /// The `Process` role each placement role reads; `""` = none. `Pdk::layer`
 /// falls back to a deck layer of the same name, so `dnwell`, `npc`, `rpm`
@@ -20,8 +45,34 @@ pub const ROLES: [&str; 28] = [
 /// layer is covered is checked by the library test
 /// `shipped_cells_draw_no_unmapped_layer`, not by this list.
 pub const DECK_ROLE: [&str; 28] = [
-    "nwell", "dnwell", "diff", "diff", "tap", "tap", "poly", "nsdm", "psdm", "li", "licon", "mcon", "met1", "npc",
-    "rpm", "res_implant", "diode_mk", "rpoly", "diom", "via1", "met2", "via2", "met3", "via3", "met4", "pnp", "npn", "",
+    "nwell",
+    "dnwell",
+    "diff",
+    "diff",
+    "tap",
+    "tap",
+    "poly",
+    "nsdm",
+    "psdm",
+    "li",
+    "licon",
+    "mcon",
+    "met1",
+    "npc",
+    "rpm",
+    "res_implant",
+    "diode_mk",
+    "rpoly",
+    "diom",
+    "via1",
+    "met2",
+    "via2",
+    "met3",
+    "via3",
+    "met4",
+    "pnp",
+    "npn",
+    "",
 ];
 pub const N: usize = ROLES.len();
 const _: () = assert!(N <= 32, "Edge::present is a u32");
@@ -43,8 +94,7 @@ const MARKER: [usize; 4] = [16 /*diode_mk*/, 18 /*diom*/, 25 /*pnp*/, 26 /*npn*/
 pub const FOREIGN_POLY_NM: [i32; 3] = [0, 3000, 5000];
 
 /// The eight orients in `Orient as usize` order.
-pub const ORIENTS: [Orient; 8] =
-    [Orient::R0, Orient::R90, Orient::R180, Orient::R270, Orient::Mx, Orient::Mx90, Orient::Mx180, Orient::Mx270];
+pub const ORIENTS: [Orient; 8] = [Orient::R0, Orient::R90, Orient::R180, Orient::R270, Orient::Mx, Orient::Mx90, Orient::Mx180, Orient::Mx270];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Face {
@@ -211,7 +261,11 @@ impl SpacingTable {
         let Some(c) = m.matched.filter(|_| m.set.is_none() || m.set != o.set) else { return 0 };
         let need = |d: usize, r: usize, k: i32| {
             let on = em.present & (1 << d) != 0 && eo.present & (1 << r) != 0 && k > 0;
-            if on { k - em.inset[d] - eo.inset[r] } else { 0 }
+            if on {
+                k - em.inset[d] - eo.inset[r]
+            } else {
+                0
+            }
         };
         let (w, p) = (self.wpe[c as usize], self.foreign_poly[c as usize]);
         need(DIFF_OUT, NWELL, w).max(need(DIFF_IN, POLY, p)).max(need(DIFF_OUT, POLY, p))

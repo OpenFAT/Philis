@@ -9,236 +9,236 @@
 #[allow(clippy::too_many_lines)]
 pub(crate) fn cell() -> serde_json::Value {
     serde_json::json!({
-    "bjt_ka_pct_um": 2.0,
-    "bjt_ka_pct_um_source": "textbook, not sky130: Hastings, The Art of Analog Layout, §10.2.1 (PDF p.507), I_S mismatch area constant of a bipolar pair; replace with the PDK's own figure when one is published.",
-    "vbe_tc_uv_per_k": 2000,
-    "vbe_tc_uv_per_k_source": "textbook, not sky130: Hastings, The Art of Analog Layout, §9.1 (PDF p.433), |dV_BE/dT| ~ 2 mV/K.",
-    "min_finger_width": 420,
-    "cap_strap_via_enclosure_nm": 300,
-    "cap_strap_via_enclosure_nm_source": "Philis margin, not a deck rule: how far the sandwich capacitor's strap-column metals pass its via/via2 cuts. The deck states 55 nm (via.4a, m2.4) and 85 nm on adjacent sides (via.5a); kept stricter by owner decision, here and not in the deck, since a 300 nm via rule would fail every routed via. Read by cells::capacitor Geom::new, through builder::dim, which maxes it with the deck's via enclosure.",
-    "gate_cap_af_um2": 8325,
-    "gate_cap_af_um2_source": "UNVERIFIED: no source was recorded with this value.",
-    "dummy_max_l_nm": 3000,
-    "dummy_max_l_nm_source": "microloading reach 3-5 um, hastings.txt L41097-41104 (H13-26); Philis policy: the lower end",
-    "layers": {
-        "diff": "diff",
-        "poly": "poly",
-        "rpoly": "poly_rs",
-        "li": "li",
-        "licon": "licon",
-        "mcon": "mcon",
-        "met1": "met1",
-        "nwell": "nwell",
-        "nsdm": "nsdm",
-        "psdm": "psdm",
-        "tap": "tap",
-        "routing_metals": [
-            "li",
-            "met1",
-            "met2",
-            "met3",
-            "met4",
-            "met5"
-        ],
-        "routing_vias": [
-            "mcon",
-            "via",
-            "via2",
-            "via3",
-            "via4"
-        ],
-        "diom": "areaid_diode"
-    },
-    "sd_width": 250,
-    "dummy_gates_per_end": 1,
-    "max_finger_width": 10000,
-    "plate_spacing": 200,
-    "res_head": 2160,
-    "device_gap": 600,
-    "res_min_segment": 10000,
-    "res_seg_gap": 400,
-    "bjt_min_emitter_side": 420,
-    "diode_gap": 270,
-    "min_guard_ring_width": 420,
-    "guard_licon_pitch": 360,
-    "substrate_kind": "bulk",
-    "substrate_kind_source": "UNVERIFIED: Philis note at backend/annotator/src/emit.rs NOMINAL_EPI_NM (sky130 is bulk p-substrate, not epi on p+); not stated in docs/ref/.",
-    "epi_thickness_nm": null,
-    "retrograde_pwell": false,
-    "retrograde_pwell_source": "UNVERIFIED: no source was recorded with this value. Read by no code.",
-    "cap_unit_side": 2000,
-    "diode_l": 1000,
-    "diode_w": 500,
-    "mom_finger_space": 200,
-    "mom_finger_width": 200,
-    "res_min_width": 500,
-    "res_value_tol_ppm": 5000,
-    "tie_max_dist_nm": 15000,
-    "tie_max_dist_nm_source": "VOL/magic/sky130A.tech:4163-4170 (volare fa87f8f4): LU.2 N-diff to P-tap, LU.2.1 the same in deep n-well, LU.3 P-diff to N-tap, each '< 15.0um'; the deck's LU.2/LU.2.1/LU.3 rules. Read by cells::mosfet::taps_in_reach (CELL-13).",
-    "licon_poly_enc": 50,
-    "polycon_to_pdiff_spacing": 235,
-    "licon_to_gate_spacing": 55,
-    "lod_kvth0_n_mv_um": 9.8,
-    "lod_kvth0_n_mv_um_source": "BSIM4 LOD KVTH0 of the installed models (sky130A libs.ref sky130_fd_pr__nfet_01v8__tt.pm3.spice: kvth0 = 9.8e-9 V.m), in mV.um: dVT = KVTH0 * d(1/(SA+L/2) + 1/(SB+L/2)). Kstress (lkvth0/wkvth0/pkvth0 = 0) is 1.",
-    "lod_kvth0_p_mv_um": 32.9,
-    "lod_kvth0_p_mv_um_source": "BSIM4 LOD KVTH0 of the installed models (sky130A pfet_01v8: sky130_fd_pr__pfet_01v8__kvth0_diff = 3.29e-8 V.m at tt), in mV.um: dVT = KVTH0 * d(1/(SA+L/2) + 1/(SB+L/2)). Kstress (lkvth0/wkvth0/pkvth0 = 0) is 1.",
-    "avt_n_mv_um": 9.5,
-    "avt_n_mv_um_source": "Monte Carlo of the installed models: benchmarks/characterize_mismatch.py, .lib sky130.lib.spice tt_mm (MC_MM_SWITCH=1), 250 pairs x 6 W/L (1/0.15..8/2 um), constant-current VT at 0.1uA*W/L, sigma(dVT) fit through origin vs 1/sqrt(WL); seeds 1,2 gave 9.32, 9.66 -> mean 9.5. Model card alone: sqrt(2)*vth0_slope 3.356e-3 = 4.7 mV.um (toxe/voff terms add the rest). Gradient S_VT is wafer-level and not in the models, so gradient_per_avt_um2 stays absent.",
-    "avt_p_mv_um": 11.5,
-    "avt_p_mv_um_source": "Monte Carlo of the installed models: benchmarks/characterize_mismatch.py, same method as avt_n; seeds 1,2 gave 11.84, 11.18 -> mean 11.5. Point estimates range 8.4 (8/2) to 12.4 (1/0.15): the pfet card bins vth0_slope 4.356..7.356e-3, so A_VT is geometry dependent.",
-    "abeta_p_pct_um": 2.2,
-    "abeta_p_pct_um_source": "Monte Carlo of the installed models: benchmarks/characterize_mismatch.py bpv sky130 250 1 (MM-17), .lib sky130.lib.spice tt_mm, 250 voltage-biased pairs x 6 W/L (1/0.15..8/2 um) x Vov 0.1, 0.4 V (VGS = VDS = |VT|tt + Vov), G = gm/I from a tt +-1 mV difference (4.8..13.4 /V); sigma(dI/I)^2 = A_VT^2 (0.1 G)^2/WL + A_beta^2/WL fit over the 12 points gave A_beta 2.213 %.um with refit A_VT 11.65 mV.um (avt_p 11.5 agrees). One seed. abeta_n is absent: the same nfet fit gave A_beta^2 < 0 (-2.558^2) and refit A_VT 7.82 vs avt_n 9.5, so the two-term model does not separate the nfet's current mismatch.",
-    "svt_a_uv2_per_um2": 0.1835,
-    "svt_a_uv2_per_um2_source": "PROXY: fit to Schaper & Linnenbank 130 nm Table 1 (S_D^2 = a + b/L^2, MM-25); derived, not sky130 data",
-    "svt_b_uv2": 0.03533,
-    "svt_b_uv2_source": "PROXY: fit to Schaper & Linnenbank 130 nm Table 1 (S_D^2 = a + b/L^2, MM-25); derived, not sky130 data",
-    "svt_uv_per_um": 1.63,
-    "svt_uv_per_um_source": "PROXY, not sky130 data: Schaper & Linnenbank (Infineon), 'Comparison of distance mismatch and pair matching of CMOS devices', IEEE, 130nm thin-oxide NMOS, Table 1 distance parameter S_D [mV/mm = uV/um] of dVGS: L/W 0.12/1.6 -> 1.63, 0.24/1.6 -> 0.780, 0.24/12.8 -> 0.941, 0.48/1.6 -> 0.582, 0.48/3.2 -> 0.644; Fig. 8: S_D^2 grows with 1/Leff^2. Worst case (shortest L, nearest sky130 Lmin 0.15) taken so the Pelgrom distance limit errs tight for every L. Replace with measured sky130 gradient data when available. Same S used for pfet (paper has NMOS only). Since MAT-16 this is only the fallback for devices without an `l`; devices with one use the S(L) PROXY fit svt_a_uv2_per_um2/svt_b_uv2 (e.g. 0.580 at L = 0.48).",
-    "em_derating": {
-        "t_ref_k": 363.15,
-        "ea_ev": null,
-        "n": null
-    },
-    "em_derating_source": "Iavg_max at Tj=90C, sky130A/libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__nom.tlef:92,119 (volare fa87f8f4); Ea and n not stated by the PDK",
-    "vt_tc_uv_per_k": 765.0,
-    "vt_tc_uv_per_k_source": "nfet_01v8 |dVT/dT|, magnitude (VT falls with T): `benchmarks/characterize_mismatch.py tc`, ngspice-44.2, .lib sky130.lib.spice tt (volare fa87f8f4), diode-connected, constant-current VT at Id=0.1uA*W/L, temp 0/27/85/125 C, least-squares slope: 2/0.5 um -776, 4/1 um -754 uV/K -> 765. The library reads this single key for both polarities; pfet is in vt_tc_uv_per_k_p.",
-    "vt_tc_uv_per_k_p": 1850.0,
-    "vt_tc_uv_per_k_p_source": "pfet_01v8 |dVT/dT|, same method and run as vt_tc_uv_per_k: 2/0.5 um -1940, 4/1 um -1760 uV/K -> 1850.",
-    "inapplicable_rules": [
-        "licon.10",
-        "varac.4"
-    ],
-    "bjts": {
-        "recipes": {
-            "pnp_3p40": {
-                "model": "sky130_fd_pr__pnp_05v5_W3p40L3p40",
-                "aliases": [
-                    "pnp_05v5_W3p40L3p40"
-                ],
-                "bjt_emitter_w": 3400,
-                "bjt_emitter_l": 3400
-            },
-            "pnp_0p68": {
-                "model": "sky130_fd_pr__pnp_05v5_W0p68L0p68",
-                "aliases": [
-                    "pnp_05v5_W0p68L0p68"
-                ],
-                "bjt_emitter_w": 680,
-                "bjt_emitter_l": 680
-            },
-            "npn_1x1": {
-                "model": "sky130_fd_pr__npn_05v5_W1p00L1p00",
-                "aliases": [
-                    "npn_05v5_W1p00L1p00"
-                ],
-                "bjt_emitter_w": 1000,
-                "bjt_emitter_l": 1000
-            },
-            "npn_1x2": {
-                "model": "sky130_fd_pr__npn_05v5_W1p00L2p00",
-                "aliases": [
-                    "npn_05v5_W1p00L2p00"
-                ],
-                "bjt_emitter_w": 1000,
-                "bjt_emitter_l": 2000
-            }
+        "bjt_ka_pct_um": 2.0,
+        "bjt_ka_pct_um_source": "textbook, not sky130: Hastings, The Art of Analog Layout, §10.2.1 (PDF p.507), I_S mismatch area constant of a bipolar pair; replace with the PDK's own figure when one is published.",
+        "vbe_tc_uv_per_k": 2000,
+        "vbe_tc_uv_per_k_source": "textbook, not sky130: Hastings, The Art of Analog Layout, §9.1 (PDF p.433), |dV_BE/dT| ~ 2 mV/K.",
+        "min_finger_width": 420,
+        "cap_strap_via_enclosure_nm": 300,
+        "cap_strap_via_enclosure_nm_source": "Philis margin, not a deck rule: how far the sandwich capacitor's strap-column metals pass its via/via2 cuts. The deck states 55 nm (via.4a, m2.4) and 85 nm on adjacent sides (via.5a); kept stricter by owner decision, here and not in the deck, since a 300 nm via rule would fail every routed via. Read by cells::capacitor Geom::new, through builder::dim, which maxes it with the deck's via enclosure.",
+        "gate_cap_af_um2": 8325,
+        "gate_cap_af_um2_source": "UNVERIFIED: no source was recorded with this value.",
+        "dummy_max_l_nm": 3000,
+        "dummy_max_l_nm_source": "microloading reach 3-5 um, hastings.txt L41097-41104 (H13-26); Philis policy: the lower end",
+        "layers": {
+            "diff": "diff",
+            "poly": "poly",
+            "rpoly": "poly_rs",
+            "li": "li",
+            "licon": "licon",
+            "mcon": "mcon",
+            "met1": "met1",
+            "nwell": "nwell",
+            "nsdm": "nsdm",
+            "psdm": "psdm",
+            "tap": "tap",
+            "routing_metals": [
+                "li",
+                "met1",
+                "met2",
+                "met3",
+                "met4",
+                "met5"
+            ],
+            "routing_vias": [
+                "mcon",
+                "via",
+                "via2",
+                "via3",
+                "via4"
+            ],
+            "diom": "areaid_diode"
         },
-        "note": "sky130 vertical BJTs are fixed-geometry models (VOL/libs.ref/sky130_fd_pr/spice): a drawn emitter of any other size is a different device than the one simulated. No `default`: a model no recipe names keeps today's sizing (the netlist's w/l)."
-    },
-    "resistors": {
-        "default": "high_po",
-        "recipes": {
-            "high_po": {
-                "model": "sky130_fd_pr__res_high_po",
-                "aliases": [
-                    "res_high_po"
-                ],
-                "layers": {
-                    "rpoly": "poly_rs",
-                    "rpm": "rpm",
-                    "npc": "npc",
-                    "res_implant": "psdm"
-                },
-                "res_contact_w": 190,
-                "res_contact_h": 2000,
-                "res_head": 2160,
-                "res_sheet_mohm": 317389,
-                "res_head_mohm_um": 345831,
-                "res_dl_nm": 247,
-                "res_dw_nm": -1,
-                "res_head_dw_nm": 156,
-                "res_narrow_permille": 67,
-                "res_knee_nm": 690,
-                "res_model_source": "sky130_fd_pr__res_high_po.model.spice (volare fa87f8f4) lines 27-40: R = 317.3885*(L+0.247)/weff + 345.8312/(weff+0.1558), weff = W - 0.001 - 0.0672*max(0.69-W, 0), W, L in um; res_narrow_permille 67 and res_head_dw_nm 156 round 0.0672 and 0.1558.",
-                "k_a_pct_um": 4.26,
-                "k_a_pct_um_source": "Monte Carlo of the installed model: benchmarks/characterize_mismatch.py res sky130 250 1, .lib sky130.lib.spice tt_mm, 250 1 uA-driven pairs x W/L 0.69/5, 1.41/10, 2.85/20, 5.73/40, 1.41/2 um, sigma(dR/R) of the pair fit through the origin vs 1/sqrt(WL): 4.26 %.um (points 3.88..4.68; the model's body_pelgrom 0.03552/sqrt(WL) per device plus head_pelgrom). One seed.",
-                "tc_ppm_per_k": 514,
-                "tc_ppm_per_k_source": "body tc1 of the installed model: sky130_fd_pr__res_high_po.model.spice:56 tc1 = {tc1rpolybody}, sky130_fd_pr__model__r+c.model.spice:62 tc1rpolybody = .514e-3 /K (tnom 30). The heads' tc1 -4.3e-4 (line 49) is ignored: a long body dominates."
-            },
-            "generic_po": {
-                "model": "sky130_fd_pr__res_generic_po",
-                "aliases": [
-                    "res_generic_po"
-                ],
-                "layers": {
-                    "rpoly": "poly_rs",
-                    "npc": "npc"
-                },
-                "res_contact_w": 0,
-                "res_contact_h": 0,
-                "res_head": 0,
-                "res_sheet_mohm": 48200,
-                "res_head_mohm_um": 0,
-                "res_dl_nm": 0,
-                "res_dw_nm": 0,
-                "res_model_source": "rp1 = 48.2 ohm/sq, VOL/libs.tech/ngspice/r+c/res_typical__cap_typical.spice:21 (volare fa87f8f4). The model's dw = -tol_poly/2 - poly_dw/2 (+0.028 um at typical, sky130_fd_pr__model__r+c.model.spice:134) is not applied: how ngspice applies it to W was not checked (plan-03 section 5).",
-                "k_a_pct_um": 1.7,
-                "k_a_pct_um_source": "PROXY, not sky130 data: the installed model carries no mismatch (r+c.mrp1monte.spice:16 sky130_fd_pr__res_generic_po__slope = 0.0; characterize_mismatch.py res gave sigma(dR/R) = 0 at every W/L). Value: DVP Table 1 poly resistor pair constant 1.70 %.um, as plan-02 MAT-10. Replace with measured sky130 data when available.",
-                "tc_ppm_per_k": 892,
-                "tc_ppm_per_k_source": "tc1r of the installed model: sky130_fd_pr__model__r+c.model.spice:134 tc1r=tc1rsgpu, :28 tc1rsgpu = 8.916e-4 /K."
-            }
+        "sd_width": 250,
+        "dummy_gates_per_end": 1,
+        "max_finger_width": 10000,
+        "plate_spacing": 200,
+        "res_head": 2160,
+        "device_gap": 600,
+        "res_min_segment": 10000,
+        "res_seg_gap": 400,
+        "bjt_min_emitter_side": 420,
+        "diode_gap": 270,
+        "min_guard_ring_width": 420,
+        "guard_licon_pitch": 360,
+        "substrate_kind": "bulk",
+        "substrate_kind_source": "UNVERIFIED: Philis note at backend/annotator/src/emit.rs NOMINAL_EPI_NM (sky130 is bulk p-substrate, not epi on p+); not stated in docs/ref/.",
+        "epi_thickness_nm": null,
+        "retrograde_pwell": false,
+        "retrograde_pwell_source": "UNVERIFIED: no source was recorded with this value. Read by no code.",
+        "cap_unit_side": 2000,
+        "diode_l": 1000,
+        "diode_w": 500,
+        "mom_finger_space": 200,
+        "mom_finger_width": 200,
+        "res_min_width": 500,
+        "res_value_tol_ppm": 5000,
+        "tie_max_dist_nm": 15000,
+        "tie_max_dist_nm_source": "VOL/magic/sky130A.tech:4163-4170 (volare fa87f8f4): LU.2 N-diff to P-tap, LU.2.1 the same in deep n-well, LU.3 P-diff to N-tap, each '< 15.0um'; the deck's LU.2/LU.2.1/LU.3 rules. Read by cells::mosfet::taps_in_reach (CELL-13).",
+        "licon_poly_enc": 50,
+        "polycon_to_pdiff_spacing": 235,
+        "licon_to_gate_spacing": 55,
+        "lod_kvth0_n_mv_um": 9.8,
+        "lod_kvth0_n_mv_um_source": "BSIM4 LOD KVTH0 of the installed models (sky130A libs.ref sky130_fd_pr__nfet_01v8__tt.pm3.spice: kvth0 = 9.8e-9 V.m), in mV.um: dVT = KVTH0 * d(1/(SA+L/2) + 1/(SB+L/2)). Kstress (lkvth0/wkvth0/pkvth0 = 0) is 1.",
+        "lod_kvth0_p_mv_um": 32.9,
+        "lod_kvth0_p_mv_um_source": "BSIM4 LOD KVTH0 of the installed models (sky130A pfet_01v8: sky130_fd_pr__pfet_01v8__kvth0_diff = 3.29e-8 V.m at tt), in mV.um: dVT = KVTH0 * d(1/(SA+L/2) + 1/(SB+L/2)). Kstress (lkvth0/wkvth0/pkvth0 = 0) is 1.",
+        "avt_n_mv_um": 9.5,
+        "avt_n_mv_um_source": "Monte Carlo of the installed models: benchmarks/characterize_mismatch.py, .lib sky130.lib.spice tt_mm (MC_MM_SWITCH=1), 250 pairs x 6 W/L (1/0.15..8/2 um), constant-current VT at 0.1uA*W/L, sigma(dVT) fit through origin vs 1/sqrt(WL); seeds 1,2 gave 9.32, 9.66 -> mean 9.5. Model card alone: sqrt(2)*vth0_slope 3.356e-3 = 4.7 mV.um (toxe/voff terms add the rest). Gradient S_VT is wafer-level and not in the models, so gradient_per_avt_um2 stays absent.",
+        "avt_p_mv_um": 11.5,
+        "avt_p_mv_um_source": "Monte Carlo of the installed models: benchmarks/characterize_mismatch.py, same method as avt_n; seeds 1,2 gave 11.84, 11.18 -> mean 11.5. Point estimates range 8.4 (8/2) to 12.4 (1/0.15): the pfet card bins vth0_slope 4.356..7.356e-3, so A_VT is geometry dependent.",
+        "abeta_p_pct_um": 2.2,
+        "abeta_p_pct_um_source": "Monte Carlo of the installed models: benchmarks/characterize_mismatch.py bpv sky130 250 1 (MM-17), .lib sky130.lib.spice tt_mm, 250 voltage-biased pairs x 6 W/L (1/0.15..8/2 um) x Vov 0.1, 0.4 V (VGS = VDS = |VT|tt + Vov), G = gm/I from a tt +-1 mV difference (4.8..13.4 /V); sigma(dI/I)^2 = A_VT^2 (0.1 G)^2/WL + A_beta^2/WL fit over the 12 points gave A_beta 2.213 %.um with refit A_VT 11.65 mV.um (avt_p 11.5 agrees). One seed. abeta_n is absent: the same nfet fit gave A_beta^2 < 0 (-2.558^2) and refit A_VT 7.82 vs avt_n 9.5, so the two-term model does not separate the nfet's current mismatch.",
+        "svt_a_uv2_per_um2": 0.1835,
+        "svt_a_uv2_per_um2_source": "PROXY: fit to Schaper & Linnenbank 130 nm Table 1 (S_D^2 = a + b/L^2, MM-25); derived, not sky130 data",
+        "svt_b_uv2": 0.03533,
+        "svt_b_uv2_source": "PROXY: fit to Schaper & Linnenbank 130 nm Table 1 (S_D^2 = a + b/L^2, MM-25); derived, not sky130 data",
+        "svt_uv_per_um": 1.63,
+        "svt_uv_per_um_source": "PROXY, not sky130 data: Schaper & Linnenbank (Infineon), 'Comparison of distance mismatch and pair matching of CMOS devices', IEEE, 130nm thin-oxide NMOS, Table 1 distance parameter S_D [mV/mm = uV/um] of dVGS: L/W 0.12/1.6 -> 1.63, 0.24/1.6 -> 0.780, 0.24/12.8 -> 0.941, 0.48/1.6 -> 0.582, 0.48/3.2 -> 0.644; Fig. 8: S_D^2 grows with 1/Leff^2. Worst case (shortest L, nearest sky130 Lmin 0.15) taken so the Pelgrom distance limit errs tight for every L. Replace with measured sky130 gradient data when available. Same S used for pfet (paper has NMOS only). Since MAT-16 this is only the fallback for devices without an `l`; devices with one use the S(L) PROXY fit svt_a_uv2_per_um2/svt_b_uv2 (e.g. 0.580 at L = 0.48).",
+        "em_derating": {
+            "t_ref_k": 363.15,
+            "ea_ev": null,
+            "n": null
         },
-        "note": "Per schematic model, the construction GPurify's sky130.deck recognises: rbody_high_po = poly_res and rpm (licon.1b slot contacts 190x2000 inside rpm+psdm), rbody_po = poly_res outside rpm/urpm."
-    },
-    "capacitors": {
-        "default": "mom_m1m2",
-        "recipes": {
-            "mim_m3_1": {
-                "model": "sky130_fd_pr__cap_mim_m3_1",
-                "aliases": [
-                    "cap_mim_m3_1"
-                ],
-                "layers": {
-                    "bottom": "met3",
-                    "plate": "capm",
-                    "top_contact": "via3",
-                    "top": "met4",
-                    "strap": "met4",
-                    "bottom_contact": "via2"
+        "em_derating_source": "Iavg_max at Tj=90C, sky130A/libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__nom.tlef:92,119 (volare fa87f8f4); Ea and n not stated by the PDK",
+        "vt_tc_uv_per_k": 765.0,
+        "vt_tc_uv_per_k_source": "nfet_01v8 |dVT/dT|, magnitude (VT falls with T): `benchmarks/characterize_mismatch.py tc`, ngspice-44.2, .lib sky130.lib.spice tt (volare fa87f8f4), diode-connected, constant-current VT at Id=0.1uA*W/L, temp 0/27/85/125 C, least-squares slope: 2/0.5 um -776, 4/1 um -754 uV/K -> 765. The library reads this single key for both polarities; pfet is in vt_tc_uv_per_k_p.",
+        "vt_tc_uv_per_k_p": 1850.0,
+        "vt_tc_uv_per_k_p_source": "pfet_01v8 |dVT/dT|, same method and run as vt_tc_uv_per_k: 2/0.5 um -1940, 4/1 um -1760 uV/K -> 1850.",
+        "inapplicable_rules": [
+            "licon.10",
+            "varac.4"
+        ],
+        "bjts": {
+            "recipes": {
+                "pnp_3p40": {
+                    "model": "sky130_fd_pr__pnp_05v5_W3p40L3p40",
+                    "aliases": [
+                        "pnp_05v5_W3p40L3p40"
+                    ],
+                    "bjt_emitter_w": 3400,
+                    "bjt_emitter_l": 3400
                 },
-                "c_area_af_um2": 2000,
-                "c_perim_af_um": 190,
-                "c_dw_nm": -25,
-                "c_model_source": "C = camimc*wc*lc + cpmimc*2*(wc+lc), wc = W + m3_dw + tol_m3, lc = L + m3_dw + tol_m3 (VOL/libs.ref/sky130_fd_pr/spice/sky130_fd_pr__cap_mim_m3_1.model.spice:17-18, 23-24); camimc 2.00 fF/um2, cpmimc 0.19 fF/um at typical (VOL/libs.tech/ngspice/r+c/res_typical__cap_typical__lin.spice:7-8); m3_dw = -0.025 um (VOL/libs.tech/ngspice/sky130_fd_pr__model__r+c.model.spice:82); tol_m3 = 0 at typical (r+c/res_typical__cap_typical.spice:10)."
-            },
-            "mom_m1m2": {
-                "model": "",
-                "layers": {
-                    "bottom": "met1",
-                    "top": "met2",
-                    "top_contact": "via2",
-                    "strap": "met3",
-                    "bottom_contact": "via1"
+                "pnp_0p68": {
+                    "model": "sky130_fd_pr__pnp_05v5_W0p68L0p68",
+                    "aliases": [
+                        "pnp_05v5_W0p68L0p68"
+                    ],
+                    "bjt_emitter_w": 680,
+                    "bjt_emitter_l": 680
+                },
+                "npn_1x1": {
+                    "model": "sky130_fd_pr__npn_05v5_W1p00L1p00",
+                    "aliases": [
+                        "npn_05v5_W1p00L1p00"
+                    ],
+                    "bjt_emitter_w": 1000,
+                    "bjt_emitter_l": 1000
+                },
+                "npn_1x2": {
+                    "model": "sky130_fd_pr__npn_05v5_W1p00L2p00",
+                    "aliases": [
+                        "npn_05v5_W1p00L2p00"
+                    ],
+                    "bjt_emitter_w": 1000,
+                    "bjt_emitter_l": 2000
                 }
-            }
+            },
+            "note": "sky130 vertical BJTs are fixed-geometry models (VOL/libs.ref/sky130_fd_pr/spice): a drawn emitter of any other size is a different device than the one simulated. No `default`: a model no recipe names keeps today's sizing (the netlist's w/l)."
         },
-        "note": "Per schematic model, the construction GPurify's sky130.deck recognises: capm (terminals met4, met3) for cap_mim_m3_1. mom_m1m2 is the deck-unrecognised met1/met2 plate stack (no model), the default for a model no recipe names."
-    },
-    "npn_isolation": 1,
-    "pnp_cells_only": 1,
-    "pnp_cells_only_note": "x.25: the pnp marker only inside the foundry's PNP cells. A PNP is drawn only as a fixed-geometry recipe (bjts.recipes pnp_*), as a cell named after its open-PDK model; any other emitter size is no foundry cell, and is refused.",
-    "waivers": {
-        "multiple_drivers": "Analog: a node driven by two drains (a differential pair's output and its load, a mirror's input) is the circuit, not a fault. The rule counts distinct gate nets driving a net (a digital fan-in check)."
-    }
-})
+        "resistors": {
+            "default": "high_po",
+            "recipes": {
+                "high_po": {
+                    "model": "sky130_fd_pr__res_high_po",
+                    "aliases": [
+                        "res_high_po"
+                    ],
+                    "layers": {
+                        "rpoly": "poly_rs",
+                        "rpm": "rpm",
+                        "npc": "npc",
+                        "res_implant": "psdm"
+                    },
+                    "res_contact_w": 190,
+                    "res_contact_h": 2000,
+                    "res_head": 2160,
+                    "res_sheet_mohm": 317389,
+                    "res_head_mohm_um": 345831,
+                    "res_dl_nm": 247,
+                    "res_dw_nm": -1,
+                    "res_head_dw_nm": 156,
+                    "res_narrow_permille": 67,
+                    "res_knee_nm": 690,
+                    "res_model_source": "sky130_fd_pr__res_high_po.model.spice (volare fa87f8f4) lines 27-40: R = 317.3885*(L+0.247)/weff + 345.8312/(weff+0.1558), weff = W - 0.001 - 0.0672*max(0.69-W, 0), W, L in um; res_narrow_permille 67 and res_head_dw_nm 156 round 0.0672 and 0.1558.",
+                    "k_a_pct_um": 4.26,
+                    "k_a_pct_um_source": "Monte Carlo of the installed model: benchmarks/characterize_mismatch.py res sky130 250 1, .lib sky130.lib.spice tt_mm, 250 1 uA-driven pairs x W/L 0.69/5, 1.41/10, 2.85/20, 5.73/40, 1.41/2 um, sigma(dR/R) of the pair fit through the origin vs 1/sqrt(WL): 4.26 %.um (points 3.88..4.68; the model's body_pelgrom 0.03552/sqrt(WL) per device plus head_pelgrom). One seed.",
+                    "tc_ppm_per_k": 514,
+                    "tc_ppm_per_k_source": "body tc1 of the installed model: sky130_fd_pr__res_high_po.model.spice:56 tc1 = {tc1rpolybody}, sky130_fd_pr__model__r+c.model.spice:62 tc1rpolybody = .514e-3 /K (tnom 30). The heads' tc1 -4.3e-4 (line 49) is ignored: a long body dominates."
+                },
+                "generic_po": {
+                    "model": "sky130_fd_pr__res_generic_po",
+                    "aliases": [
+                        "res_generic_po"
+                    ],
+                    "layers": {
+                        "rpoly": "poly_rs",
+                        "npc": "npc"
+                    },
+                    "res_contact_w": 0,
+                    "res_contact_h": 0,
+                    "res_head": 0,
+                    "res_sheet_mohm": 48200,
+                    "res_head_mohm_um": 0,
+                    "res_dl_nm": 0,
+                    "res_dw_nm": 0,
+                    "res_model_source": "rp1 = 48.2 ohm/sq, VOL/libs.tech/ngspice/r+c/res_typical__cap_typical.spice:21 (volare fa87f8f4). The model's dw = -tol_poly/2 - poly_dw/2 (+0.028 um at typical, sky130_fd_pr__model__r+c.model.spice:134) is not applied: how ngspice applies it to W was not checked (plan-03 section 5).",
+                    "k_a_pct_um": 1.7,
+                    "k_a_pct_um_source": "PROXY, not sky130 data: the installed model carries no mismatch (r+c.mrp1monte.spice:16 sky130_fd_pr__res_generic_po__slope = 0.0; characterize_mismatch.py res gave sigma(dR/R) = 0 at every W/L). Value: DVP Table 1 poly resistor pair constant 1.70 %.um, as plan-02 MAT-10. Replace with measured sky130 data when available.",
+                    "tc_ppm_per_k": 892,
+                    "tc_ppm_per_k_source": "tc1r of the installed model: sky130_fd_pr__model__r+c.model.spice:134 tc1r=tc1rsgpu, :28 tc1rsgpu = 8.916e-4 /K."
+                }
+            },
+            "note": "Per schematic model, the construction GPurify's sky130.deck recognises: rbody_high_po = poly_res and rpm (licon.1b slot contacts 190x2000 inside rpm+psdm), rbody_po = poly_res outside rpm/urpm."
+        },
+        "capacitors": {
+            "default": "mom_m1m2",
+            "recipes": {
+                "mim_m3_1": {
+                    "model": "sky130_fd_pr__cap_mim_m3_1",
+                    "aliases": [
+                        "cap_mim_m3_1"
+                    ],
+                    "layers": {
+                        "bottom": "met3",
+                        "plate": "capm",
+                        "top_contact": "via3",
+                        "top": "met4",
+                        "strap": "met4",
+                        "bottom_contact": "via2"
+                    },
+                    "c_area_af_um2": 2000,
+                    "c_perim_af_um": 190,
+                    "c_dw_nm": -25,
+                    "c_model_source": "C = camimc*wc*lc + cpmimc*2*(wc+lc), wc = W + m3_dw + tol_m3, lc = L + m3_dw + tol_m3 (VOL/libs.ref/sky130_fd_pr/spice/sky130_fd_pr__cap_mim_m3_1.model.spice:17-18, 23-24); camimc 2.00 fF/um2, cpmimc 0.19 fF/um at typical (VOL/libs.tech/ngspice/r+c/res_typical__cap_typical__lin.spice:7-8); m3_dw = -0.025 um (VOL/libs.tech/ngspice/sky130_fd_pr__model__r+c.model.spice:82); tol_m3 = 0 at typical (r+c/res_typical__cap_typical.spice:10)."
+                },
+                "mom_m1m2": {
+                    "model": "",
+                    "layers": {
+                        "bottom": "met1",
+                        "top": "met2",
+                        "top_contact": "via2",
+                        "strap": "met3",
+                        "bottom_contact": "via1"
+                    }
+                }
+            },
+            "note": "Per schematic model, the construction GPurify's sky130.deck recognises: capm (terminals met4, met3) for cap_mim_m3_1. mom_m1m2 is the deck-unrecognised met1/met2 plate stack (no model), the default for a model no recipe names."
+        },
+        "npn_isolation": 1,
+        "pnp_cells_only": 1,
+        "pnp_cells_only_note": "x.25: the pnp marker only inside the foundry's PNP cells. A PNP is drawn only as a fixed-geometry recipe (bjts.recipes pnp_*), as a cell named after its open-PDK model; any other emitter size is no foundry cell, and is refused.",
+        "waivers": {
+            "multiple_drivers": "Analog: a node driven by two drains (a differential pair's output and its load, a mirror's input) is the circuit, not a fault. The rule counts distinct gate nets driving a net (a digital fan-in check)."
+        }
+    })
 }

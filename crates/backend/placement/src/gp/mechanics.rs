@@ -1,9 +1,9 @@
 //! Placement primitives shared by `gp` and `dp`: RNG, pin-based nets/HPWL,
 //! overlap, the tiered objective over `Requirements`, canvas and initial layout.
 
-use analog::Requirements;
 use analog::base::ids::DeviceId;
 use analog::base::{Layout, Macro, Report, Violation};
+use analog::Requirements;
 
 use crate::gp::{Prices, VariantSpace};
 
@@ -79,11 +79,7 @@ impl Nets {
         for (di, m) in macros.iter().enumerate() {
             let (cx, cy) = bbox_centre(m);
             for p in &m.pins {
-                per_net[p.net.0 as usize].push((
-                    di as u32,
-                    p.at.x + p.at.w / 2 - cx,
-                    p.at.y + p.at.h / 2 - cy,
-                ));
+                per_net[p.net.0 as usize].push((di as u32, p.at.x + p.at.w / 2 - cx, p.at.y + p.at.h / 2 - cy));
             }
         }
         let mut start = vec![0u32];
@@ -247,12 +243,7 @@ pub fn encroachment(l: &Layout, clearance: i32) -> f64 {
 #[must_use]
 pub fn analog_cost(reqs: &Requirements<Layout>, l: &Layout, prices: &Prices) -> f32 {
     let objective: f32 = reqs.cost.iter().map(|b| b.criticality(l) * b.cost(l)).sum();
-    let priced: f64 = reqs
-        .budget
-        .iter()
-        .enumerate()
-        .map(|(bi, b)| f64::from(prices.weight_of(bi)) * b.residual(l))
-        .sum();
+    let priced: f64 = reqs.budget.iter().enumerate().map(|(bi, b)| f64::from(prices.weight_of(bi)) * b.residual(l)).sum();
     objective + priced as f32
 }
 
@@ -319,9 +310,7 @@ pub fn report(nets: &Nets, reqs: &Requirements<Layout>, l: &Layout, prices: &Pri
         .iter()
         .enumerate()
         .filter(|(_, b)| b.violations(l) > 0)
-        .map(|(bi, b)| {
-            Violation::from_residual(format!("{}analog hard {bi} ({:?})", Violation::BATCH, b.kind()), b.residual(l))
-        })
+        .map(|(bi, b)| Violation::from_residual(format!("{}analog hard {bi} ({:?})", Violation::BATCH, b.kind()), b.residual(l)))
         .collect();
     let budget_violations = reqs
         .budget
@@ -329,8 +318,7 @@ pub fn report(nets: &Nets, reqs: &Requirements<Layout>, l: &Layout, prices: &Pri
         .enumerate()
         .filter_map(|(bi, b)| {
             let residual = b.residual(l);
-            (residual > 0.0)
-                .then(|| Violation::from_residual(format!("{}analog budget {bi}", Violation::BATCH), residual))
+            (residual > 0.0).then(|| Violation::from_residual(format!("{}analog budget {bi}", Violation::BATCH), residual))
         })
         .collect();
     let ov = encroachment(l, 0);
@@ -360,17 +348,7 @@ pub fn half_extents(macros: &[Macro]) -> (Vec<i32>, Vec<i32>) {
 /// `variants[i].alternatives[variant[i]]`, falling back to `macros[i]`.
 #[must_use]
 pub fn choose_variants(macros: &[Macro], variants: &[VariantSpace], variant: &[u16]) -> Vec<Macro> {
-    macros
-        .iter()
-        .enumerate()
-        .map(|(i, m)| {
-            variants
-                .get(i)
-                .and_then(|v| v.alternatives.get(variant[i] as usize))
-                .unwrap_or(m)
-                .clone()
-        })
-        .collect()
+    macros.iter().enumerate().map(|(i, m)| variants.get(i).and_then(|v| v.alternatives.get(variant[i] as usize)).unwrap_or(m).clone()).collect()
 }
 
 /// Square die side (nm): total footprint area / utilization, at least the

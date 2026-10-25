@@ -7,8 +7,8 @@
 //! ponytail: a real spiral (offset turns, crossover, keep-out) is deferred
 //! (plan-03 appendix, former CELL-28).
 
-use analog::Constraints;
 use analog::base::{DeviceGroup, Macro, Process};
+use analog::Constraints;
 
 use crate::cells::builder::Builder;
 use crate::cells::Cell;

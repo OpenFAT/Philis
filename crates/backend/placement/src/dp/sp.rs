@@ -177,9 +177,7 @@ impl Tree {
     /// tree still fits the inputs (PLC-10).
     #[must_use]
     pub fn same_structure(&self, o: &Tree) -> bool {
-        self.root == o.root
-            && self.nodes.len() == o.nodes.len()
-            && self.nodes.iter().zip(&o.nodes).all(|(a, b)| a.kids == b.kids && a.sym == b.sym)
+        self.root == o.root && self.nodes.len() == o.nodes.len() && self.nodes.iter().zip(&o.nodes).all(|(a, b)| a.kids == b.kids && a.sym == b.sym)
     }
 
     /// Balasa eq 1.1 for distinct kids `x`, `y` of a symmetry node:
@@ -379,7 +377,11 @@ fn sep_ok(s: i32, gp: Gap, halo: i32) -> bool {
 
 /// The longest-path edge weight: `0` when abutment is allowed, else `min + halo`.
 fn need(gp: Gap, halo: i32) -> i32 {
-    if gp.abut && halo == 0 { 0 } else { gp.min + halo }
+    if gp.abut && halo == 0 {
+        0
+    } else {
+        gp.min + halo
+    }
 }
 
 fn round_up(v: i32, q: i32) -> i32 {
@@ -415,7 +417,13 @@ impl Kids<'_> {
     /// `i` and `j` are apart on axis `ax` by a separation their gap accepts.
     fn ok(&self, g: &Geo, gc: &mut [[Option<Gap>; 2]], i: usize, j: usize, ax: usize) -> bool {
         let (p, s) = if ax == 0 { (self.x, self.w) } else { (self.y, self.h) };
-        let (lo, hi) = if p[i] + s[i] <= p[j] { (i, j) } else if p[j] + s[j] <= p[i] { (j, i) } else { return false };
+        let (lo, hi) = if p[i] + s[i] <= p[j] {
+            (i, j)
+        } else if p[j] + s[j] <= p[i] {
+            (j, i)
+        } else {
+            return false;
+        };
         let (gp, halo) = self.gap(g, gc, lo, hi, ax);
         sep_ok(p[hi] - p[lo] - s[lo], gp, halo)
     }
@@ -518,9 +526,7 @@ fn decode_node(t: &Tree, g: &Geo, s: &mut Scratch, ni: usize, fixes: &mut u32) -
     let _ = pb;
     let (kw, kh, kp, khalo, knode): (&[i32], &[i32], &[Option<Profile>], &[[i32; 4]], &[bool]) = (kw, kh, kp, khalo, knode);
     let mate = nd.sym.as_ref().map(|s| &s.mate);
-    let pairs: Vec<(usize, usize)> = mate.map_or(Vec::new(), |m| {
-        (0..k).filter(|&a| usize::from(m[a]) > a).map(|a| (a, usize::from(m[a]))).collect()
-    });
+    let pairs: Vec<(usize, usize)> = mate.map_or(Vec::new(), |m| (0..k).filter(|&a| usize::from(m[a]) > a).map(|a| (a, usize::from(m[a]))).collect());
     // A self kid sits at `(ax2 - w)/2`, on the lattice only when `ax2 ≡ w (mod 2·lattice)`:
     // every self kid's width must agree on that residue.
     let l2 = 2 * g.lattice.max(1);
@@ -886,7 +892,8 @@ mod tests {
         assert_eq!((cc(f) + cc(g_), cc(k) + cc(l_), cc(c) + cc(j)), (2 * ax2, 2 * ax2, 2 * ax2));
         for a in 0..12 {
             for b in a + 1..12 {
-                let apart = out.x0[a] + w[a] <= out.x0[b] || out.x0[b] + w[b] <= out.x0[a] || out.y0[a] + h[a] <= out.y0[b] || out.y0[b] + h[b] <= out.y0[a];
+                let apart =
+                    out.x0[a] + w[a] <= out.x0[b] || out.x0[b] + w[b] <= out.x0[a] || out.y0[a] + h[a] <= out.y0[b] || out.y0[b] + h[b] <= out.y0[a];
                 assert!(apart, "cells {a} and {b} overlap");
             }
         }

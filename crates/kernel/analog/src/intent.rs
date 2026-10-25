@@ -4,9 +4,9 @@
 //! how placement turns it into rules. Reached by path only: `verify::Intent`
 //! shares the name.
 
+use crate::base::ids::{AxisId, DeviceId, NetId};
 pub use crate::matching::class::{Family, MatchClass, MatchKind};
 pub use crate::placement::symmetry::AxisDir;
-use crate::base::ids::{AxisId, DeviceId, NetId};
 
 /// Dense id within one `annotator::Problem`, assigned in emission order:
 /// permutation-invariant because emission order is (EXT-06).
@@ -18,19 +18,29 @@ pub struct ConstraintId(pub u32);
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Origin {
     /// Emitted for a recognised block of this template.
-    Pattern { template: &'static str },
+    Pattern {
+        template: &'static str,
+    },
     /// Emitted from net classes, the substrate, or a cross-block rule.
     NetClass,
     /// Propagated from a symmetry seed (EXT-14).
-    Symmetry { seed: ConstraintId },
+    Symmetry {
+        seed: ConstraintId,
+    },
     /// A shared-bias group (EXT-15).
     SharedBias,
     /// A passive or bipolar set rule (EXT-19), e.g. `"divider"`, `"dac_bank"`.
-    PassiveSet { rule: &'static str },
+    PassiveSet {
+        rule: &'static str,
+    },
     Sensitivity,
     /// Index into the user sidecar (EXT-26).
-    User { index: u32 },
-    Derived { parent: ConstraintId },
+    User {
+        index: u32,
+    },
+    Derived {
+        parent: ConstraintId,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

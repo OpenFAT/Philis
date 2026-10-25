@@ -4,10 +4,10 @@
 use crate::cells::builder::dim;
 use std::collections::BTreeMap;
 
+use analog::base::{DeviceGroup, DeviceKind, Macro, MatchClass, Process, Rect};
 use analog::matching::class::{mos_env, GateStrap, MosEnv};
 use analog::matching::pattern::{self, Outer};
 use analog::Constraints;
-use analog::base::{DeviceGroup, DeviceKind, Macro, MatchClass, Process, Rect};
 
 use crate::cells::builder::{cut_lattice, pin, req, sizing, snap_cut, unitization, Builder, Sizing};
 use crate::cells::{Cell, Pattern};
@@ -104,7 +104,15 @@ impl Cell for Mosfet {
             }
             // Split when one-finger members leave no room for two bars in a
             // row: the stack stays one merged cell.
-            let chain = |split_gates| Mosfet { nf, style: Pattern::Chain, dummies_per_edge: dummies, split_gates, mirror_pins: false, rows: 1, double_gate: false };
+            let chain = |split_gates| Mosfet {
+                nf,
+                style: Pattern::Chain,
+                dummies_per_edge: dummies,
+                split_gates,
+                mirror_pins: false,
+                rows: 1,
+                double_gate: false,
+            };
             return vec![Some(chain(false)).filter(|v| v.bars_fit(&s.dev_nf, n_dev)).unwrap_or_else(|| chain(true))];
         }
         // Interdig is never offered: an ABAB boundary between devices lands on
@@ -203,9 +211,8 @@ impl Cell for Mosfet {
         if let (Some(sq), Some(cut)) = (process.sheet_ohm("poly"), process.cut_ohm("licon", "poly")) {
             let k = if self.double_gate { 12.0 } else { 3.0 };
             let finger = sq * s.unit_w as f32 / (k * s.unit_l.max(1) as f32) + cut;
-            m.figures.gate_ohm = (0..group.devices.len())
-                .map(|di| (di as u8, finger / orders.iter().flatten().filter(|&&d| d == di).count().max(1) as f32))
-                .collect();
+            m.figures.gate_ohm =
+                (0..group.devices.len()).map(|di| (di as u8, finger / orders.iter().flatten().filter(|&&d| d == di).count().max(1) as f32)).collect();
         }
         m
     }
@@ -230,7 +237,8 @@ fn stack_on_tap(a: &Macro, b: &Macro, process: &dyn Process) -> Macro {
 /// ponytail: bbox-wide gap at the widest same-layer space; per-layer facing
 /// edges if the area matters.
 fn stack_pad_to_pad(lo: &Macro, hi: &Macro, process: &dyn Process) -> Macro {
-    let gap = ["diff", "tap", "poly", "licon", "li", "mcon", "met1", "npc", "nsdm", "psdm"].iter().filter_map(|r| process.space(r)).max().unwrap_or(0);
+    let gap =
+        ["diff", "tap", "poly", "licon", "li", "mcon", "met1", "npc", "nsdm", "psdm"].iter().filter_map(|r| process.space(r)).max().unwrap_or(0);
     let nwell = process.layer("nwell");
     let solid = |m: &Macro| m.shapes.iter().filter(|s| Some(s.layer) != nwell).map(|s| s.rect).collect::<Vec<_>>();
     let top = solid(lo).iter().map(|r| r.y + r.h).max().unwrap_or(0);
@@ -519,11 +527,16 @@ impl Mosfet {
         debug_assert!(chain || self.mirror_pins || legal_row(sequence, s0), "{sequence:?}");
         // Terminal of the finger at `idx` on its left (`right_side = false`)
         // or right side.
-        let start: Vec<i32> = (0..sequence.len()).map(|i| sequence[..i].iter().rposition(|&d| d != sequence[i]).map_or(0, |p| p as i32 + 1)).collect();
+        let start: Vec<i32> =
+            (0..sequence.len()).map(|i| sequence[..i].iter().rposition(|&d| d != sequence[i]).map_or(0, |p| p as i32 + 1)).collect();
         let term = |idx: i32, right_side: bool| -> &'static str {
             if chain {
                 let local = idx - start[idx as usize] + i32::from(right_side);
-                if local % 2 == 0 { "D" } else { "S" }
+                if local % 2 == 0 {
+                    "D"
+                } else {
+                    "S"
+                }
             } else if is_s(idx + i32::from(right_side)) {
                 "S"
             } else {
@@ -559,7 +572,8 @@ impl Mosfet {
         // pair).
         let shared = self.mirror_pins && !self.split_gates;
         // EXC contacts every finger on its own pad: no boundary cut to drop.
-        let cut = if exc { vec![true; sequence.len()] } else { bar_cuts(sequence, |a, b| up(a) == up(b), shared).expect("enumerate filters on bars_fit") };
+        let cut =
+            if exc { vec![true; sequence.len()] } else { bar_cuts(sequence, |a, b| up(a) == up(b), shared).expect("enumerate filters on bars_fit") };
         // Per (top row, device) bar — device 0 for a shared one: the gates'
         // x span and the cuts' x span.
         let mut bars: BTreeMap<(bool, usize), ((i32, i32), Option<(i32, i32)>)> = BTreeMap::new();
@@ -734,13 +748,7 @@ impl Mosfet {
                 e.0 = e.0.min(cx).min(px);
                 e.1 = e.1.max(cx).max(px);
                 let (owner, near) = ends[edge];
-                b.dummy(analog::base::Dummy {
-                    owner: owner as u8,
-                    pmos: is_pmos,
-                    edge: if k == 0 { near } else { "B" },
-                    w: finger_w,
-                    l: dummy_l,
-                });
+                b.dummy(analog::base::Dummy { owner: owner as u8, pmos: is_pmos, edge: if k == 0 { near } else { "B" }, w: finger_w, l: dummy_l });
             }
         }
         let stub_top = licon_y + ct + licon_poly_side;
@@ -761,12 +769,10 @@ impl Mosfet {
             let (g0, g1) = (gates.iter().copied().min().unwrap_or(cx0), gates.iter().copied().max().unwrap_or(cx1));
             let x0 = g0 + ct / 2 - dpad_w / 2;
             b.rect(poly, Rect { x: x0, y: skirt_y, w: (g1 + ct / 2 + dpad_w / 2) - x0, h: stub_top - skirt_y });
-            b.rect(li, Rect {
-                x: cx0 - rise_l,
-                y: licon_y - rise_l,
-                w: (cx1 + ct + rise_r) - (cx0 - rise_l),
-                h: (rail_li_y + lat) - (licon_y - rise_l),
-            });
+            b.rect(
+                li,
+                Rect { x: cx0 - rise_l, y: licon_y - rise_l, w: (cx1 + ct + rise_r) - (cx0 - rise_l), h: (rail_li_y + lat) - (licon_y - rise_l) },
+            );
         }
         // Each outer S/D cut: an li column lapping 40 nm into the riser strip,
         // short of its cut row (an edge on a cut's corner reads as uncovered).
@@ -788,28 +794,19 @@ impl Mosfet {
         let imp_enc = enc(tap_role, "tap").max(enc(tap_role, "diff"));
         let chan_enc = enc(chan_role, "diff").max(enc(chan_role, "poly"));
         if let Some(imp) = process.layer(tap_role) {
-            b.rect(imp, Rect {
-                x: tap_x0 - imp_enc,
-                y: tap_y0 - imp_enc,
-                w: tap_w + 2 * imp_enc,
-                h: tap_h + 2 * imp_enc,
-            });
+            b.rect(imp, Rect { x: tap_x0 - imp_enc, y: tap_y0 - imp_enc, w: tap_w + 2 * imp_enc, h: tap_h + 2 * imp_enc });
         }
         // Channel implant of the device's own polarity: with the well, what
         // tells the extractor NMOS from PMOS.
         if let Some(chan_imp) = process.layer(chan_role) {
-            b.rect(chan_imp, Rect {
-                x: diff_x_start - chan_enc,
-                y: -chan_enc,
-                w: (diff_x_end - diff_x_start) + 2 * chan_enc,
-                h: finger_w + 2 * chan_enc,
-            });
+            b.rect(
+                chan_imp,
+                Rect { x: diff_x_start - chan_enc, y: -chan_enc, w: (diff_x_end - diff_x_start) + 2 * chan_enc, h: finger_w + 2 * chan_enc },
+            );
         }
         // Tap cuts, skipping columns under a riser strip.
         let guard_pitch = snap_cut(r("guard_licon_pitch", 0).max(ct + process.space("licon").unwrap_or(0)) + lat - 1, lat);
-        let under_riser = |lx: i32| {
-            edge_cuts.iter().flatten().any(|&(x0, x1)| lx <= x1 + ct + rise_r && x0 - rise_l <= lx + ct)
-        };
+        let under_riser = |lx: i32| edge_cuts.iter().flatten().any(|&(x0, x1)| lx <= x1 + ct + rise_r && x0 - rise_l <= lx + ct);
         let mut kept: Option<(i32, i32)> = None;
         // End cuts keep `tap_enc` of tap along the strip (licon.7).
         let mut lx = snap_cut(tap_x0 + tap_enc + lat - 1, lat);
@@ -824,12 +821,7 @@ impl Mosfet {
         // with the risers.
         let (first_lx, last_lx) = kept.unwrap_or((tap_x0 + tap_enc, tap_x0 + tap_enc));
         let rail_x0 = (first_lx - li_enc).min(tap_x0);
-        b.rect(li, Rect {
-            x: rail_x0,
-            y: rail_li_y,
-            w: (last_lx + ct + li_side).max(tap_x1) - rail_x0,
-            h: ct + 2 * li_side,
-        });
+        b.rect(li, Rect { x: rail_x0, y: rail_li_y, w: (last_lx + ct + li_side).max(tap_x1) - rail_x0, h: ct + 2 * li_side });
         // One bulk pin per device on the rail.
         for di in 0..n_dev {
             let xi = (first_lx + di as i32 * guard_pitch).min(last_lx);
@@ -840,7 +832,8 @@ impl Mosfet {
         // layer the caller's overlay names, e.g. sky130 lvtn/hvtp): one rect
         // per row over every gate, dummies included, past the gates by the
         // deck's enclosure, widened to its width and area.
-        let (gx0, gx1) = if nd > 0 { (-nd * dummy_l - (nd - 1) * sd_end, gates_end + sd_edge + (nd - 1) * d_step + dummy_l) } else { (sd_edge, gates_end) };
+        let (gx0, gx1) =
+            if nd > 0 { (-nd * dummy_l - (nd - 1) * sd_end, gates_end + sd_edge + (nd - 1) * d_step + dummy_l) } else { (sd_edge, gates_end) };
         for i in 0.. {
             let role = format!("gate_marker{i}");
             let Some(l) = process.layer(&role) else { break };
@@ -922,7 +915,11 @@ pub fn sd_and_pitch(process: &dyn Process, gate_l: i32) -> (i32, i32) {
 #[must_use]
 pub fn tap_reach(m: &Macro, process: &dyn Process) -> Option<i32> {
     let (tap, diff) = (req(process, "tap"), req(process, "diff"));
-    let holds_b = |r: &Rect| m.pins.iter().any(|p| p.name.ends_with(":B") && r.x <= p.at.x && r.y <= p.at.y && p.at.x + p.at.w <= r.x + r.w && p.at.y + p.at.h <= r.y + r.h);
+    let holds_b = |r: &Rect| {
+        m.pins
+            .iter()
+            .any(|p| p.name.ends_with(":B") && r.x <= p.at.x && r.y <= p.at.y && p.at.x + p.at.w <= r.x + r.w && p.at.y + p.at.h <= r.y + r.h)
+    };
     let taps: Vec<Rect> = m.shapes.iter().filter(|s| s.layer == tap && holds_b(&s.rect)).map(|s| s.rect).collect();
     if taps.is_empty() {
         return None;
@@ -1187,7 +1184,10 @@ mod tests {
     fn flavour<'a>(pdk: &'a verify::Pdk, model: &str) -> verify::pdk::Overlay<'a> {
         let (need, _) = pdk.model_markers(model).expect("a recogniser");
         assert!(!need.is_empty(), "{model}: no marker beyond the gate");
-        let drawn: Vec<_> = ["diff", "tap", "poly", "licon", "li", "mcon", "met1", "nwell", "nsdm", "psdm", "npc"].iter().filter_map(|r| Process::layer(pdk, r)).collect();
+        let drawn: Vec<_> = ["diff", "tap", "poly", "licon", "li", "mcon", "met1", "nwell", "nsdm", "psdm", "npc"]
+            .iter()
+            .filter_map(|r| Process::layer(pdk, r))
+            .collect();
         let name = |l: &analog::base::LayerId| pdk.layers.iter().find(|(_, id)| id == l).map(|(n, _)| n.clone());
         let mut layers: Vec<(String, String)> =
             need.iter().filter(|l| !drawn.contains(l)).filter_map(name).enumerate().map(|(i, n)| (format!("gate_marker{i}"), n)).collect();
@@ -1218,7 +1218,10 @@ mod tests {
                         continue;
                     }
                     let (x0, y0, x1, y1) = (x0 - 180, y0 - 180, x1 + 180, y1 + 180);
-                    assert!(marks.iter().any(|r| r.x <= x0 && r.y <= y0 && r.x + r.w >= x1 && r.y + r.h >= y1), "gate ({x0},{y0})-({x1},{y1}) uncovered");
+                    assert!(
+                        marks.iter().any(|r| r.x <= x0 && r.y <= y0 && r.x + r.w >= x1 && r.y + r.h >= y1),
+                        "gate ({x0},{y0})-({x1},{y1}) uncovered"
+                    );
                 }
             }
         }
@@ -1286,7 +1289,9 @@ mod tests {
                 c.unitization[0].dev_nf = counts.to_vec();
                 for dummies in [false, true] {
                     c.unitization[0].dummy_required = dummies;
-                    dirty.extend(testkit::dirty_group::<Mosfet>(&g, &c, &pdk).into_iter().map(|d| format!("{kind:?} {counts:?} dummies={dummies} {d}")));
+                    dirty.extend(
+                        testkit::dirty_group::<Mosfet>(&g, &c, &pdk).into_iter().map(|d| format!("{kind:?} {counts:?} dummies={dummies} {d}")),
+                    );
                 }
             }
             // CELL-12: each match class's environment.
@@ -1319,7 +1324,8 @@ mod tests {
                 let (a, b) = (of(0), of(1));
                 // Each member draws its 8 schematic fingers, 2 per row.
                 assert_eq!((a.len(), b.len()), (8, 8), "{kind:?}");
-                let moment = |us: &[analog::base::Unit], p: u32, q: u32| us.iter().map(|u| i128::from(u.x).pow(p) * i128::from(u.y).pow(q)).sum::<i128>();
+                let moment =
+                    |us: &[analog::base::Unit], p: u32, q: u32| us.iter().map(|u| i128::from(u.x).pow(p) * i128::from(u.y).pow(q)).sum::<i128>();
                 for p in 0..=3 {
                     for q in 0..=3 - p {
                         assert_eq!(moment(&a, p, q), moment(&b, p, q), "{kind:?}: x^{p} y^{q}");
@@ -1327,7 +1333,9 @@ mod tests {
                 }
                 let phi = |us: &[analog::base::Unit]| us.iter().map(|u| i32::from(u.phi.0)).sum::<i32>();
                 assert_eq!((phi(&a), phi(&b)), (0, 0), "{kind:?}");
-                let pts = |us: &[analog::base::Unit]| us.iter().map(|u| moments::Pt { x: f64::from(u.x), y: f64::from(u.y), w: u.weight as f64, phi: u.phi }).collect::<Vec<_>>();
+                let pts = |us: &[analog::base::Unit]| {
+                    us.iter().map(|u| moments::Pt { x: f64::from(u.x), y: f64::from(u.y), w: u.weight as f64, phi: u.phi }).collect::<Vec<_>>()
+                };
                 let (pa, pb) = (pts(&a), pts(&b));
                 assert!(moments::cancelled_order(&[&pa, &pb], 4, 1e-3).0 >= 3, "{kind:?}");
             }
@@ -1442,7 +1450,13 @@ mod tests {
                     let dummies: Vec<Rect> = rects(poly).filter(|r| r.h >= 1680 && m.units.iter().all(|u| u.x < r.x || u.x > r.x + r.w)).collect();
                     let p0 = dummies.iter().map(|r| r.x).min().unwrap();
                     let p1 = dummies.iter().map(|r| r.x + r.w).max().unwrap();
-                    assert!(ch0 - p0 >= env.dummy_reach_nm && p1 - ch1 >= env.dummy_reach_nm, "{tag}: reach {} {} < {}", ch0 - p0, p1 - ch1, env.dummy_reach_nm);
+                    assert!(
+                        ch0 - p0 >= env.dummy_reach_nm && p1 - ch1 >= env.dummy_reach_nm,
+                        "{tag}: reach {} {} < {}",
+                        ch0 - p0,
+                        p1 - ch1,
+                        env.dummy_reach_nm
+                    );
                 }
             }
         }
@@ -1576,7 +1590,8 @@ mod tests {
             for (i, (_, m)) in ms.iter().enumerate() {
                 let diffs: Vec<Rect> = m.shapes.iter().filter(|s| s.layer == diff).map(|s| s.rect).collect();
                 let (ch0, ch1) = (m.units.iter().map(|u| u.x).min().unwrap() - 75, m.units.iter().map(|u| u.x).max().unwrap() + 75);
-                let pad_cuts: Vec<Rect> = m.shapes.iter().filter(|s| s.layer == licon && (ch0..ch1).contains(&(s.rect.x + s.rect.w / 2))).map(|s| s.rect).collect();
+                let pad_cuts: Vec<Rect> =
+                    m.shapes.iter().filter(|s| s.layer == licon && (ch0..ch1).contains(&(s.rect.x + s.rect.w / 2))).map(|s| s.rect).collect();
                 let holds_pad = |p: &Rect| pad_cuts.iter().any(|c| p.x <= c.x && c.x + c.w <= p.x + p.w && p.y <= c.y && c.y + c.h <= p.y + p.h);
                 for p in m.shapes.iter().filter(|s| s.layer == poly && s.rect.w > 150).map(|s| s.rect).filter(|p| every_bar || holds_pad(p)) {
                     for d in diffs.iter().filter(|d| d.x < p.x + p.w && p.x < d.x + d.w) {
@@ -1747,13 +1762,15 @@ mod tests {
         let phi_sum = |m: &analog::base::Macro, d: u8| m.units.iter().filter(|u| u.owner == d).map(|u| i32::from(u.phi.0)).sum::<i32>();
 
         let (g, c) = testkit::group_of(DeviceKind::Nmos, 2, 1, 1680, 150);
-        let m = Mosfet { nf: 1, style: Pattern::Single, dummies_per_edge: 1, split_gates: false, mirror_pins: false, rows: 1, double_gate: false }.draw(&g, &c, &pdk);
+        let m = Mosfet { nf: 1, style: Pattern::Single, dummies_per_edge: 1, split_gates: false, mirror_pins: false, rows: 1, double_gate: false }
+            .draw(&g, &c, &pdk);
         assert_eq!(m.units.len(), 2);
         assert_eq!((phi_sum(&m, 0), phi_sum(&m, 1)), (-1, 1), "shared-source pair mirrors its currents");
         assert!(m.units.iter().all(|u| u.weight == 1680 * 150));
 
         let (g, c) = testkit::group_of(DeviceKind::Nmos, 2, 2, 1680, 150);
-        let m = Mosfet { nf: 2, style: Pattern::Cc1d, dummies_per_edge: 1, split_gates: false, mirror_pins: false, rows: 1, double_gate: false }.draw(&g, &c, &pdk);
+        let m = Mosfet { nf: 2, style: Pattern::Cc1d, dummies_per_edge: 1, split_gates: false, mirror_pins: false, rows: 1, double_gate: false }
+            .draw(&g, &c, &pdk);
         assert_eq!(m.units.len(), 4);
         assert_eq!((phi_sum(&m, 0), phi_sum(&m, 1)), (0, 0), "ABBA balances each device");
         // Equal electrical moments: both devices centre on the same x.
@@ -1767,8 +1784,8 @@ mod tests {
     #[test]
     fn a_chain_shares_each_junction_and_is_clean() {
         use crate::cells::testkit;
-        use analog::cell::SeriesParallel;
         use analog::base::DeviceKind;
+        use analog::cell::SeriesParallel;
         let Some(pdk) = testkit::pdk() else { return };
         for (n, nf) in [(2usize, 1u16), (3, 1), (2, 3)] {
             for kind in [DeviceKind::Nmos, DeviceKind::Pmos] {
@@ -1850,11 +1867,17 @@ mod tests {
         use analog::base::DeviceKind;
         let Some(pdk) = testkit::pdk() else { return };
         let (g, c) = testkit::group_of(DeviceKind::Nmos, 2, 2, 1680, 150);
-        let m = Mosfet { nf: 2, style: Pattern::Single, dummies_per_edge: 1, split_gates: false, mirror_pins: false, rows: 2, double_gate: false }.draw(&g, &c, &pdk);
+        let m = Mosfet { nf: 2, style: Pattern::Single, dummies_per_edge: 1, split_gates: false, mirror_pins: false, rows: 2, double_gate: false }
+            .draw(&g, &c, &pdk);
         assert_eq!(m.units.len(), 4);
         let sum = |d: u8| m.units.iter().filter(|u| u.owner == d).fold((0i64, 0i64), |(x, y), u| (x + i64::from(u.x), y + i64::from(u.y)));
         assert_eq!(sum(0), sum(1), "centroids coincide");
-        let ys = |d: u8| { let mut v: Vec<i32> = m.units.iter().filter(|u| u.owner == d).map(|u| u.y).collect(); v.sort_unstable(); v.dedup(); v.len() };
+        let ys = |d: u8| {
+            let mut v: Vec<i32> = m.units.iter().filter(|u| u.owner == d).map(|u| u.y).collect();
+            v.sort_unstable();
+            v.dedup();
+            v.len()
+        };
         assert_eq!((ys(0), ys(1)), (2, 2), "each device has a finger in both rows");
     }
 
@@ -1867,7 +1890,10 @@ mod tests {
         let Some(pdk) = testkit::pdk() else { return };
         let poly = pdk.layer("poly").unwrap();
         let (g, c) = testkit::group_of(DeviceKind::Nmos, 2, 2, 1680, 150);
-        let draw = |split_gates| Mosfet { nf: 2, style: Pattern::Cc1d, dummies_per_edge: 1, split_gates, mirror_pins: false, rows: 1, double_gate: false }.draw(&g, &c, &pdk);
+        let draw = |split_gates| {
+            Mosfet { nf: 2, style: Pattern::Cc1d, dummies_per_edge: 1, split_gates, mirror_pins: false, rows: 1, double_gate: false }
+                .draw(&g, &c, &pdk)
+        };
 
         let split = gate_islands(&draw(true), poly, 2);
         assert!(split.iter().all(Option::is_some));
@@ -1910,11 +1936,17 @@ mod tests {
                         if v.split_gates {
                             checked += 1;
                             if !rules.is_empty() {
-                                dirty.push(format!("{kind:?} nf={nf} dummies={dummies} #{i} rows={} mirror_pins={}: {rules:?}", v.rows, v.mirror_pins));
+                                dirty.push(format!(
+                                    "{kind:?} nf={nf} dummies={dummies} #{i} rows={} mirror_pins={}: {rules:?}",
+                                    v.rows, v.mirror_pins
+                                ));
                             }
                         } else if v.style == Pattern::Cc1d && !v.mirror_pins && v.rows == 1 && !v.double_gate {
                             controls += 1;
-                            assert!(!rules.is_empty(), "{kind:?} nf={nf} #{i}: the shared-strap ABBA joins both gates, yet private gate labels read clean");
+                            assert!(
+                                !rules.is_empty(),
+                                "{kind:?} nf={nf} #{i}: the shared-strap ABBA joins both gates, yet private gate labels read clean"
+                            );
                         }
                     }
                 }
@@ -1954,7 +1986,8 @@ mod tests {
         let Some(pdk) = testkit::pdk() else { return };
         for nf in [2u16, 4] {
             let (g, c) = testkit::group_of(DeviceKind::Nmos, 2, nf, 1680, 150);
-            let m = Mosfet { nf, style: Pattern::Cc1d, dummies_per_edge: 1, split_gates: true, mirror_pins: true, rows: 1, double_gate: false }.draw(&g, &c, &pdk);
+            let m = Mosfet { nf, style: Pattern::Cc1d, dummies_per_edge: 1, split_gates: true, mirror_pins: true, rows: 1, double_gate: false }
+                .draw(&g, &c, &pdk);
             // The row's centre: the channels are symmetric about it.
             let xs: Vec<i32> = m.units.iter().map(|u| u.x).collect();
             let axis2 = xs.iter().min().unwrap() + xs.iter().max().unwrap();
@@ -2009,7 +2042,12 @@ mod tests {
                 let m = v.draw(&g, &c, &pdk);
                 let polys: Vec<Rect> = m.shapes.iter().filter(|s| s.layer == poly).map(|s| s.rect).collect();
                 let on_poly = |r: &Rect| polys.iter().any(|p| p.x <= r.x && p.x + p.w >= r.x + r.w && p.y <= r.y && p.y + p.h >= r.y + r.h);
-                let cuts: Vec<Rect> = m.shapes.iter().filter(|s| s.layer == licon && (s.rect.y + ct <= 0 || s.rect.y >= w) && on_poly(&s.rect)).map(|s| s.rect).collect();
+                let cuts: Vec<Rect> = m
+                    .shapes
+                    .iter()
+                    .filter(|s| s.layer == licon && (s.rect.y + ct <= 0 || s.rect.y >= w) && on_poly(&s.rect))
+                    .map(|s| s.rect)
+                    .collect();
                 let mut ys: Vec<i32> = cuts.iter().map(|r| r.y).collect();
                 ys.sort_unstable();
                 ys.dedup();
@@ -2026,7 +2064,10 @@ mod tests {
                     }
                     let tag = format!("n={n} nf={nf} #{i} y={y}");
                     for run in &runs {
-                        assert!(polys.iter().any(|p| p.y < line && line < p.y + p.h && p.x <= run.0 && p.x + p.w >= run.1), "{tag}: run {run:?} is not one bar");
+                        assert!(
+                            polys.iter().any(|p| p.y < line && line < p.y + p.h && p.x <= run.0 && p.x + p.w >= run.1),
+                            "{tag}: run {run:?} is not one bar"
+                        );
                         assert!(cuts.iter().any(|c| c.y == y && c.x >= run.0 && c.x + ct <= run.1), "{tag}: run {run:?} holds no cut");
                     }
                     let mut leaving: Vec<&str> = m.pins.iter().filter(|p| p.name.ends_with(":G") && p.at.y == y).map(|p| p.name.as_str()).collect();
@@ -2097,7 +2138,13 @@ mod tests {
         let tap = req(&pdk, "tap");
         let strip = |m: &Macro| {
             let b = m.pins.iter().find(|p| p.name.ends_with(":B")).expect("a B pin").at;
-            m.shapes.iter().find(|s| s.layer == tap && s.rect.x <= b.x && s.rect.y <= b.y && b.x + b.w <= s.rect.x + s.rect.w && b.y + b.h <= s.rect.y + s.rect.h).expect("a strip holds B").rect
+            m.shapes
+                .iter()
+                .find(|s| {
+                    s.layer == tap && s.rect.x <= b.x && s.rect.y <= b.y && b.x + b.w <= s.rect.x + s.rect.w && b.y + b.h <= s.rect.y + s.rect.h
+                })
+                .expect("a strip holds B")
+                .rect
         };
         let (g, c) = testkit::group_of(DeviceKind::Nmos, 1, 1, 1680, 150);
         for v in Mosfet::enumerate(&g, &c, &pdk) {
@@ -2138,7 +2185,10 @@ mod tests {
                             for (i, v) in Mosfet::enumerate(&g, &c, &pdk).iter().enumerate() {
                                 let m = v.draw(&g, &c, &pdk);
                                 if !taps_in_reach(&m, &pdk) {
-                                    bad.push(format!("{deck} {kind:?} n={n} nf={nf} W={w} dummies={dummies} variant {i}: reach {:?} > {tie_max}", tap_reach(&m, &pdk)));
+                                    bad.push(format!(
+                                        "{deck} {kind:?} n={n} nf={nf} W={w} dummies={dummies} variant {i}: reach {:?} > {tie_max}",
+                                        tap_reach(&m, &pdk)
+                                    ));
                                 }
                             }
                         }
@@ -2171,7 +2221,10 @@ mod tests {
 
         let (g, mut c) = testkit::group_of(DeviceKind::Nmos, 2, 2, 1680, 150);
         c.unitization[0].dummy_required = true;
-        let v = Mosfet::enumerate(&g, &c, &pdk).into_iter().find(|v| v.style == Pattern::Cc1d && !v.split_gates && !v.mirror_pins && v.rows == 1).unwrap();
+        let v = Mosfet::enumerate(&g, &c, &pdk)
+            .into_iter()
+            .find(|v| v.style == Pattern::Cc1d && !v.split_gates && !v.mirror_pins && v.rows == 1)
+            .unwrap();
         assert!(v.dummies_per_edge > 0);
         let m = v.draw(&g, &c, &pdk);
         let (e, pitch) = e_and_pitch(&m, 150);
@@ -2211,7 +2264,10 @@ mod tests {
         // A B B A, dummies on: each A|B region is half A's, half B's.
         let (g, mut c) = testkit::group_of(DeviceKind::Nmos, 2, 2, 1680, 150);
         c.unitization[0].dummy_required = true;
-        let v = Mosfet::enumerate(&g, &c, &pdk).into_iter().find(|v| v.style == Pattern::Cc1d && !v.split_gates && !v.mirror_pins && v.rows == 1).unwrap();
+        let v = Mosfet::enumerate(&g, &c, &pdk)
+            .into_iter()
+            .find(|v| v.style == Pattern::Cc1d && !v.split_gates && !v.mirror_pins && v.rows == 1)
+            .unwrap();
         let m = v.draw(&g, &c, &pdk);
         let (_, pitch) = e_and_pitch(&m, 150);
         let two_halves = ((pitch - 150) * 1680, 2 * (pitch - 150));

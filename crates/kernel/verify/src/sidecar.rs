@@ -168,10 +168,7 @@ pub fn validate(cell: &Value) -> Vec<String> {
     for row in KEYS {
         let v = obj.get(row.name).filter(|v| !v.is_null());
         if row.required && v.is_none() {
-            bad.push(format!(
-                "cell.{}: required ({} reads it with a compiled default; add this process's value)",
-                row.name, row.reader
-            ));
+            bad.push(format!("cell.{}: required ({} reads it with a compiled default; add this process's value)", row.name, row.reader));
         }
         if row.sourced && v.is_some() && source(obj, row.name).is_none() {
             bad.push(format!("cell.{}: process data with no `{}_source`", row.name, row.name));

@@ -1,13 +1,13 @@
 //! Differential-pair route matching (routing tier).
 
-use std::collections::{BTreeMap, BTreeSet};
+use super::coupling::net_pair_af;
+use super::Stack;
+use crate::base::geom::Shape;
 use crate::base::ids::NetId;
 use crate::base::routes::Routes;
-use crate::base::geom::Shape;
 use crate::base::Terminal;
 use crate::rule::Rule;
-use super::Stack;
-use super::coupling::net_pair_af;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// `pos`/`neg` routes match electrically, not just in total length: with
 /// `same_layer_required`, their **route signatures** agree — per layer, drawn
@@ -62,7 +62,11 @@ impl Differential {
             let (pa, pb) = (r.shapes(self.pos), r.shapes(self.neg));
             let rel = |a: f32, b: f32| {
                 let mean = (a + b) / 2.0;
-                if mean > 0.0 { (a - b).abs() / mean * 100.0 } else { 0.0 }
+                if mean > 0.0 {
+                    (a - b).abs() / mean * 100.0
+                } else {
+                    0.0
+                }
             };
             let (ca, cb) = (st.ground_af(pa), st.ground_af(pb));
             let (ta, tb) = (r.terminals(self.pos), r.terminals(self.neg));
@@ -84,7 +88,11 @@ impl Differential {
                     let (ra, rb) = (sorted(ra), sorted(rb));
                     let mean = (ra.iter().sum::<f32>() + rb.iter().sum::<f32>()) / (ra.len() + rb.len()) as f32;
                     let worst = ra.iter().zip(&rb).map(|(a, b)| (a - b).abs()).fold(0.0, f32::max);
-                    if mean > 0.0 { worst / mean * 100.0 } else { 0.0 }
+                    if mean > 0.0 {
+                        worst / mean * 100.0
+                    } else {
+                        0.0
+                    }
                 }
             } else {
                 rel(runs(pa), runs(pb))
@@ -101,18 +109,30 @@ impl Differential {
                 let get = |m: &BTreeMap<u16, f32>, l: &u16| m.get(l).copied().unwrap_or(0.0);
                 let delta: f32 = na.keys().chain(nb.keys()).collect::<BTreeSet<_>>().into_iter().map(|l| (get(&na, l) - get(&nb, l)).abs()).sum();
                 let mean = (na.values().sum::<f32>() + nb.values().sum::<f32>()) / 2.0;
-                if mean > 0.0 { delta / mean * 100.0 } else { 0.0 }
+                if mean > 0.0 {
+                    delta / mean * 100.0
+                } else {
+                    0.0
+                }
             } else {
                 0.0
             };
             let coupling = match self.aggressor_weight {
                 Some(w) if ca + cb > 0.0 => {
-                    let skew: f32 = r.wires.iter().enumerate()
+                    let skew: f32 = r
+                        .wires
+                        .iter()
+                        .enumerate()
                         .filter(|&(a, _)| a != self.pos.0 as usize && a != self.neg.0 as usize)
                         .map(|(a, x)| {
                             let wa = w.get(a).copied().unwrap_or(1.0);
-                            let screens = if wa == 0.0 { Vec::new() } else { super::coupling::screens_but(r, &[self.pos.0 as usize, self.neg.0 as usize, a]) };
-                            if wa == 0.0 { 0.0 } else { wa * (net_pair_af(Some(st), pa, x, &screens) - net_pair_af(Some(st), pb, x, &screens)).abs() }
+                            let screens =
+                                if wa == 0.0 { Vec::new() } else { super::coupling::screens_but(r, &[self.pos.0 as usize, self.neg.0 as usize, a]) };
+                            if wa == 0.0 {
+                                0.0
+                            } else {
+                                wa * (net_pair_af(Some(st), pa, x, &screens) - net_pair_af(Some(st), pb, x, &screens)).abs()
+                            }
                         })
                         .sum();
                     skew / ((ca + cb) / 2.0) * 100.0
@@ -142,7 +162,11 @@ impl Differential {
             let get = |m: &std::collections::BTreeMap<u16, (f64, f64, f64)>, l| m.get(&l).map_or(0.0, f);
             let delta: f64 = layers.iter().map(|&l| (get(&a, l) - get(&b, l)).abs()).sum();
             let mean = (a.values().map(f).sum::<f64>() + b.values().map(f).sum::<f64>()) / 2.0;
-            if mean > 0.0 { delta / mean * 100.0 } else { 0.0 }
+            if mean > 0.0 {
+                delta / mean * 100.0
+            } else {
+                0.0
+            }
         };
         term(|e| e.0).max(term(|e| e.1)).max(term(|e| e.2)) as f32
     }
@@ -192,7 +216,11 @@ mod tests {
     fn rc_stack() -> &'static Stack {
         use crate::routing::stack::Layer;
         let metal = |id| Layer { id, area_af_um2: 25.0, fringe_af_um: 40.0, lateral: 3.9 * 8.854 * 360.0, sheet_ohm: 0.125, ..Layer::default() };
-        Box::leak(Box::new(Stack { layers: vec![metal(1), Layer { id: 2, sheet_ohm: 4.5, cut: true, ..Layer::default() }, metal(3)], antenna_cumulative: false, diode: None }))
+        Box::leak(Box::new(Stack {
+            layers: vec![metal(1), Layer { id: 2, sheet_ohm: 4.5, cut: true, ..Layer::default() }, metal(3)],
+            antenna_cumulative: false,
+            diode: None,
+        }))
     }
     fn wire(x: i32, y: i32, w: i32, h: i32) -> Shape {
         Shape { layer: LayerId(1), rect: Rect { x, y, w, h } }
@@ -204,7 +232,10 @@ mod tests {
     #[test]
     fn equal_length_on_the_same_layers_can_still_mismatch() {
         // Same total length (10 µm), same layer set {1, 2}, split 8+2 vs 2+8.
-        let r = Routes { wires: vec![vec![seg(1, 0, 8_000, 140), seg(2, 0, 2_000, 140)], vec![seg(1, 0, 2_000, 140), seg(2, 0, 8_000, 140)]], ..Default::default()  };
+        let r = Routes {
+            wires: vec![vec![seg(1, 0, 8_000, 140), seg(2, 0, 2_000, 140)], vec![seg(1, 0, 2_000, 140), seg(2, 0, 8_000, 140)]],
+            ..Default::default()
+        };
         assert!(pair().len_delta_pct(&r) == 0.0, "the old metric sees nothing");
         assert!(!pair().satisfied(&r));
 
@@ -213,15 +244,15 @@ mod tests {
         let mut extra = base.clone();
         extra.push(seg(3, 0, 170, 170));
         extra.push(seg(3, 500, 170, 170));
-        let r = Routes { wires: vec![base.clone(), extra], ..Default::default()  };
+        let r = Routes { wires: vec![base.clone(), extra], ..Default::default() };
         assert!(!pair().satisfied(&r));
 
         // Wider wire, same length: area (width, so R and C) differs.
-        let r = Routes { wires: vec![base.clone(), vec![seg(1, 0, 10_000, 280)]], ..Default::default()  };
+        let r = Routes { wires: vec![base.clone(), vec![seg(1, 0, 10_000, 280)]], ..Default::default() };
         assert!(!pair().satisfied(&r));
 
         // Identical signatures pass.
-        let r = Routes { wires: vec![base.clone(), base], ..Default::default()  };
+        let r = Routes { wires: vec![base.clone(), base], ..Default::default() };
         assert!(pair().satisfied(&r));
         assert_eq!(pair().residual(&r), 0.0);
     }
@@ -239,16 +270,16 @@ mod tests {
                 Layer { id: 3, area_af_um2: 36.0, fringe_af_um: 40.0, sheet_ohm: 12.8, ..Layer::default() },
             ],
             antenna_cumulative: false,
-        diode: None,
+            diode: None,
         }));
         let rc = Differential { stack: Some(stack), ..pair() };
         let trunk = vec![seg(1, 0, 30_000, 290)];
         let mut padded = trunk.clone();
         padded.push(seg(3, 0, 170, 170));
-        let r = Routes { wires: vec![padded, trunk.clone()], ..Default::default()  };
+        let r = Routes { wires: vec![padded, trunk.clone()], ..Default::default() };
         assert!(!pair().satisfied(&r), "the geometric signature counts the pad");
         assert!(rc.satisfied(&r), "one pad of RC on a 30 µm trunk is noise");
-        let r = Routes { wires: vec![vec![seg(1, 0, 36_000, 290)], trunk], ..Default::default()  };
+        let r = Routes { wires: vec![vec![seg(1, 0, 36_000, 290)], trunk], ..Default::default() };
         assert!(!rc.satisfied(&r), "20% more wire is 20% more R and C");
     }
 
@@ -280,10 +311,7 @@ mod tests {
         let neg = vec![wire(50_000, 0, 30_000, 290)];
         let r = Routes {
             wires: vec![pos, neg],
-            terms: vec![
-                vec![term(0, 60), term(8_000, 60), term(29_830, 60)],
-                vec![term(50_000, 60), term(71_830, 60), term(79_830, 60)],
-            ],
+            terms: vec![vec![term(0, 60), term(8_000, 60), term(29_830, 60)], vec![term(50_000, 60), term(71_830, 60), term(79_830, 60)]],
             ..Default::default()
         };
         assert!(rc.mismatch_pct(&r) <= 1e-4);
@@ -319,11 +347,7 @@ mod tests {
         let aggressor = vec![wire(0, 570, 10_000, 290)];
         let r = Routes {
             wires: vec![pos, neg, aggressor],
-            terms: vec![
-                vec![term(0, 60), term(9_830, 60)],
-                vec![term(0, -19_940), term(9_830, -19_940)],
-                vec![],
-            ],
+            terms: vec![vec![term(0, 60), term(9_830, 60)], vec![term(0, -19_940), term(9_830, -19_940)], vec![]],
             ..Default::default()
         };
         let weights: &'static [f32] = &[1.0, 1.0, 1.0];

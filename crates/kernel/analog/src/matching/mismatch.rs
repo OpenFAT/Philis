@@ -278,9 +278,7 @@ impl Ledger {
     /// a zero allowance reads 1 as soon as anything is spent ([`crate::rule::over`]).
     #[must_use]
     pub fn residual(&self) -> f32 {
-        crate::rule::over(self.spent() - self.allowance, self.allowance)
-            .max(self.coincidence.map_or(0.0, |c| c - 1.0))
-            .max(0.0)
+        crate::rule::over(self.spent() - self.allowance, self.allowance).max(self.coincidence.map_or(0.0, |c| c - 1.0)).max(0.0)
     }
 }
 
@@ -365,7 +363,14 @@ mod tests {
 
     #[test]
     fn without_abeta_usage_is_domain_invariant() {
-        let mv = Ledger { sigma_rand: 2.0, sigma_grad: 0.3, mu_thermal: 0.2, mu_lod: 0.1, allowance: Budget::Sigma1Mv(3.0).allowance(2.0), ..Ledger::default() };
+        let mv = Ledger {
+            sigma_rand: 2.0,
+            sigma_grad: 0.3,
+            mu_thermal: 0.2,
+            mu_lod: 0.1,
+            allowance: Budget::Sigma1Mv(3.0).allowance(2.0),
+            ..Ledger::default()
+        };
         for g in [10.0f32, 7.0] {
             let k = 0.1 * g;
             let pct = Ledger {

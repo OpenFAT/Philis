@@ -28,71 +28,36 @@ use crate::pattern::{DiodeReq, Pattern, PinLink, PinRel, SizeMatch, Slot, SlotKi
 
 // ── Shorthand constructors ──
 
-const S_ANY: Slot = Slot {
-    kind: SlotKind::AnyFet,
-    size_match: SizeMatch::Any,
-    diode: DiodeReq::Any,
-    gate_is_signal: false,
-};
+const S_ANY: Slot = Slot { kind: SlotKind::AnyFet, size_match: SizeMatch::Any, diode: DiodeReq::Any, gate_is_signal: false };
 
 /// Same type as slot 0, exact W+L match, no diode constraint.
 const fn same0_exact() -> Slot {
-    Slot {
-        kind: SlotKind::SameTypeAs(0),
-        size_match: SizeMatch::ExactAs(0),
-        diode: DiodeReq::Any,
-        gate_is_signal: false,
-    }
+    Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: false }
 }
 
 /// Same type as slot 0, same L only.
 const fn same0_samel() -> Slot {
-    Slot {
-        kind: SlotKind::SameTypeAs(0),
-        size_match: SizeMatch::SameLAs(0),
-        diode: DiodeReq::Any,
-        gate_is_signal: false,
-    }
+    Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::SameLAs(0), diode: DiodeReq::Any, gate_is_signal: false }
 }
 
 /// Same type as slot 0, any sizing.
 const fn same0() -> Slot {
-    Slot {
-        kind: SlotKind::SameTypeAs(0),
-        size_match: SizeMatch::Any,
-        diode: DiodeReq::Any,
-        gate_is_signal: false,
-    }
+    Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::Any, diode: DiodeReq::Any, gate_is_signal: false }
 }
 
 /// Same type as a given slot, any sizing.
 const fn same_as(r: u8) -> Slot {
-    Slot {
-        kind: SlotKind::SameTypeAs(r),
-        size_match: SizeMatch::Any,
-        diode: DiodeReq::Any,
-        gate_is_signal: false,
-    }
+    Slot { kind: SlotKind::SameTypeAs(r), size_match: SizeMatch::Any, diode: DiodeReq::Any, gate_is_signal: false }
 }
 
 /// Same type as a given slot, exact W+L match with that slot.
 const fn same_exact(r: u8) -> Slot {
-    Slot {
-        kind: SlotKind::SameTypeAs(r),
-        size_match: SizeMatch::ExactAs(r),
-        diode: DiodeReq::Any,
-        gate_is_signal: false,
-    }
+    Slot { kind: SlotKind::SameTypeAs(r), size_match: SizeMatch::ExactAs(r), diode: DiodeReq::Any, gate_is_signal: false }
 }
 
 /// Complement (NMOS<->PMOS) of a given slot.
 const fn comp(r: u8) -> Slot {
-    Slot {
-        kind: SlotKind::ComplementOf(r),
-        size_match: SizeMatch::Any,
-        diode: DiodeReq::Any,
-        gate_is_signal: false,
-    }
+    Slot { kind: SlotKind::ComplementOf(r), size_match: SizeMatch::Any, diode: DiodeReq::Any, gate_is_signal: false }
 }
 
 /// Shorthand link: two pins on the same net.
@@ -126,19 +91,14 @@ pub const DIFF_PAIR: Pattern = Pattern {
     priority: 10,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: true },
     ],
     links: &[
         eq_sig(0, "S", 1, "S"),
         ne(0, "G", 1, "G"),
         ne(0, "D", 1, "D"),
-        ne(0, "G", 1, "D"),  // exclude cross-coupled
-        ne(1, "G", 0, "D"),  // exclude cross-coupled
+        ne(0, "G", 1, "D"), // exclude cross-coupled
+        ne(1, "G", 0, "D"), // exclude cross-coupled
     ],
 };
 
@@ -150,14 +110,8 @@ pub const DIFF_PAIR: Pattern = Pattern {
 pub const CURRENT_MIRROR: Pattern = Pattern {
     name: "current_mirror",
     priority: 8,
-    slots: &[
-        Slot { diode: DiodeReq::Required, ..S_ANY },
-        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::SameLAs(0), ..S_ANY },
-    ],
-    links: &[
-        eq(0, "G", 1, "G"),
-        eq(0, "S", 1, "S"),
-    ],
+    slots: &[Slot { diode: DiodeReq::Required, ..S_ANY }, Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::SameLAs(0), ..S_ANY }],
+    links: &[eq(0, "G", 1, "G"), eq(0, "S", 1, "S")],
 };
 
 /// Current mirror output pair (no diode): two transistors sharing gate
@@ -168,18 +122,9 @@ pub const CURRENT_MIRROR_OUTPUT_PAIR: Pattern = Pattern {
     priority: 7,
     slots: &[
         Slot { diode: DiodeReq::Forbidden, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::SameLAs(0),
-            diode: DiodeReq::Forbidden,
-            gate_is_signal: false,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::SameLAs(0), diode: DiodeReq::Forbidden, gate_is_signal: false },
     ],
-    links: &[
-        eq(0, "G", 1, "G"),
-        eq(0, "S", 1, "S"),
-        ne(0, "D", 1, "D"),
-    ],
+    links: &[eq(0, "G", 1, "G"), eq(0, "S", 1, "S"), ne(0, "D", 1, "D")],
 };
 
 // ── 1.3 Cross-coupled pairs ──
@@ -190,15 +135,8 @@ pub const CURRENT_MIRROR_OUTPUT_PAIR: Pattern = Pattern {
 pub const CROSS_COUPLED: Pattern = Pattern {
     name: "cross_coupled",
     priority: 9,
-    slots: &[
-        S_ANY,
-        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), ..S_ANY },
-    ],
-    links: &[
-        eq(0, "G", 1, "D"),
-        eq(0, "D", 1, "G"),
-        eq(0, "S", 1, "S"),
-    ],
+    slots: &[S_ANY, Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), ..S_ANY }],
+    links: &[eq(0, "G", 1, "D"), eq(0, "D", 1, "G"), eq(0, "S", 1, "S")],
 };
 
 /// Cross-coupled pair with split sources: gate-drain cross but sources
@@ -207,15 +145,8 @@ pub const CROSS_COUPLED: Pattern = Pattern {
 pub const CROSS_COUPLED_SPLIT_SOURCE: Pattern = Pattern {
     name: "cross_coupled_split_source",
     priority: 9,
-    slots: &[
-        S_ANY,
-        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), ..S_ANY },
-    ],
-    links: &[
-        eq(0, "G", 1, "D"),
-        eq(0, "D", 1, "G"),
-        ne(0, "S", 1, "S"),
-    ],
+    slots: &[S_ANY, Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), ..S_ANY }],
+    links: &[eq(0, "G", 1, "D"), eq(0, "D", 1, "G"), ne(0, "S", 1, "S")],
 };
 
 // ── 1.4 Cascode structures ──
@@ -226,14 +157,8 @@ pub const CROSS_COUPLED_SPLIT_SOURCE: Pattern = Pattern {
 pub const CASCODE: Pattern = Pattern {
     name: "cascode",
     priority: 7,
-    slots: &[
-        S_ANY,
-        Slot { kind: SlotKind::SameTypeAs(0), ..S_ANY },
-    ],
-    links: &[
-        eq(0, "D", 1, "S"),
-        ne(0, "G", 1, "G"),
-    ],
+    slots: &[S_ANY, Slot { kind: SlotKind::SameTypeAs(0), ..S_ANY }],
+    links: &[eq(0, "D", 1, "S"), ne(0, "G", 1, "G")],
 };
 
 /// Cascode with same L constraint. Bottom and top share channel length
@@ -241,14 +166,8 @@ pub const CASCODE: Pattern = Pattern {
 pub const CASCODE_MATCHED: Pattern = Pattern {
     name: "cascode_matched",
     priority: 8,
-    slots: &[
-        S_ANY,
-        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::SameLAs(0), ..S_ANY },
-    ],
-    links: &[
-        eq(0, "D", 1, "S"),
-        ne(0, "G", 1, "G"),
-    ],
+    slots: &[S_ANY, Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::SameLAs(0), ..S_ANY }],
+    links: &[eq(0, "D", 1, "S"), ne(0, "G", 1, "G")],
 };
 
 // ── 1.5 Active loads / matched pairs ──
@@ -260,17 +179,9 @@ pub const DIODE_LOAD_PAIR: Pattern = Pattern {
     priority: 8,
     slots: &[
         Slot { diode: DiodeReq::Required, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Required,
-            gate_is_signal: false,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Required, gate_is_signal: false },
     ],
-    links: &[
-        eq(0, "S", 1, "S"),
-        ne(0, "D", 1, "D"),
-    ],
+    links: &[eq(0, "S", 1, "S"), ne(0, "D", 1, "D")],
 };
 
 // ── 1.6 Source follower / common drain ──
@@ -282,13 +193,8 @@ pub const SOURCE_FOLLOWER: Pattern = Pattern {
     name: "source_follower",
     priority: 8,
     slots: &[
-        S_ANY, // current source (bottom)
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::Any,
-            diode: DiodeReq::Forbidden,
-            gate_is_signal: true,
-        }, // follower (top)
+        S_ANY,                                                                                                                // current source (bottom)
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::Any, diode: DiodeReq::Forbidden, gate_is_signal: true }, // follower (top)
     ],
     links: &[
         eq(0, "D", 1, "S"), // current source drain = follower source
@@ -300,18 +206,8 @@ pub const SOURCE_FOLLOWER: Pattern = Pattern {
 
 /// CMOS inverter: complementary pair sharing gate and drain.
 /// ALIGN: inv
-pub const CMOS_INVERTER: Pattern = Pattern {
-    name: "cmos_inverter",
-    priority: 11,
-    slots: &[
-        S_ANY,
-        comp(0),
-    ],
-    links: &[
-        eq(0, "G", 1, "G"),
-        eq(0, "D", 1, "D"),
-    ],
-};
+pub const CMOS_INVERTER: Pattern =
+    Pattern { name: "cmos_inverter", priority: 11, slots: &[S_ANY, comp(0)], links: &[eq(0, "G", 1, "G"), eq(0, "D", 1, "D")] };
 
 /// Transmission gate: complementary pair sharing drain and source
 /// but with different gates (complementary clock signals).
@@ -319,32 +215,14 @@ pub const CMOS_INVERTER: Pattern = Pattern {
 pub const TRANSMISSION_GATE: Pattern = Pattern {
     name: "transmission_gate",
     priority: 11,
-    slots: &[
-        S_ANY,
-        comp(0),
-    ],
-    links: &[
-        eq(0, "D", 1, "D"),
-        eq(0, "S", 1, "S"),
-        ne(0, "G", 1, "G"),
-    ],
+    slots: &[S_ANY, comp(0)],
+    links: &[eq(0, "D", 1, "D"), eq(0, "S", 1, "S"), ne(0, "G", 1, "G")],
 };
 
 /// Complementary common-source pair: NMOS and PMOS sharing gate,
 /// different drains and sources. Push-pull output stage element.
-pub const PUSH_PULL_PAIR: Pattern = Pattern {
-    name: "push_pull_pair",
-    priority: 10,
-    slots: &[
-        S_ANY,
-        comp(0),
-    ],
-    links: &[
-        eq(0, "G", 1, "G"),
-        ne(0, "D", 1, "D"),
-        ne(0, "S", 1, "S"),
-    ],
-};
+pub const PUSH_PULL_PAIR: Pattern =
+    Pattern { name: "push_pull_pair", priority: 10, slots: &[S_ANY, comp(0)], links: &[eq(0, "G", 1, "G"), ne(0, "D", 1, "D"), ne(0, "S", 1, "S")] };
 
 // ── 1.8 Latch / self-biased structures ──
 
@@ -354,10 +232,7 @@ pub const PUSH_PULL_PAIR: Pattern = Pattern {
 pub const LATCH_HALF: Pattern = Pattern {
     name: "latch_half",
     priority: 8,
-    slots: &[
-        Slot { diode: DiodeReq::Required, ..S_ANY },
-        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), ..S_ANY },
-    ],
+    slots: &[Slot { diode: DiodeReq::Required, ..S_ANY }, Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), ..S_ANY }],
     links: &[
         eq(0, "D", 1, "G"), // diode drain drives mirror gate
         ne(0, "S", 1, "S"), // separate sources
@@ -374,14 +249,8 @@ pub const LATCH_HALF: Pattern = Pattern {
 pub const SERIES_STACK: Pattern = Pattern {
     name: "series_stack",
     priority: 7,
-    slots: &[
-        S_ANY,
-        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), ..S_ANY },
-    ],
-    links: &[
-        eq(0, "D", 1, "S"),
-        eq(0, "G", 1, "G"),
-    ],
+    slots: &[S_ANY, Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), ..S_ANY }],
+    links: &[eq(0, "D", 1, "S"), eq(0, "G", 1, "G")],
 };
 
 /// Four-high series stack (one long device split in four, or a chain of
@@ -391,14 +260,7 @@ pub const SERIES_STACK_4: Pattern = Pattern {
     name: "series_stack_4",
     priority: 20,
     slots: &[S_ANY, same0_exact(), same0_exact(), same0_exact()],
-    links: &[
-        eq(0, "D", 1, "S"),
-        eq(1, "D", 2, "S"),
-        eq(2, "D", 3, "S"),
-        eq(0, "G", 1, "G"),
-        eq(0, "G", 2, "G"),
-        eq(0, "G", 3, "G"),
-    ],
+    links: &[eq(0, "D", 1, "S"), eq(1, "D", 2, "S"), eq(2, "D", 3, "S"), eq(0, "G", 1, "G"), eq(0, "G", 2, "G"), eq(0, "G", 3, "G")],
 };
 
 /// Degeneration pair: two same-type FETs sharing drain but with
@@ -407,15 +269,8 @@ pub const SERIES_STACK_4: Pattern = Pattern {
 pub const DEGENERATION_PAIR: Pattern = Pattern {
     name: "degeneration_pair",
     priority: 5,
-    slots: &[
-        S_ANY,
-        Slot { kind: SlotKind::SameTypeAs(0), ..S_ANY },
-    ],
-    links: &[
-        eq(0, "D", 1, "D"),
-        ne(0, "G", 1, "G"),
-        ne(0, "S", 1, "S"),
-    ],
+    slots: &[S_ANY, Slot { kind: SlotKind::SameTypeAs(0), ..S_ANY }],
+    links: &[eq(0, "D", 1, "D"), ne(0, "G", 1, "G"), ne(0, "S", 1, "S")],
 };
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -435,12 +290,7 @@ pub const WILSON_MIRROR: Pattern = Pattern {
         Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::SameLAs(0), ..S_ANY },
         Slot { kind: SlotKind::SameTypeAs(0), ..S_ANY },
     ],
-    links: &[
-        eq(0, "G", 1, "G"),
-        eq(0, "S", 1, "S"),
-        eq(1, "D", 2, "G"),
-        eq(0, "D", 2, "S"),
-    ],
+    links: &[eq(0, "G", 1, "G"), eq(0, "S", 1, "S"), eq(1, "D", 2, "G"), eq(0, "D", 2, "S")],
 };
 
 /// Improved Wilson mirror: like Wilson but M2 is diode-connected and
@@ -452,7 +302,7 @@ pub const IMPROVED_WILSON_MIRROR: Pattern = Pattern {
     priority: 17,
     slots: &[
         Slot { diode: DiodeReq::Forbidden, ..S_ANY }, // M0: input, not diode
-        same0_samel(),                                  // M1: output, same L
+        same0_samel(),                                // M1: output, same L
         Slot {
             kind: SlotKind::SameTypeAs(0),
             size_match: SizeMatch::Any,
@@ -461,10 +311,10 @@ pub const IMPROVED_WILSON_MIRROR: Pattern = Pattern {
         },
     ],
     links: &[
-        eq(0, "G", 1, "G"),  // M0 M1 share gate
-        eq(0, "S", 1, "S"),  // M0 M1 share source
-        eq(0, "D", 2, "S"),  // M0.D = M2.S
-        eq(2, "D", 0, "G"),  // M2.D(=M2.G) drives M0+M1 gates
+        eq(0, "G", 1, "G"), // M0 M1 share gate
+        eq(0, "S", 1, "S"), // M0 M1 share source
+        eq(0, "D", 2, "S"), // M0.D = M2.S
+        eq(2, "D", 0, "G"), // M2.D(=M2.G) drives M0+M1 gates
     ],
 };
 
@@ -473,11 +323,7 @@ pub const IMPROVED_WILSON_MIRROR: Pattern = Pattern {
 pub const CURRENT_MIRROR_3: Pattern = Pattern {
     name: "current_mirror_3",
     priority: 14,
-    slots: &[
-        Slot { diode: DiodeReq::Required, ..S_ANY },
-        same0_samel(),
-        same0_samel(),
-    ],
+    slots: &[Slot { diode: DiodeReq::Required, ..S_ANY }, same0_samel(), same0_samel()],
     links: &[
         eq(0, "G", 1, "G"),
         eq(0, "G", 2, "G"),
@@ -498,20 +344,10 @@ pub const DIFF_PAIR_WITH_TAIL: Pattern = Pattern {
     priority: 18,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: true },
         Slot { kind: SlotKind::SameTypeAs(0), ..S_ANY },
     ],
-    links: &[
-        eq(0, "S", 1, "S"),
-        ne(0, "G", 1, "G"),
-        ne(0, "D", 1, "D"),
-        eq(0, "S", 2, "D"),
-    ],
+    links: &[eq(0, "S", 1, "S"), ne(0, "G", 1, "G"), ne(0, "D", 1, "D"), eq(0, "S", 2, "D")],
 };
 
 /// Diff pair with diode-connected load on one side.
@@ -521,25 +357,10 @@ pub const DIFF_PAIR_DIODE_LOAD: Pattern = Pattern {
     priority: 15,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },
-        Slot {
-            kind: SlotKind::ComplementOf(0),
-            size_match: SizeMatch::Any,
-            diode: DiodeReq::Required,
-            gate_is_signal: false,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: true },
+        Slot { kind: SlotKind::ComplementOf(0), size_match: SizeMatch::Any, diode: DiodeReq::Required, gate_is_signal: false },
     ],
-    links: &[
-        eq(0, "S", 1, "S"),
-        ne(0, "G", 1, "G"),
-        ne(0, "D", 1, "D"),
-        eq(0, "D", 2, "D"),
-    ],
+    links: &[eq(0, "S", 1, "S"), ne(0, "G", 1, "G"), ne(0, "D", 1, "D"), eq(0, "D", 2, "D")],
 };
 
 // ── 2.3 Cascode combinations ──
@@ -551,14 +372,14 @@ pub const REGULATED_CASCODE: Pattern = Pattern {
     name: "regulated_cascode",
     priority: 17,
     slots: &[
-        S_ANY,         // M0: bottom CS
-        same0(),       // M1: cascode (top)
-        same0(),       // M2: regulation amp
+        S_ANY,   // M0: bottom CS
+        same0(), // M1: cascode (top)
+        same0(), // M2: regulation amp
     ],
     links: &[
-        eq(0, "D", 1, "S"),  // cascode stack
-        eq(0, "D", 2, "G"),  // M2 senses M0 drain voltage
-        eq(2, "D", 1, "G"),  // M2 output drives cascode gate
+        eq(0, "D", 1, "S"), // cascode stack
+        eq(0, "D", 2, "G"), // M2 senses M0 drain voltage
+        eq(2, "D", 1, "G"), // M2 output drives cascode gate
     ],
 };
 
@@ -568,16 +389,12 @@ pub const REGULATED_CASCODE: Pattern = Pattern {
 pub const CASCODE_WITH_DEGENERATION: Pattern = Pattern {
     name: "cascode_with_degeneration",
     priority: 15,
-    slots: &[
-        S_ANY,
-        same0(),
-        same0(),
-    ],
+    slots: &[S_ANY, same0(), same0()],
     links: &[
-        eq(0, "D", 1, "S"),  // cascode stack
-        eq(2, "D", 0, "S"),  // degeneration device under bottom
-        ne(0, "G", 1, "G"),  // input vs cascode bias: a shared gate is a series stack
-        ne(0, "G", 2, "G"),  // input vs degeneration bias
+        eq(0, "D", 1, "S"), // cascode stack
+        eq(2, "D", 0, "S"), // degeneration device under bottom
+        ne(0, "G", 1, "G"), // input vs cascode bias: a shared gate is a series stack
+        ne(0, "G", 2, "G"), // input vs degeneration bias
     ],
 };
 
@@ -590,20 +407,11 @@ pub const SOURCE_FOLLOWER_WITH_MIRROR: Pattern = Pattern {
     name: "source_follower_with_mirror",
     priority: 15,
     slots: &[
-        Slot {
-            kind: SlotKind::AnyFet,
-            size_match: SizeMatch::Any,
-            diode: DiodeReq::Forbidden,
-            gate_is_signal: true,
-        },
+        Slot { kind: SlotKind::AnyFet, size_match: SizeMatch::Any, diode: DiodeReq::Forbidden, gate_is_signal: true },
         Slot { diode: DiodeReq::Required, ..S_ANY },
         Slot { kind: SlotKind::SameTypeAs(1), size_match: SizeMatch::SameLAs(1), ..S_ANY },
     ],
-    links: &[
-        eq(0, "S", 2, "D"),
-        eq(1, "G", 2, "G"),
-        eq(1, "S", 2, "S"),
-    ],
+    links: &[eq(0, "S", 2, "D"), eq(1, "G", 2, "G"), eq(1, "S", 2, "S")],
 };
 
 /// Flipped voltage follower: M0 (input), M1 (current source),
@@ -614,13 +422,13 @@ pub const FLIPPED_VOLTAGE_FOLLOWER: Pattern = Pattern {
     priority: 16,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY }, // M0: input device
-        same0(),                                  // M1: current source
-        same0(),                                  // M2: feedback amp
+        same0(),                                // M1: current source
+        same0(),                                // M2: feedback amp
     ],
     links: &[
-        eq(1, "D", 0, "S"),  // M1 drives M0's source
-        eq(0, "S", 2, "G"),  // M2 senses output (M0.S)
-        eq(2, "D", 1, "G"),  // M2 regulates M1's gate
+        eq(1, "D", 0, "S"), // M1 drives M0's source
+        eq(0, "S", 2, "G"), // M2 senses output (M0.S)
+        eq(2, "D", 1, "G"), // M2 regulates M1's gate
     ],
 };
 
@@ -633,18 +441,8 @@ pub const ACTIVE_LOAD_3: Pattern = Pattern {
     priority: 14,
     slots: &[
         Slot { diode: DiodeReq::Forbidden, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Forbidden,
-            gate_is_signal: false,
-        },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Forbidden,
-            gate_is_signal: false,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Forbidden, gate_is_signal: false },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Forbidden, gate_is_signal: false },
     ],
     links: &[
         eq(0, "G", 1, "G"),
@@ -670,17 +468,17 @@ pub const CASCODE_MIRROR: Pattern = Pattern {
     name: "cascode_mirror",
     priority: 24,
     slots: &[
-        Slot { diode: DiodeReq::Required, ..S_ANY },          // M0: bottom ref (diode)
+        Slot { diode: DiodeReq::Required, ..S_ANY }, // M0: bottom ref (diode)
         Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::SameLAs(0), ..S_ANY }, // M1: bottom out
         Slot { kind: SlotKind::SameTypeAs(0), diode: DiodeReq::Required, ..S_ANY }, // M2: top ref (diode)
-        same0(),                                                // M3: top out
+        same0(),                                     // M3: top out
     ],
     links: &[
-        eq(0, "G", 1, "G"),  // bottom pair share gate
-        eq(0, "S", 1, "S"),  // bottom pair share source
-        eq(0, "D", 2, "S"),  // M0 stacks under M2
-        eq(1, "D", 3, "S"),  // M1 stacks under M3
-        eq(2, "G", 3, "G"),  // top pair share gate
+        eq(0, "G", 1, "G"), // bottom pair share gate
+        eq(0, "S", 1, "S"), // bottom pair share source
+        eq(0, "D", 2, "S"), // M0 stacks under M2
+        eq(1, "D", 3, "S"), // M1 stacks under M3
+        eq(2, "G", 3, "G"), // top pair share gate
     ],
 };
 
@@ -702,10 +500,10 @@ pub const WIDE_SWING_CASCODE_MIRROR: Pattern = Pattern {
     links: &[
         eq(0, "G", 1, "G"),
         eq(0, "S", 1, "S"),
-        eq(0, "D", 2, "S"),  // M0 drain = M2 source
+        eq(0, "D", 2, "S"), // M0 drain = M2 source
         eq(1, "D", 3, "S"),
         eq(2, "G", 3, "G"),
-        eq(2, "D", 0, "G"),  // M2.D feeds back to bottom mirror gate (wide-swing bias)
+        eq(2, "D", 0, "G"), // M2.D feeds back to bottom mirror gate (wide-swing bias)
     ],
 };
 
@@ -723,13 +521,7 @@ pub const LOW_VOLTAGE_CASCODE_MIRROR: Pattern = Pattern {
         Slot { kind: SlotKind::SameTypeAs(0), diode: DiodeReq::Forbidden, ..S_ANY },
         Slot { kind: SlotKind::SameTypeAs(0), diode: DiodeReq::Forbidden, ..S_ANY },
     ],
-    links: &[
-        eq(0, "G", 1, "G"),
-        eq(0, "S", 1, "S"),
-        eq(0, "D", 2, "S"),
-        eq(1, "D", 3, "S"),
-        eq(2, "G", 3, "G"),
-    ],
+    links: &[eq(0, "G", 1, "G"), eq(0, "S", 1, "S"), eq(0, "D", 2, "S"), eq(1, "D", 3, "S"), eq(2, "G", 3, "G")],
 };
 
 // ── 3.2 Wilson mirrors (4-device) ──
@@ -740,18 +532,13 @@ pub const LOW_VOLTAGE_CASCODE_MIRROR: Pattern = Pattern {
 pub const WILSON_MIRROR_4: Pattern = Pattern {
     name: "wilson_mirror_4",
     priority: 24,
-    slots: &[
-        S_ANY,
-        same0_samel(),
-        same0(),
-        same0(),
-    ],
+    slots: &[S_ANY, same0_samel(), same0(), same0()],
     links: &[
         eq(0, "S", 1, "S"),
         eq(0, "D", 2, "S"),
         eq(1, "D", 3, "S"),
-        eq(0, "G", 3, "D"),  // cross-feedback
-        eq(1, "G", 2, "D"),  // cross-feedback
+        eq(0, "G", 3, "D"), // cross-feedback
+        eq(1, "G", 2, "D"), // cross-feedback
     ],
 };
 
@@ -761,19 +548,14 @@ pub const WILSON_MIRROR_4: Pattern = Pattern {
 pub const IMPROVED_WILSON_MIRROR_4: Pattern = Pattern {
     name: "improved_wilson_mirror_4",
     priority: 25,
-    slots: &[
-        S_ANY,
-        same0_samel(),
-        Slot { kind: SlotKind::SameTypeAs(0), diode: DiodeReq::Required, ..S_ANY },
-        same0(),
-    ],
+    slots: &[S_ANY, same0_samel(), Slot { kind: SlotKind::SameTypeAs(0), diode: DiodeReq::Required, ..S_ANY }, same0()],
     links: &[
         eq(0, "G", 1, "G"),
         eq(0, "S", 1, "S"),
         eq(0, "D", 2, "S"),
         eq(1, "D", 3, "S"),
         eq(2, "G", 3, "G"),
-        eq(2, "D", 0, "G"),  // M2 diode drives bottom gates
+        eq(2, "D", 0, "G"), // M2 diode drives bottom gates
     ],
 };
 
@@ -786,22 +568,11 @@ pub const DIFF_PAIR_WITH_ACTIVE_LOAD: Pattern = Pattern {
     priority: 22,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: true },
         comp(0),
         Slot { kind: SlotKind::SameTypeAs(2), size_match: SizeMatch::ExactAs(2), ..S_ANY },
     ],
-    links: &[
-        eq(0, "S", 1, "S"),
-        ne(0, "G", 1, "G"),
-        eq(0, "D", 2, "D"),
-        eq(1, "D", 3, "D"),
-        eq(2, "G", 3, "G"),
-    ],
+    links: &[eq(0, "S", 1, "S"), ne(0, "G", 1, "G"), eq(0, "D", 2, "D"), eq(1, "D", 3, "D"), eq(2, "G", 3, "G")],
 };
 
 /// Diff pair + current mirror load: M0+M1 diff pair, M2 diode load
@@ -812,27 +583,17 @@ pub const DIFF_PAIR_WITH_MIRROR_LOAD: Pattern = Pattern {
     priority: 23,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },
-        Slot {
-            kind: SlotKind::ComplementOf(0),
-            size_match: SizeMatch::Any,
-            diode: DiodeReq::Required,
-            gate_is_signal: false,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: true },
+        Slot { kind: SlotKind::ComplementOf(0), size_match: SizeMatch::Any, diode: DiodeReq::Required, gate_is_signal: false },
         Slot { kind: SlotKind::SameTypeAs(2), size_match: SizeMatch::ExactAs(2), ..S_ANY },
     ],
     links: &[
         eq(0, "S", 1, "S"),
         ne(0, "G", 1, "G"),
-        eq(0, "D", 2, "D"),  // M2 diode on M0's drain
-        eq(1, "D", 3, "D"),  // M3 mirror on M1's drain
-        eq(2, "G", 3, "G"),  // mirror gate tie
-        eq(2, "S", 3, "S"),  // mirror source tie
+        eq(0, "D", 2, "D"), // M2 diode on M0's drain
+        eq(1, "D", 3, "D"), // M3 mirror on M1's drain
+        eq(2, "G", 3, "G"), // mirror gate tie
+        eq(2, "S", 3, "S"), // mirror source tie
     ],
 };
 
@@ -845,19 +606,14 @@ pub const DIFF_PAIR_WITH_MIRROR_LOAD: Pattern = Pattern {
 pub const CROSS_COUPLED_INVERTERS: Pattern = Pattern {
     name: "cross_coupled_inverters",
     priority: 26,
-    slots: &[
-        S_ANY,
-        same0_exact(),
-        comp(0),
-        Slot { kind: SlotKind::SameTypeAs(2), size_match: SizeMatch::ExactAs(2), ..S_ANY },
-    ],
+    slots: &[S_ANY, same0_exact(), comp(0), Slot { kind: SlotKind::SameTypeAs(2), size_match: SizeMatch::ExactAs(2), ..S_ANY }],
     links: &[
-        eq(0, "D", 2, "D"),  // inv1 output
-        eq(1, "D", 3, "D"),  // inv2 output
-        eq(0, "G", 2, "G"),  // inv1 input
-        eq(1, "G", 3, "G"),  // inv2 input
-        eq(0, "D", 1, "G"),  // cross-couple 1
-        eq(1, "D", 0, "G"),  // cross-couple 2
+        eq(0, "D", 2, "D"), // inv1 output
+        eq(1, "D", 3, "D"), // inv2 output
+        eq(0, "G", 2, "G"), // inv1 input
+        eq(1, "G", 3, "G"), // inv2 input
+        eq(0, "D", 1, "G"), // cross-couple 1
+        eq(1, "D", 0, "G"), // cross-couple 2
     ],
 };
 
@@ -871,18 +627,18 @@ pub const CASCODE_PAIR: Pattern = Pattern {
     name: "cascode_pair",
     priority: 22,
     slots: &[
-        S_ANY,                     // M0: bottom A
-        same0_exact(),             // M1: bottom B
-        same0(),                   // M2: top A
+        S_ANY,         // M0: bottom A
+        same0_exact(), // M1: bottom B
+        same0(),       // M2: top A
         Slot { kind: SlotKind::SameTypeAs(2), size_match: SizeMatch::ExactAs(2), ..S_ANY },
     ],
     links: &[
-        eq(0, "G", 1, "G"),  // bottom pair share gate
-        eq(0, "S", 1, "S"),  // bottom pair share source
-        eq(0, "D", 2, "S"),  // stack A
-        eq(1, "D", 3, "S"),  // stack B
-        eq(2, "G", 3, "G"),  // top pair share gate
-        ne(2, "D", 3, "D"),  // different outputs
+        eq(0, "G", 1, "G"), // bottom pair share gate
+        eq(0, "S", 1, "S"), // bottom pair share source
+        eq(0, "D", 2, "S"), // stack A
+        eq(1, "D", 3, "S"), // stack B
+        eq(2, "G", 3, "G"), // top pair share gate
+        ne(2, "D", 3, "D"), // different outputs
     ],
 };
 
@@ -892,19 +648,8 @@ pub const CASCODE_PAIR: Pattern = Pattern {
 pub const CASCODE_PAIR_SYMMETRIC: Pattern = Pattern {
     name: "cascode_pair_symmetric",
     priority: 21,
-    slots: &[
-        S_ANY,
-        same0_exact(),
-        same0(),
-        same_exact(2),
-    ],
-    links: &[
-        eq(0, "S", 1, "S"),
-        eq(0, "D", 2, "S"),
-        eq(1, "D", 3, "S"),
-        eq(2, "G", 3, "G"),
-        ne(0, "G", 2, "G"),
-    ],
+    slots: &[S_ANY, same0_exact(), same0(), same_exact(2)],
+    links: &[eq(0, "S", 1, "S"), eq(0, "D", 2, "S"), eq(1, "D", 3, "S"), eq(2, "G", 3, "G"), ne(0, "G", 2, "G")],
 };
 
 // ── 3.6 Level shifter ──
@@ -917,14 +662,14 @@ pub const LEVEL_SHIFTER: Pattern = Pattern {
     priority: 20,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY }, // M0: input device
-        same0(),                                  // M1: current source
-        comp(0),                                  // M2: diode load (complement)
+        same0(),                                // M1: current source
+        comp(0),                                // M2: diode load (complement)
         Slot { kind: SlotKind::SameTypeAs(2), ..S_ANY },
     ],
     links: &[
-        eq(0, "S", 1, "D"),  // M0 stacks on M1
-        eq(0, "D", 2, "D"),  // shared output node
-        eq(2, "S", 3, "D"),  // M2 stacks on M3
+        eq(0, "S", 1, "D"), // M0 stacks on M1
+        eq(0, "D", 2, "D"), // shared output node
+        eq(2, "S", 3, "D"), // M2 stacks on M3
     ],
 };
 
@@ -937,16 +682,16 @@ pub const CHARGE_PUMP_CELL: Pattern = Pattern {
     name: "charge_pump_cell",
     priority: 22,
     slots: &[
-        S_ANY,    // M0: up switch
-        same0(),  // M1: up current source
-        comp(0),  // M2: down switch
+        S_ANY,   // M0: up switch
+        same0(), // M1: up current source
+        comp(0), // M2: down switch
         Slot { kind: SlotKind::SameTypeAs(2), ..S_ANY },
     ],
     links: &[
-        eq(0, "D", 2, "D"),  // shared output
-        eq(0, "S", 1, "D"),  // up path
-        eq(2, "S", 3, "D"),  // down path
-        ne(0, "G", 2, "G"),  // complementary clocks
+        eq(0, "D", 2, "D"), // shared output
+        eq(0, "S", 1, "D"), // up path
+        eq(2, "S", 3, "D"), // down path
+        ne(0, "G", 2, "G"), // complementary clocks
     ],
 };
 
@@ -956,12 +701,7 @@ pub const CHARGE_PUMP_CELL: Pattern = Pattern {
 pub const CURRENT_MIRROR_4: Pattern = Pattern {
     name: "current_mirror_4",
     priority: 20,
-    slots: &[
-        Slot { diode: DiodeReq::Required, ..S_ANY },
-        same0_samel(),
-        same0_samel(),
-        same0_samel(),
-    ],
+    slots: &[Slot { diode: DiodeReq::Required, ..S_ANY }, same0_samel(), same0_samel(), same0_samel()],
     links: &[
         eq(0, "G", 1, "G"),
         eq(0, "G", 2, "G"),
@@ -986,25 +726,20 @@ pub const FIVE_TRANSISTOR_OTA: Pattern = Pattern {
     name: "five_transistor_ota",
     priority: 34,
     slots: &[
-        Slot { gate_is_signal: true, ..S_ANY },  // M0: diff pair A
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },                                         // M1: diff pair B
-        comp(0),                                    // M2: load (diode or biased)
+        Slot { gate_is_signal: true, ..S_ANY }, // M0: diff pair A
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: true }, // M1: diff pair B
+        comp(0),                                // M2: load (diode or biased)
         Slot { kind: SlotKind::SameTypeAs(2), size_match: SizeMatch::ExactAs(2), ..S_ANY }, // M3: load
-        same0(),                                    // M4: tail
+        same0(),                                // M4: tail
     ],
     links: &[
-        eq(0, "S", 1, "S"),  // diff pair shared source
-        ne(0, "G", 1, "G"),  // different inputs
-        eq(0, "D", 2, "D"),  // M2 loads M0
-        eq(1, "D", 3, "D"),  // M3 loads M1
-        eq(2, "G", 3, "G"),  // mirror gate
-        eq(2, "S", 3, "S"),  // mirror source
-        eq(0, "S", 4, "D"),  // tail drives diff pair
+        eq(0, "S", 1, "S"), // diff pair shared source
+        ne(0, "G", 1, "G"), // different inputs
+        eq(0, "D", 2, "D"), // M2 loads M0
+        eq(1, "D", 3, "D"), // M3 loads M1
+        eq(2, "G", 3, "G"), // mirror gate
+        eq(2, "S", 3, "S"), // mirror source
+        eq(0, "S", 4, "D"), // tail drives diff pair
     ],
 };
 
@@ -1017,21 +752,16 @@ pub const DIFF_PAIR_CASCODE_LOAD: Pattern = Pattern {
     priority: 33,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },
-        comp(0),                                          // M2: cascode load A
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: true },
+        comp(0), // M2: cascode load A
         Slot { kind: SlotKind::SameTypeAs(2), size_match: SizeMatch::ExactAs(2), ..S_ANY },
-        same0(),                                           // M4: tail
+        same0(), // M4: tail
     ],
     links: &[
         eq(0, "S", 1, "S"),
         ne(0, "G", 1, "G"),
-        eq(0, "D", 2, "S"),  // drain-to-source = cascode connection
-        eq(1, "D", 3, "S"),  // drain-to-source = cascode connection
+        eq(0, "D", 2, "S"), // drain-to-source = cascode connection
+        eq(1, "D", 3, "S"), // drain-to-source = cascode connection
         eq(2, "G", 3, "G"),
         eq(0, "S", 4, "D"),
     ],
@@ -1044,12 +774,7 @@ pub const DIFF_PAIR_CROSS_COUPLED_LOAD: Pattern = Pattern {
     priority: 35,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: true },
         comp(0),
         Slot { kind: SlotKind::SameTypeAs(2), size_match: SizeMatch::ExactAs(2), ..S_ANY },
         same0(),
@@ -1059,8 +784,8 @@ pub const DIFF_PAIR_CROSS_COUPLED_LOAD: Pattern = Pattern {
         ne(0, "G", 1, "G"),
         eq(0, "D", 2, "D"),
         eq(1, "D", 3, "D"),
-        eq(2, "G", 3, "D"),  // cross-coupled
-        eq(2, "D", 3, "G"),  // cross-coupled
+        eq(2, "G", 3, "D"), // cross-coupled
+        eq(2, "D", 3, "G"), // cross-coupled
         eq(2, "S", 3, "S"),
         eq(0, "S", 4, "D"),
     ],
@@ -1085,8 +810,8 @@ pub const WIDE_SWING_CASCODE_MIRROR_5: Pattern = Pattern {
         eq(0, "D", 2, "S"),
         eq(1, "D", 3, "S"),
         eq(2, "G", 3, "G"),
-        eq(4, "G", 0, "G"),  // M4 bias shares bottom gate
-        eq(4, "S", 0, "S"),  // M4 shares source with bottom
+        eq(4, "G", 0, "G"), // M4 bias shares bottom gate
+        eq(4, "S", 0, "S"), // M4 shares source with bottom
     ],
 };
 
@@ -1101,16 +826,11 @@ pub const TELESCOPIC_OTA_CORE: Pattern = Pattern {
     name: "telescopic_ota_core",
     priority: 42,
     slots: &[
-        Slot { gate_is_signal: true, ..S_ANY },  // M0: diff A
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },                                         // M1: diff B
-        same0(),                                    // M2: cascode A
-        same_exact(2),                              // M3: cascode B
-        comp(0),                                    // M4: load A
+        Slot { gate_is_signal: true, ..S_ANY }, // M0: diff A
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: true }, // M1: diff B
+        same0(),                                // M2: cascode A
+        same_exact(2),                          // M3: cascode B
+        comp(0),                                // M4: load A
         Slot { kind: SlotKind::SameTypeAs(4), size_match: SizeMatch::ExactAs(4), ..S_ANY },
     ],
     links: &[
@@ -1135,25 +855,20 @@ pub const FOLDED_CASCODE_CORE: Pattern = Pattern {
     priority: 43,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },
-        comp(0),                                    // M2: fold cascode A
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: true },
+        comp(0), // M2: fold cascode A
         Slot { kind: SlotKind::SameTypeAs(2), size_match: SizeMatch::ExactAs(2), ..S_ANY },
-        comp(0),                                    // M4: fold current src A
+        comp(0), // M4: fold current src A
         Slot { kind: SlotKind::SameTypeAs(4), size_match: SizeMatch::ExactAs(4), ..S_ANY },
     ],
     links: &[
         eq(0, "S", 1, "S"),
         ne(0, "G", 1, "G"),
-        eq(0, "D", 2, "S"),  // fold point A
-        eq(1, "D", 3, "S"),  // fold point B
-        eq(2, "G", 3, "G"),  // cascode gate
-        eq(4, "D", 2, "S"),  // current injection A
-        eq(5, "D", 3, "S"),  // current injection B
+        eq(0, "D", 2, "S"), // fold point A
+        eq(1, "D", 3, "S"), // fold point B
+        eq(2, "G", 3, "G"), // cascode gate
+        eq(4, "D", 2, "S"), // current injection A
+        eq(5, "D", 3, "S"), // current injection B
         eq(4, "G", 5, "G"),
         eq(4, "S", 5, "S"),
     ],
@@ -1167,29 +882,24 @@ pub const GILBERT_CELL: Pattern = Pattern {
     name: "gilbert_cell",
     priority: 44,
     slots: &[
-        Slot { gate_is_signal: true, ..S_ANY },  // M0: RF+
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },                                         // M1: RF-
-        same0(),                                     // M2: LO quad A+
-        same_exact(2),                               // M3: LO quad A-
-        same_exact(2),                               // M4: LO quad B+
-        same_exact(2),                               // M5: LO quad B-
+        Slot { gate_is_signal: true, ..S_ANY }, // M0: RF+
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: true }, // M1: RF-
+        same0(),                                // M2: LO quad A+
+        same_exact(2),                          // M3: LO quad A-
+        same_exact(2),                          // M4: LO quad B+
+        same_exact(2),                          // M5: LO quad B-
     ],
     links: &[
-        eq(0, "S", 1, "S"),   // bottom pair source
-        ne(0, "G", 1, "G"),   // RF inputs differ
-        eq(0, "D", 2, "S"),   // M0 feeds quad A
+        eq(0, "S", 1, "S"), // bottom pair source
+        ne(0, "G", 1, "G"), // RF inputs differ
+        eq(0, "D", 2, "S"), // M0 feeds quad A
         eq(0, "D", 3, "S"),
-        eq(1, "D", 4, "S"),   // M1 feeds quad B
+        eq(1, "D", 4, "S"), // M1 feeds quad B
         eq(1, "D", 5, "S"),
         eq(2, "G", 5, "G"),
         eq(3, "G", 4, "G"),
-        ne(2, "G", 3, "G"),   // quad A LO inputs differ
-        eq(2, "D", 4, "D"),   // cross-connect outputs
+        ne(2, "G", 3, "G"), // quad A LO inputs differ
+        eq(2, "D", 4, "D"), // cross-connect outputs
         eq(3, "D", 5, "D"),
     ],
 };
@@ -1206,8 +916,8 @@ pub const VCO_CORE_WITH_TAILS: Pattern = Pattern {
         same0_exact(),
         comp(0),
         same_exact(2),
-        same0(),     // M4: NMOS tail
-        same_as(2),  // M5: PMOS tail
+        same0(),    // M4: NMOS tail
+        same_as(2), // M5: PMOS tail
     ],
     links: &[
         eq(0, "G", 1, "D"),
@@ -1216,9 +926,9 @@ pub const VCO_CORE_WITH_TAILS: Pattern = Pattern {
         eq(2, "D", 3, "G"),
         eq(0, "D", 2, "D"),
         eq(1, "D", 3, "D"),
-        eq(0, "S", 4, "D"),  // NMOS tail
+        eq(0, "S", 4, "D"), // NMOS tail
         eq(1, "S", 4, "D"),
-        eq(2, "S", 5, "D"),  // PMOS tail
+        eq(2, "S", 5, "D"), // PMOS tail
         eq(3, "S", 5, "D"),
     ],
 };
@@ -1235,18 +945,14 @@ pub const TELESCOPIC_OTA_FULL: Pattern = Pattern {
     priority: 52,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: true },
         same0(),
         same_exact(2),
         comp(0),
         Slot { kind: SlotKind::SameTypeAs(4), size_match: SizeMatch::ExactAs(4), ..S_ANY },
-        same0(),                    // M6: tail
-        Slot {                      // M7: load cascode bias
+        same0(), // M6: tail
+        Slot {
+            // M7: load cascode bias
             kind: SlotKind::SameTypeAs(4),
             size_match: SizeMatch::Any,
             diode: DiodeReq::Any,
@@ -1263,8 +969,8 @@ pub const TELESCOPIC_OTA_FULL: Pattern = Pattern {
         eq(3, "D", 5, "D"),
         eq(4, "G", 5, "G"),
         eq(4, "S", 5, "S"),
-        eq(0, "S", 6, "D"),  // tail
-        eq(4, "S", 7, "S"),  // load bias shares supply
+        eq(0, "S", 6, "D"), // tail
+        eq(4, "S", 7, "S"), // load bias shares supply
     ],
 };
 
@@ -1280,15 +986,8 @@ pub const TELESCOPIC_OTA_FULL: Pattern = Pattern {
 pub const COMMON_GATE_PAIR: Pattern = Pattern {
     name: "common_gate_pair",
     priority: 6,
-    slots: &[
-        S_ANY,
-        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), ..S_ANY },
-    ],
-    links: &[
-        eq(0, "G", 1, "G"),
-        eq(0, "D", 1, "D"),
-        ne(0, "S", 1, "S"),
-    ],
+    slots: &[S_ANY, Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), ..S_ANY }],
+    links: &[eq(0, "G", 1, "G"), eq(0, "D", 1, "D"), ne(0, "S", 1, "S")],
 };
 
 /// Switch pair: two same-type FETs, different gates (complementary
@@ -1297,15 +996,8 @@ pub const COMMON_GATE_PAIR: Pattern = Pattern {
 pub const SWITCH_PAIR: Pattern = Pattern {
     name: "switch_pair",
     priority: 5,
-    slots: &[
-        S_ANY,
-        same0_exact(),
-    ],
-    links: &[
-        eq(0, "D", 1, "D"),
-        eq(0, "S", 1, "S"),
-        ne(0, "G", 1, "G"),
-    ],
+    slots: &[S_ANY, same0_exact()],
+    links: &[eq(0, "D", 1, "D"), eq(0, "S", 1, "S"), ne(0, "G", 1, "G")],
 };
 
 /// Beta multiplier reference: M0 (diode-connected, narrow) and M1 (wide)
@@ -1317,16 +1009,11 @@ pub const BETA_MULTIPLIER_CORE: Pattern = Pattern {
     priority: 9,
     slots: &[
         Slot { diode: DiodeReq::Required, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::SameLAs(0),
-            diode: DiodeReq::Forbidden,
-            gate_is_signal: false,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::SameLAs(0), diode: DiodeReq::Forbidden, gate_is_signal: false },
     ],
     links: &[
         eq(0, "G", 1, "G"),
-        ne(0, "S", 1, "S"),  // different sources (degeneration resistor on M1)
+        ne(0, "S", 1, "S"), // different sources (degeneration resistor on M1)
         ne(0, "D", 1, "D"),
     ],
 };
@@ -1338,15 +1025,10 @@ pub const COMPLEMENTARY_SOURCE_FOLLOWER: Pattern = Pattern {
     priority: 10,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY },
-        Slot {
-            kind: SlotKind::ComplementOf(0),
-            size_match: SizeMatch::Any,
-            diode: DiodeReq::Forbidden,
-            gate_is_signal: true,
-        },
+        Slot { kind: SlotKind::ComplementOf(0), size_match: SizeMatch::Any, diode: DiodeReq::Forbidden, gate_is_signal: true },
     ],
     links: &[
-        eq(0, "S", 1, "S"),  // shared output at sources
+        eq(0, "S", 1, "S"), // shared output at sources
         ne(0, "G", 1, "G"),
         ne(0, "D", 1, "D"),
     ],
@@ -1360,17 +1042,12 @@ pub const COMMON_MODE_SENSE_PAIR: Pattern = Pattern {
     priority: 6,
     slots: &[
         Slot { diode: DiodeReq::Forbidden, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Forbidden,
-            gate_is_signal: false,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Forbidden, gate_is_signal: false },
     ],
     links: &[
         eq(0, "G", 1, "G"),
         ne(0, "S", 1, "S"),
-        eq(0, "D", 1, "D"),  // drains tied (sensing common mode)
+        eq(0, "D", 1, "D"), // drains tied (sensing common mode)
     ],
 };
 
@@ -1384,15 +1061,11 @@ pub const COMMON_MODE_SENSE_PAIR: Pattern = Pattern {
 pub const CASCODE_WITH_MIRROR_BIAS: Pattern = Pattern {
     name: "cascode_with_mirror_bias",
     priority: 15,
-    slots: &[
-        S_ANY,
-        same0(),
-        Slot { kind: SlotKind::SameTypeAs(0), diode: DiodeReq::Required, ..S_ANY },
-    ],
+    slots: &[S_ANY, same0(), Slot { kind: SlotKind::SameTypeAs(0), diode: DiodeReq::Required, ..S_ANY }],
     links: &[
         eq(0, "D", 1, "S"),
-        eq(2, "D", 1, "G"),  // diode drives cascode gate
-        eq(2, "S", 0, "S"),  // bias device shares source rail
+        eq(2, "D", 1, "G"), // diode drives cascode gate
+        eq(2, "S", 0, "S"), // bias device shares source rail
     ],
 };
 
@@ -1402,16 +1075,8 @@ pub const CASCODE_WITH_MIRROR_BIAS: Pattern = Pattern {
 pub const MIRROR_WITH_CASCODE_OUTPUT: Pattern = Pattern {
     name: "mirror_with_cascode_output",
     priority: 15,
-    slots: &[
-        Slot { diode: DiodeReq::Required, ..S_ANY },
-        same0_samel(),
-        same0(),
-    ],
-    links: &[
-        eq(0, "G", 1, "G"),
-        eq(0, "S", 1, "S"),
-        eq(1, "D", 2, "S"),
-    ],
+    slots: &[Slot { diode: DiodeReq::Required, ..S_ANY }, same0_samel(), same0()],
+    links: &[eq(0, "G", 1, "G"), eq(0, "S", 1, "S"), eq(1, "D", 2, "S")],
 };
 
 /// Self-biased cascode: M0 bottom (diode-connected), M1 top cascode
@@ -1420,14 +1085,10 @@ pub const MIRROR_WITH_CASCODE_OUTPUT: Pattern = Pattern {
 pub const SELF_BIASED_CASCODE: Pattern = Pattern {
     name: "self_biased_cascode",
     priority: 16,
-    slots: &[
-        Slot { diode: DiodeReq::Required, ..S_ANY },
-        same0(),
-        same0_samel(),
-    ],
+    slots: &[Slot { diode: DiodeReq::Required, ..S_ANY }, same0(), same0_samel()],
     links: &[
         eq(0, "D", 1, "S"),
-        eq(0, "D", 1, "G"),  // M0 diode drives M1 gate (self-bias)
+        eq(0, "D", 1, "G"), // M0 diode drives M1 gate (self-bias)
         eq(0, "G", 2, "G"),
         eq(0, "S", 2, "S"),
     ],
@@ -1440,16 +1101,12 @@ pub const SELF_BIASED_CASCODE: Pattern = Pattern {
 pub const SOOCH_MIRROR: Pattern = Pattern {
     name: "sooch_mirror",
     priority: 15,
-    slots: &[
-        Slot { diode: DiodeReq::Required, ..S_ANY },
-        same0_samel(),
-        Slot { kind: SlotKind::SameTypeAs(0), diode: DiodeReq::Forbidden, ..S_ANY },
-    ],
+    slots: &[Slot { diode: DiodeReq::Required, ..S_ANY }, same0_samel(), Slot { kind: SlotKind::SameTypeAs(0), diode: DiodeReq::Forbidden, ..S_ANY }],
     links: &[
         eq(0, "G", 1, "G"),
         eq(0, "S", 1, "S"),
         eq(1, "D", 2, "S"),
-        ne(0, "D", 2, "G"),  // NOT Wilson feedback
+        ne(0, "D", 2, "G"), // NOT Wilson feedback
         ne(1, "D", 2, "G"),
     ],
 };
@@ -1459,16 +1116,8 @@ pub const SOOCH_MIRROR: Pattern = Pattern {
 pub const INVERTER_WITH_TAIL: Pattern = Pattern {
     name: "inverter_with_tail",
     priority: 15,
-    slots: &[
-        S_ANY,
-        comp(0),
-        same0(),
-    ],
-    links: &[
-        eq(0, "G", 1, "G"),
-        eq(0, "D", 1, "D"),
-        eq(0, "S", 2, "D"),
-    ],
+    slots: &[S_ANY, comp(0), same0()],
+    links: &[eq(0, "G", 1, "G"), eq(0, "D", 1, "D"), eq(0, "S", 2, "D")],
 };
 
 /// Push-pull output stage with bias: M0(N) and M1(P) share drain
@@ -1479,12 +1128,12 @@ pub const PUSH_PULL_WITH_BIAS: Pattern = Pattern {
     slots: &[
         S_ANY,
         comp(0),
-        same0(),  // or same_as(1) — bias device
+        same0(), // or same_as(1) — bias device
     ],
     links: &[
-        eq(0, "D", 1, "D"),  // shared output
+        eq(0, "D", 1, "D"), // shared output
         ne(0, "S", 1, "S"),
-        eq(2, "D", 0, "G"),  // bias drives one gate
+        eq(2, "D", 0, "G"), // bias drives one gate
     ],
 };
 
@@ -1499,23 +1148,11 @@ pub const DIFF_PAIR_WITH_CASCODES: Pattern = Pattern {
     priority: 22,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: true },
         same0(),
         same_exact(2),
     ],
-    links: &[
-        eq(0, "S", 1, "S"),
-        ne(0, "G", 1, "G"),
-        eq(0, "D", 2, "S"),
-        eq(1, "D", 3, "S"),
-        eq(2, "G", 3, "G"),
-        ne(2, "D", 3, "D"),
-    ],
+    links: &[eq(0, "S", 1, "S"), ne(0, "G", 1, "G"), eq(0, "D", 2, "S"), eq(1, "D", 3, "S"), eq(2, "G", 3, "G"), ne(2, "D", 3, "D")],
 };
 
 /// Current mirror with two cascoded outputs: M0 diode ref,
@@ -1524,12 +1161,7 @@ pub const DIFF_PAIR_WITH_CASCODES: Pattern = Pattern {
 pub const MIRROR_WITH_DUAL_OUTPUT: Pattern = Pattern {
     name: "mirror_with_dual_output",
     priority: 21,
-    slots: &[
-        Slot { diode: DiodeReq::Required, ..S_ANY },
-        same0_samel(),
-        same0_samel(),
-        same0(),
-    ],
+    slots: &[Slot { diode: DiodeReq::Required, ..S_ANY }, same0_samel(), same0_samel(), same0()],
     links: &[
         eq(0, "G", 1, "G"),
         eq(0, "G", 2, "G"),
@@ -1538,7 +1170,7 @@ pub const MIRROR_WITH_DUAL_OUTPUT: Pattern = Pattern {
         ne(0, "D", 1, "D"),
         ne(0, "D", 2, "D"),
         ne(1, "D", 2, "D"),
-        eq(1, "D", 3, "S"),  // cascode on M1
+        eq(1, "D", 3, "S"), // cascode on M1
     ],
 };
 
@@ -1548,18 +1180,13 @@ pub const MIRROR_WITH_DUAL_OUTPUT: Pattern = Pattern {
 pub const REGULATED_CASCODE_MIRROR: Pattern = Pattern {
     name: "regulated_cascode_mirror",
     priority: 24,
-    slots: &[
-        Slot { diode: DiodeReq::Required, ..S_ANY },
-        same0_samel(),
-        same0(),
-        same0(),
-    ],
+    slots: &[Slot { diode: DiodeReq::Required, ..S_ANY }, same0_samel(), same0(), same0()],
     links: &[
         eq(0, "G", 1, "G"),
         eq(0, "S", 1, "S"),
         eq(1, "D", 2, "S"),
-        eq(1, "D", 3, "G"),  // sense
-        eq(3, "D", 2, "G"),  // regulate
+        eq(1, "D", 3, "G"), // sense
+        eq(3, "D", 2, "G"), // regulate
     ],
 };
 
@@ -1568,19 +1195,14 @@ pub const REGULATED_CASCODE_MIRROR: Pattern = Pattern {
 pub const TRANSMISSION_GATE_PAIR: Pattern = Pattern {
     name: "transmission_gate_pair",
     priority: 21,
-    slots: &[
-        S_ANY,
-        comp(0),
-        same0_exact(),
-        Slot { kind: SlotKind::SameTypeAs(1), size_match: SizeMatch::ExactAs(1), ..S_ANY },
-    ],
+    slots: &[S_ANY, comp(0), same0_exact(), Slot { kind: SlotKind::SameTypeAs(1), size_match: SizeMatch::ExactAs(1), ..S_ANY }],
     links: &[
-        eq(0, "D", 1, "D"),  // TG1 shared D
-        eq(0, "S", 1, "S"),  // TG1 shared S
-        ne(0, "G", 1, "G"),  // TG1 complementary clocks
-        eq(2, "D", 3, "D"),  // TG2 shared D
-        eq(2, "S", 3, "S"),  // TG2 shared S
-        ne(2, "G", 3, "G"),  // TG2 complementary clocks
+        eq(0, "D", 1, "D"), // TG1 shared D
+        eq(0, "S", 1, "S"), // TG1 shared S
+        ne(0, "G", 1, "G"), // TG1 complementary clocks
+        eq(2, "D", 3, "D"), // TG2 shared D
+        eq(2, "S", 3, "S"), // TG2 shared S
+        ne(2, "G", 3, "G"), // TG2 complementary clocks
     ],
 };
 
@@ -1592,21 +1214,16 @@ pub const DAC_CURRENT_CELL: Pattern = Pattern {
     priority: 22,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Forbidden,
-            gate_is_signal: true,
-        },
-        same0(),  // M2: current source
-        same0(),  // M3: cascode on source
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Forbidden, gate_is_signal: true },
+        same0(), // M2: current source
+        same0(), // M3: cascode on source
     ],
     links: &[
         eq(0, "S", 1, "S"),
         ne(0, "G", 1, "G"),
         ne(0, "D", 1, "D"),
-        eq(0, "S", 3, "D"),  // cascode output to diff pair source
-        eq(3, "S", 2, "D"),  // current source under cascode
+        eq(0, "S", 3, "D"), // cascode output to diff pair source
+        eq(3, "S", 2, "D"), // current source under cascode
     ],
 };
 
@@ -1616,18 +1233,13 @@ pub const DAC_CURRENT_CELL: Pattern = Pattern {
 pub const FEEDBACK_PAIR: Pattern = Pattern {
     name: "feedback_pair",
     priority: 20,
-    slots: &[
-        S_ANY,
-        same0_exact(),
-        same0(),
-        same_exact(2),
-    ],
+    slots: &[S_ANY, same0_exact(), same0(), same_exact(2)],
     links: &[
         eq(0, "S", 1, "S"),
         ne(0, "G", 1, "G"),
         ne(0, "D", 1, "D"),
-        eq(0, "D", 2, "G"),  // forward
-        eq(1, "D", 3, "G"),  // forward
+        eq(0, "D", 2, "G"), // forward
+        eq(1, "D", 3, "G"), // forward
         eq(2, "S", 3, "S"),
     ],
 };
@@ -1639,16 +1251,16 @@ pub const SCHMITT_TRIGGER: Pattern = Pattern {
     name: "schmitt_trigger",
     priority: 22,
     slots: &[
-        S_ANY,             // M0: NMOS input
-        same0(),           // M1: NMOS feedback
-        comp(0),           // M2: PMOS input
-        same_as(2),        // M3: PMOS feedback
+        S_ANY,      // M0: NMOS input
+        same0(),    // M1: NMOS feedback
+        comp(0),    // M2: PMOS input
+        same_as(2), // M3: PMOS feedback
     ],
     links: &[
-        eq(0, "G", 2, "G"),  // shared input
-        eq(0, "D", 1, "S"),  // NMOS stack
-        eq(2, "D", 3, "S"),  // PMOS stack
-        eq(1, "D", 3, "D"),  // shared output
+        eq(0, "G", 2, "G"), // shared input
+        eq(0, "D", 1, "S"), // NMOS stack
+        eq(2, "D", 3, "S"), // PMOS stack
+        eq(1, "D", 3, "D"), // shared output
     ],
 };
 
@@ -1664,16 +1276,9 @@ pub const ESD_DIODE_CLAMP: Pattern = Pattern {
     priority: 10,
     slots: &[
         Slot { diode: DiodeReq::Required, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::Any,
-            diode: DiodeReq::Required,
-            gate_is_signal: false,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::Any, diode: DiodeReq::Required, gate_is_signal: false },
     ],
-    links: &[
-        eq(0, "D", 1, "S"),
-    ],
+    links: &[eq(0, "D", 1, "S")],
 };
 
 /// Bias chain: three diode-connected FETs in series.
@@ -1683,23 +1288,10 @@ pub const BIAS_CHAIN_3: Pattern = Pattern {
     priority: 14,
     slots: &[
         Slot { diode: DiodeReq::Required, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::SameLAs(0),
-            diode: DiodeReq::Required,
-            gate_is_signal: false,
-        },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::SameLAs(0),
-            diode: DiodeReq::Required,
-            gate_is_signal: false,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::SameLAs(0), diode: DiodeReq::Required, gate_is_signal: false },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::SameLAs(0), diode: DiodeReq::Required, gate_is_signal: false },
     ],
-    links: &[
-        eq(0, "D", 1, "S"),
-        eq(1, "D", 2, "S"),
-    ],
+    links: &[eq(0, "D", 1, "S"), eq(1, "D", 2, "S")],
 };
 
 /// Bandgap core (transistor part): M0+M1 form a current mirror,
@@ -1712,21 +1304,9 @@ pub const BANDGAP_MIRROR_PAIR: Pattern = Pattern {
         Slot { diode: DiodeReq::Required, ..S_ANY },
         same0_samel(),
         comp(0),
-        Slot {
-            kind: SlotKind::SameTypeAs(2),
-            size_match: SizeMatch::ExactAs(2),
-            diode: DiodeReq::Required,
-            gate_is_signal: false,
-        },
+        Slot { kind: SlotKind::SameTypeAs(2), size_match: SizeMatch::ExactAs(2), diode: DiodeReq::Required, gate_is_signal: false },
     ],
-    links: &[
-        eq(0, "G", 1, "G"),
-        eq(0, "S", 1, "S"),
-        eq(2, "G", 3, "G"),
-        eq(2, "S", 3, "S"),
-        eq(0, "D", 2, "D"),
-        eq(1, "D", 3, "D"),
-    ],
+    links: &[eq(0, "G", 1, "G"), eq(0, "S", 1, "S"), eq(2, "G", 3, "G"), eq(2, "S", 3, "S"), eq(0, "D", 2, "D"), eq(1, "D", 3, "D")],
 };
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1740,18 +1320,8 @@ pub const OTA_SELF_BIASED_LOAD: Pattern = Pattern {
     priority: 32,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::Any,
-            diode: DiodeReq::Required,
-            gate_is_signal: false,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: true },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::Any, diode: DiodeReq::Required, gate_is_signal: false },
         Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::SameLAs(2), ..S_ANY },
         comp(0), // tail is complementary type
     ],
@@ -1775,31 +1345,16 @@ pub const COMPLEMENTARY_DIFF_PAIR: Pattern = Pattern {
     priority: 23,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },
-        Slot {
-            kind: SlotKind::ComplementOf(0),
-            size_match: SizeMatch::Any,
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },
-        Slot {
-            kind: SlotKind::SameTypeAs(2),
-            size_match: SizeMatch::ExactAs(2),
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: true },
+        Slot { kind: SlotKind::ComplementOf(0), size_match: SizeMatch::Any, diode: DiodeReq::Any, gate_is_signal: true },
+        Slot { kind: SlotKind::SameTypeAs(2), size_match: SizeMatch::ExactAs(2), diode: DiodeReq::Any, gate_is_signal: true },
     ],
     links: &[
-        eq_sig(0, "S", 1, "S"),  // a tail node, not a rail (as `diff_pair`)
+        eq_sig(0, "S", 1, "S"), // a tail node, not a rail (as `diff_pair`)
         ne(0, "G", 1, "G"),
         ne(0, "D", 1, "D"),
         eq_sig(2, "S", 3, "S"),
-        eq(0, "G", 2, "G"),  // same signal inputs
+        eq(0, "G", 2, "G"), // same signal inputs
         eq(1, "G", 3, "G"),
         ne(2, "D", 3, "D"),
     ],
@@ -1811,13 +1366,9 @@ pub const COMPLEMENTARY_DIFF_PAIR: Pattern = Pattern {
 pub const CMFB_SENSE_PAIR: Pattern = Pattern {
     name: "cmfb_sense_pair",
     priority: 15,
-    slots: &[
-        Slot { gate_is_signal: true, ..S_ANY },
-        same0_exact(),
-        Slot { kind: SlotKind::SameTypeAs(0), diode: DiodeReq::Required, ..S_ANY },
-    ],
+    slots: &[Slot { gate_is_signal: true, ..S_ANY }, same0_exact(), Slot { kind: SlotKind::SameTypeAs(0), diode: DiodeReq::Required, ..S_ANY }],
     links: &[
-        eq(0, "D", 1, "D"),  // summing node
+        eq(0, "D", 1, "D"), // summing node
         eq(0, "D", 2, "D"),
         eq(0, "S", 1, "S"),
         eq(0, "S", 2, "S"),
@@ -1836,17 +1387,17 @@ pub const NAND_CROSS_COUPLED: Pattern = Pattern {
     name: "nand_cross_coupled",
     priority: 22,
     slots: &[
-        S_ANY,          // M0: NAND1 pull-down A
-        same0(),        // M1: NAND1 pull-down B (series)
-        comp(0),        // M2: NAND1 pull-up A
-        same_as(2),     // M3: NAND1 pull-up B
+        S_ANY,      // M0: NAND1 pull-down A
+        same0(),    // M1: NAND1 pull-down B (series)
+        comp(0),    // M2: NAND1 pull-up A
+        same_as(2), // M3: NAND1 pull-up B
     ],
     links: &[
-        eq(0, "D", 1, "S"),  // series NMOS
-        eq(1, "D", 2, "D"),  // output node
+        eq(0, "D", 1, "S"), // series NMOS
+        eq(1, "D", 2, "D"), // output node
         eq(1, "D", 3, "D"),
         eq(2, "S", 3, "S"),
-        eq(0, "G", 2, "G"),  // input A shared
+        eq(0, "G", 2, "G"), // input A shared
     ],
 };
 
@@ -1855,15 +1406,11 @@ pub const NAND_CROSS_COUPLED: Pattern = Pattern {
 pub const BOOTSTRAPPED_SWITCH: Pattern = Pattern {
     name: "bootstrapped_switch",
     priority: 15,
-    slots: &[
-        S_ANY,
-        comp(0),
-        same0(),
-    ],
+    slots: &[S_ANY, comp(0), same0()],
     links: &[
         eq(0, "D", 1, "D"),
         eq(0, "S", 1, "S"),
-        eq(2, "D", 0, "G"),  // bootstrap drives NMOS gate
+        eq(2, "D", 0, "G"), // bootstrap drives NMOS gate
     ],
 };
 
@@ -1879,12 +1426,7 @@ pub const CASCODED_DIFF_PAIR_WITH_TAIL: Pattern = Pattern {
     priority: 32,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: true },
         same0(),
         same_exact(2),
         same0(), // tail
@@ -1908,29 +1450,19 @@ pub const DIFF_OUTPUT_STAGE: Pattern = Pattern {
     priority: 30,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY },
-        Slot {
-            kind: SlotKind::ComplementOf(0),
-            size_match: SizeMatch::Any,
-            diode: DiodeReq::Forbidden,
-            gate_is_signal: true,
-        },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },
+        Slot { kind: SlotKind::ComplementOf(0), size_match: SizeMatch::Any, diode: DiodeReq::Forbidden, gate_is_signal: true },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: true },
         Slot { kind: SlotKind::SameTypeAs(1), size_match: SizeMatch::ExactAs(1), ..S_ANY },
         same0(), // tail/bias
     ],
     links: &[
-        eq(0, "S", 1, "S"),  // out+ (source followers share output at source)
-        eq(2, "S", 3, "S"),  // out-
-        eq(0, "G", 1, "G"),  // same gate signal drives complementary pair
-        eq(2, "G", 3, "G"),  // same gate signal drives complementary pair
-        ne(0, "G", 2, "G"),  // different signal inputs
-        ne(0, "D", 1, "D"),  // different supply rails
-        ne(0, "S", 2, "S"),  // different outputs
+        eq(0, "S", 1, "S"), // out+ (source followers share output at source)
+        eq(2, "S", 3, "S"), // out-
+        eq(0, "G", 1, "G"), // same gate signal drives complementary pair
+        eq(2, "G", 3, "G"), // same gate signal drives complementary pair
+        ne(0, "G", 2, "G"), // different signal inputs
+        ne(0, "D", 1, "D"), // different supply rails
+        ne(0, "S", 2, "S"), // different outputs
     ],
 };
 
@@ -1945,16 +1477,9 @@ pub const CASCODE_DIODE_TOP: Pattern = Pattern {
     priority: 9,
     slots: &[
         Slot { diode: DiodeReq::Forbidden, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::SameLAs(0),
-            diode: DiodeReq::Required,
-            gate_is_signal: false,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::SameLAs(0), diode: DiodeReq::Required, gate_is_signal: false },
     ],
-    links: &[
-        eq(0, "D", 1, "S"),
-    ],
+    links: &[eq(0, "D", 1, "S")],
 };
 
 /// Anti-parallel pair: two same-type FETs where source of A = drain of B
@@ -1962,15 +1487,8 @@ pub const CASCODE_DIODE_TOP: Pattern = Pattern {
 pub const ANTI_PARALLEL_SWITCH: Pattern = Pattern {
     name: "anti_parallel_switch",
     priority: 10,
-    slots: &[
-        S_ANY,
-        same0_exact(),
-    ],
-    links: &[
-        eq(0, "D", 1, "S"),
-        eq(0, "S", 1, "D"),
-        ne(0, "G", 1, "G"),
-    ],
+    slots: &[S_ANY, same0_exact()],
+    links: &[eq(0, "D", 1, "S"), eq(0, "S", 1, "D"), ne(0, "G", 1, "G")],
 };
 
 /// Differential switch (analog mux): two same-type FETs sharing source,
@@ -1983,19 +1501,14 @@ pub const DIFF_SWITCH: Pattern = Pattern {
     priority: 8,
     slots: &[
         Slot { gate_is_signal: false, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Forbidden,
-            gate_is_signal: false,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Forbidden, gate_is_signal: false },
     ],
     links: &[
         eq_sig(0, "S", 1, "S"),
         ne(0, "G", 1, "G"),
         ne(0, "D", 1, "D"),
-        ne(0, "G", 1, "D"),  // exclude cross-coupled
-        ne(1, "G", 0, "D"),  // exclude cross-coupled
+        ne(0, "G", 1, "D"), // exclude cross-coupled
+        ne(1, "G", 0, "D"), // exclude cross-coupled
     ],
 };
 
@@ -2009,17 +1522,8 @@ pub const DIFF_SWITCH: Pattern = Pattern {
 pub const TRIPLE_CASCODE: Pattern = Pattern {
     name: "triple_cascode",
     priority: 16,
-    slots: &[
-        S_ANY,
-        same0(),
-        same0(),
-    ],
-    links: &[
-        eq(0, "D", 1, "S"),
-        eq(1, "D", 2, "S"),
-        ne(0, "G", 1, "G"),
-        ne(1, "G", 2, "G"),
-    ],
+    slots: &[S_ANY, same0(), same0()],
+    links: &[eq(0, "D", 1, "S"), eq(1, "D", 2, "S"), ne(0, "G", 1, "G"), ne(1, "G", 2, "G")],
 };
 
 /// Current mirror with two outputs: M0 diode ref, M1+M2 two output
@@ -2034,14 +1538,7 @@ pub const CURRENT_MIRROR_1_TO_2: Pattern = Pattern {
         Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::SameLAs(0), diode: DiodeReq::Forbidden, ..S_ANY },
         Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::SameLAs(0), diode: DiodeReq::Forbidden, ..S_ANY },
     ],
-    links: &[
-        eq(0, "G", 1, "G"),
-        eq(0, "G", 2, "G"),
-        eq(0, "S", 1, "S"),
-        eq(0, "S", 2, "S"),
-        ne(0, "D", 1, "D"),
-        ne(0, "D", 2, "D"),
-    ],
+    links: &[eq(0, "G", 1, "G"), eq(0, "G", 2, "G"), eq(0, "S", 1, "S"), eq(0, "S", 2, "S"), ne(0, "D", 1, "D"), ne(0, "D", 2, "D")],
 };
 
 /// Super source follower: M0 (follower, signal gate), M1 (current source),
@@ -2051,14 +1548,14 @@ pub const SUPER_SOURCE_FOLLOWER: Pattern = Pattern {
     name: "super_source_follower",
     priority: 16,
     slots: &[
-        Slot { gate_is_signal: true, ..S_ANY },  // M0: follower
-        same0(),                                    // M1: current source
-        same0(),                                    // M2: feedback amp
+        Slot { gate_is_signal: true, ..S_ANY }, // M0: follower
+        same0(),                                // M1: current source
+        same0(),                                // M2: feedback amp
     ],
     links: &[
-        eq(1, "D", 0, "S"),  // M1 current source to follower source
-        eq(0, "S", 2, "S"),  // M2 source = output (sensing)
-        eq(2, "D", 1, "G"),  // M2 output drives M1 gate
+        eq(1, "D", 0, "S"), // M1 current source to follower source
+        eq(0, "S", 2, "S"), // M2 source = output (sensing)
+        eq(2, "D", 1, "G"), // M2 output drives M1 gate
     ],
 };
 
@@ -2067,15 +1564,11 @@ pub const SUPER_SOURCE_FOLLOWER: Pattern = Pattern {
 pub const CASCODED_REFERENCE: Pattern = Pattern {
     name: "cascoded_reference",
     priority: 15,
-    slots: &[
-        Slot { diode: DiodeReq::Required, ..S_ANY },
-        same0_samel(),
-        Slot { kind: SlotKind::SameTypeAs(0), diode: DiodeReq::Required, ..S_ANY },
-    ],
+    slots: &[Slot { diode: DiodeReq::Required, ..S_ANY }, same0_samel(), Slot { kind: SlotKind::SameTypeAs(0), diode: DiodeReq::Required, ..S_ANY }],
     links: &[
         eq(0, "G", 1, "G"),
         eq(0, "S", 1, "S"),
-        eq(0, "D", 2, "S"),  // cascode on ref
+        eq(0, "D", 2, "S"), // cascode on ref
     ],
 };
 
@@ -2090,18 +1583,18 @@ pub const NAND_GATE: Pattern = Pattern {
     name: "nand_gate",
     priority: 22,
     slots: &[
-        S_ANY,          // M0: NMOS A
-        same0(),        // M1: NMOS B
-        comp(0),        // M2: PMOS A
-        same_as(2),     // M3: PMOS B
+        S_ANY,      // M0: NMOS A
+        same0(),    // M1: NMOS B
+        comp(0),    // M2: PMOS A
+        same_as(2), // M3: PMOS B
     ],
     links: &[
-        eq(0, "D", 1, "S"),   // series NMOS
-        eq(1, "D", 2, "D"),   // output
-        eq(1, "D", 3, "D"),   // output
-        eq(0, "G", 2, "G"),   // input A
-        eq(1, "G", 3, "G"),   // input B
-        eq(2, "S", 3, "S"),   // shared PMOS source (VDD)
+        eq(0, "D", 1, "S"), // series NMOS
+        eq(1, "D", 2, "D"), // output
+        eq(1, "D", 3, "D"), // output
+        eq(0, "G", 2, "G"), // input A
+        eq(1, "G", 3, "G"), // input B
+        eq(2, "S", 3, "S"), // shared PMOS source (VDD)
     ],
 };
 
@@ -2112,18 +1605,18 @@ pub const NOR_GATE: Pattern = Pattern {
     name: "nor_gate",
     priority: 22,
     slots: &[
-        S_ANY,          // M0: NMOS A
-        same0(),        // M1: NMOS B
-        comp(0),        // M2: PMOS A
-        same_as(2),     // M3: PMOS B
+        S_ANY,      // M0: NMOS A
+        same0(),    // M1: NMOS B
+        comp(0),    // M2: PMOS A
+        same_as(2), // M3: PMOS B
     ],
     links: &[
-        eq(0, "S", 1, "S"),   // parallel NMOS share source
-        eq(0, "D", 1, "D"),   // parallel NMOS share drain
-        eq(2, "D", 3, "S"),   // series PMOS
-        eq(3, "D", 0, "D"),   // output = NMOS drain = bottom PMOS drain
-        eq(0, "G", 2, "G"),   // input A
-        eq(1, "G", 3, "G"),   // input B
+        eq(0, "S", 1, "S"), // parallel NMOS share source
+        eq(0, "D", 1, "D"), // parallel NMOS share drain
+        eq(2, "D", 3, "S"), // series PMOS
+        eq(3, "D", 0, "D"), // output = NMOS drain = bottom PMOS drain
+        eq(0, "G", 2, "G"), // input A
+        eq(1, "G", 3, "G"), // input B
     ],
 };
 
@@ -2136,21 +1629,16 @@ pub const DIFF_PAIR_WITH_SPLIT_CASCODES: Pattern = Pattern {
     priority: 21,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: true },
         same0(),
         same_exact(2),
     ],
     links: &[
-        eq_sig(0, "S", 1, "S"),  // a rail-sourced pair is not differential (EXT-04)
+        eq_sig(0, "S", 1, "S"), // a rail-sourced pair is not differential (EXT-04)
         ne(0, "G", 1, "G"),
         eq(0, "D", 2, "S"),
         eq(1, "D", 3, "S"),
-        ne(2, "G", 3, "G"),  // different cascode biases
+        ne(2, "G", 3, "G"), // different cascode biases
         ne(2, "D", 3, "D"),
     ],
 };
@@ -2163,20 +1651,15 @@ pub const FOLDED_LOAD_PAIR: Pattern = Pattern {
     priority: 22,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Any,
-            gate_is_signal: true,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: true },
         comp(0),
         Slot { kind: SlotKind::SameTypeAs(2), size_match: SizeMatch::ExactAs(2), ..S_ANY },
     ],
     links: &[
         eq(0, "S", 1, "S"),
         ne(0, "G", 1, "G"),
-        eq(0, "D", 2, "S"),  // folded connection
-        eq(1, "D", 3, "S"),  // folded connection
+        eq(0, "D", 2, "S"), // folded connection
+        eq(1, "D", 3, "S"), // folded connection
         eq(2, "G", 3, "G"),
     ],
 };
@@ -2187,17 +1670,17 @@ pub const INVERTER_BUFFER: Pattern = Pattern {
     name: "inverter_buffer",
     priority: 23,
     slots: &[
-        S_ANY,          // M0: inv1 N
-        comp(0),        // M1: inv1 P
-        same0(),        // M2: inv2 N
-        same_as(1),     // M3: inv2 P
+        S_ANY,      // M0: inv1 N
+        comp(0),    // M1: inv1 P
+        same0(),    // M2: inv2 N
+        same_as(1), // M3: inv2 P
     ],
     links: &[
-        eq(0, "G", 1, "G"),    // inv1 input
-        eq(0, "D", 1, "D"),    // inv1 output
-        eq(2, "G", 3, "G"),    // inv2 input
-        eq(2, "D", 3, "D"),    // inv2 output
-        eq(0, "D", 2, "G"),    // chain
+        eq(0, "G", 1, "G"), // inv1 input
+        eq(0, "D", 1, "D"), // inv1 output
+        eq(2, "G", 3, "G"), // inv2 input
+        eq(2, "D", 3, "D"), // inv2 output
+        eq(0, "D", 2, "G"), // chain
     ],
 };
 
@@ -2209,28 +1692,11 @@ pub const CASCODE_CURRENT_SOURCE_PAIR: Pattern = Pattern {
     priority: 21,
     slots: &[
         Slot { diode: DiodeReq::Forbidden, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Forbidden,
-            gate_is_signal: false,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Forbidden, gate_is_signal: false },
         Slot { kind: SlotKind::SameTypeAs(0), diode: DiodeReq::Forbidden, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(2),
-            size_match: SizeMatch::ExactAs(2),
-            diode: DiodeReq::Forbidden,
-            gate_is_signal: false,
-        },
+        Slot { kind: SlotKind::SameTypeAs(2), size_match: SizeMatch::ExactAs(2), diode: DiodeReq::Forbidden, gate_is_signal: false },
     ],
-    links: &[
-        eq(0, "G", 1, "G"),
-        eq(0, "S", 1, "S"),
-        eq(0, "D", 2, "S"),
-        eq(1, "D", 3, "S"),
-        eq(2, "G", 3, "G"),
-        ne(2, "D", 3, "D"),
-    ],
+    links: &[eq(0, "G", 1, "G"), eq(0, "S", 1, "S"), eq(0, "D", 2, "S"), eq(1, "D", 3, "S"), eq(2, "G", 3, "G"), ne(2, "D", 3, "D")],
 };
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -2246,13 +1712,9 @@ pub const ACTIVE_LOADED_INVERTER: Pattern = Pattern {
     slots: &[
         S_ANY,
         comp(0),
-        same_as(1),  // same type as M1
+        same_as(1), // same type as M1
     ],
-    links: &[
-        eq(0, "G", 1, "G"),
-        eq(0, "D", 1, "D"),
-        eq(2, "D", 1, "S"),
-    ],
+    links: &[eq(0, "G", 1, "G"), eq(0, "D", 1, "D"), eq(2, "D", 1, "S")],
 };
 
 /// Diff pair with common-mode input: M0+M1 diff pair where one input
@@ -2262,24 +1724,14 @@ pub const DIFF_PAIR_WITH_REFERENCE: Pattern = Pattern {
     priority: 15,
     slots: &[
         Slot { gate_is_signal: true, ..S_ANY },
-        Slot {
-            kind: SlotKind::SameTypeAs(0),
-            size_match: SizeMatch::ExactAs(0),
-            diode: DiodeReq::Any,
-            gate_is_signal: false,
-        },
-        Slot {
-            kind: SlotKind::ComplementOf(0),
-            size_match: SizeMatch::Any,
-            diode: DiodeReq::Required,
-            gate_is_signal: false,
-        },
+        Slot { kind: SlotKind::SameTypeAs(0), size_match: SizeMatch::ExactAs(0), diode: DiodeReq::Any, gate_is_signal: false },
+        Slot { kind: SlotKind::ComplementOf(0), size_match: SizeMatch::Any, diode: DiodeReq::Required, gate_is_signal: false },
     ],
     links: &[
-        eq_sig(0, "S", 1, "S"),  // a rail-sourced pair is not differential (EXT-04)
+        eq_sig(0, "S", 1, "S"), // a rail-sourced pair is not differential (EXT-04)
         ne(0, "G", 1, "G"),
         ne(0, "D", 1, "D"),
-        eq(1, "G", 2, "D"),  // M2 diode drives M1 gate
+        eq(1, "G", 2, "D"), // M2 diode drives M1 gate
     ],
 };
 
@@ -2304,20 +1756,14 @@ macro_rules! bjt_patterns {
         pub const $ratio: Pattern = Pattern {
             name: concat!("bjt_ratioed_pair_", $sfx),
             priority: 9,
-            slots: &[
-                Slot { kind: SlotKind::Kind($k), ..S_ANY },
-                Slot { kind: SlotKind::SameKindAs(0), size_match: SizeMatch::ExactAs(0), ..S_ANY },
-            ],
+            slots: &[Slot { kind: SlotKind::Kind($k), ..S_ANY }, Slot { kind: SlotKind::SameKindAs(0), size_match: SizeMatch::ExactAs(0), ..S_ANY }],
             links: &[eq(0, "B", 1, "B"), ne(0, "E", 1, "E")],
         };
         /// Differential pair: shared signal emitter node, distinct bases and collectors.
         pub const $diff: Pattern = Pattern {
             name: concat!("bjt_diff_pair_", $sfx),
             priority: 10,
-            slots: &[
-                Slot { kind: SlotKind::Kind($k), ..S_ANY },
-                Slot { kind: SlotKind::SameKindAs(0), size_match: SizeMatch::ExactAs(0), ..S_ANY },
-            ],
+            slots: &[Slot { kind: SlotKind::Kind($k), ..S_ANY }, Slot { kind: SlotKind::SameKindAs(0), size_match: SizeMatch::ExactAs(0), ..S_ANY }],
             links: &[eq_sig(0, "E", 1, "E"), ne(0, "B", 1, "B"), ne(0, "C", 1, "C")],
         };
         /// Mirror: diode-connected reference (C == B), shared base and emitter.
@@ -2338,13 +1784,11 @@ bjt_patterns!(BJT_RATIOED_PAIR_PNP, BJT_DIFF_PAIR_PNP, BJT_MIRROR_PNP, analog::b
 pub const PATTERNS: &[Pattern] = &[
     // ── 8-device composites (50–59) ──
     TELESCOPIC_OTA_FULL,
-
     // ── 6-device composites (40–49) ──
     GILBERT_CELL,
     VCO_CORE_WITH_TAILS,
     FOLDED_CASCODE_CORE,
     TELESCOPIC_OTA_CORE,
-
     // ── 5-device composites (30–39) ──
     DIFF_PAIR_CROSS_COUPLED_LOAD,
     FIVE_TRANSISTOR_OTA,
@@ -2353,7 +1797,6 @@ pub const PATTERNS: &[Pattern] = &[
     CASCODED_DIFF_PAIR_WITH_TAIL,
     WIDE_SWING_CASCODE_MIRROR_5,
     DIFF_OUTPUT_STAGE,
-
     // ── 4-device composites (20–29) ──
     CROSS_COUPLED_INVERTERS,
     WIDE_SWING_CASCODE_MIRROR,
@@ -2385,7 +1828,6 @@ pub const PATTERNS: &[Pattern] = &[
     SERIES_STACK_4,
     BANDGAP_MIRROR_PAIR,
     FEEDBACK_PAIR,
-
     // ── 3-device patterns (14–19) ──
     DIFF_PAIR_WITH_TAIL,
     IMPROVED_WILSON_MIRROR,
@@ -2412,7 +1854,6 @@ pub const PATTERNS: &[Pattern] = &[
     ACTIVE_LOAD_3,
     PUSH_PULL_WITH_BIAS,
     BIAS_CHAIN_3,
-
     // ── 2-device patterns (5–13) ──
     CMOS_INVERTER,
     TRANSMISSION_GATE,
@@ -2556,11 +1997,7 @@ mod tests {
                 }
             }
             for l in p.links {
-                assert!(
-                    (l.a as usize) < p.slots.len() && (l.b as usize) < p.slots.len(),
-                    "{}: link slot out of range",
-                    p.name
-                );
+                assert!((l.a as usize) < p.slots.len() && (l.b as usize) < p.slots.len(), "{}: link slot out of range", p.name);
                 for (slot, pin) in [(l.a, l.pin_a), (l.b, l.pin_b)] {
                     // A bipolar slot (EXT-19) is `Kind(Npn|Pnp)` or `SameKindAs` one.
                     let bjt = matches!(p.slots[slot as usize].kind, SlotKind::Kind(DeviceKind::Npn | DeviceKind::Pnp) | SlotKind::SameKindAs(_));
@@ -2578,13 +2015,14 @@ mod tests {
     /// Terminal index within a slot's 4-pin block: FET `G/D/S/B = 0..3`, BJT
     /// `B/C/E = 0..2` (base, collector, emitter in the gate, drain, source places).
     fn pin_idx(slot: u8, pin: &str, bjt: bool) -> u32 {
-        slot as u32 * 4 + match (bjt, pin) {
-            (false, "G") | (true, "B") => 0,
-            (false, "D") | (true, "C") => 1,
-            (false, "S") | (true, "E") => 2,
-            (false, "B") => 3,
-            _ => unreachable!("not a pin of this family"),
-        }
+        slot as u32 * 4
+            + match (bjt, pin) {
+                (false, "G") | (true, "B") => 0,
+                (false, "D") | (true, "C") => 1,
+                (false, "S") | (true, "E") => 2,
+                (false, "B") => 3,
+                _ => unreachable!("not a pin of this family"),
+            }
     }
 
     /// The smallest netlist a pattern can match itself against: one device per
@@ -2598,7 +2036,11 @@ mod tests {
                 SlotKind::AnyFet => DeviceKind::Nmos,
                 SlotKind::SameTypeAs(r) => kinds[r as usize],
                 SlotKind::ComplementOf(r) => {
-                    if kinds[r as usize] == DeviceKind::Nmos { DeviceKind::Pmos } else { DeviceKind::Nmos }
+                    if kinds[r as usize] == DeviceKind::Nmos {
+                        DeviceKind::Pmos
+                    } else {
+                        DeviceKind::Nmos
+                    }
                 }
                 SlotKind::Kind(k) => k,
                 SlotKind::SameKindAs(r) => kinds[r as usize],
@@ -2618,11 +2060,7 @@ mod tests {
             }
         }
         let linked_b: Vec<bool> = (0..n)
-            .map(|k| {
-                p.links.iter().any(|l| {
-                    !bjt(k as u8) && ((l.a as usize == k && l.pin_a == "B") || (l.b as usize == k && l.pin_b == "B"))
-                })
-            })
+            .map(|k| p.links.iter().any(|l| !bjt(k as u8) && ((l.a as usize == k && l.pin_a == "B") || (l.b as usize == k && l.pin_b == "B"))))
             .collect();
 
         let mut nets: Vec<Net> = Vec::new();

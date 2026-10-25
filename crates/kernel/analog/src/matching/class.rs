@@ -2,8 +2,8 @@
 //! belongs to, the environment each class asks of the layout (read from the
 //! sidecar's `[MIN, MOD, EXC]` tier arrays) and Hastings' class limit table.
 
-pub use crate::matching::mismatch::MatchKind;
 pub use crate::base::MatchClass;
+pub use crate::matching::mismatch::MatchKind;
 
 use crate::base::DeviceKind;
 
@@ -167,7 +167,10 @@ mod tests {
 
     #[test]
     fn tiers_are_hastings() {
-        assert_eq!(mos_env(Mod), MosEnv { dummy_reach_nm: 3000, moat_nm: 5000, wpe_nm: 3000, gate_ext_extra_nm: 1000, gate_strap: GateStrap::PolyBarFar });
+        assert_eq!(
+            mos_env(Mod),
+            MosEnv { dummy_reach_nm: 3000, moat_nm: 5000, wpe_nm: 3000, gate_ext_extra_nm: 1000, gate_strap: GateStrap::PolyBarFar }
+        );
         assert_eq!(resistor_env(Exc), PassiveEnv { min_dummies: 1, dummy_span_nm: 10000, width_floor_permille: 4000, length_floor_x: 10 });
         assert_eq!(mos_env(Min).dummy_reach_nm, 0);
     }

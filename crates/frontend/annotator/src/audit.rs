@@ -1,10 +1,10 @@
 //! Structure and bias audit (EXT-29): Hastings' checks on a matched set's bias
 //! and geometry, reported as diagnostics. Never alters a constraint.
 
-use analog::intent::{Diagnostic, Family, Intent, MatchClass, MatchKind, MatchSpec};
-use analog::matching::class::{limit, ClassLimit};
 use analog::base::ids::DeviceId;
 use analog::base::Netlist;
+use analog::intent::{Diagnostic, Family, Intent, MatchClass, MatchKind, MatchSpec};
+use analog::matching::class::{limit, ClassLimit};
 
 use crate::evidence::OpFacts;
 
@@ -58,7 +58,10 @@ pub fn audit(intent: &Intent, nl: &Netlist, cascodes: &[[DeviceId; 4]], op: Opti
             }
             let low: Vec<DeviceId> = ids.iter().copied().filter(|&d| vgst(d).is_some_and(|v| v < VGST_MIN_MV)).collect();
             if !low.is_empty() {
-                let msg = format!("V_GS−V_th < {VGST_MIN_MV} mV on {:?}: current matching degrades (Hastings H13-32)", low.iter().map(|&d| name(d)).collect::<Vec<_>>());
+                let msg = format!(
+                    "V_GS−V_th < {VGST_MIN_MV} mV on {:?}: current matching degrades (Hastings H13-32)",
+                    low.iter().map(|&d| name(d)).collect::<Vec<_>>()
+                );
                 out.push(Diagnostic { kind: "vgst_low", devices: low, message: msg });
             }
             let r = ids[s.reference.unwrap_or(0).min(ids.len() - 1)];
@@ -71,7 +74,11 @@ pub fn audit(intent: &Intent, nl: &Netlist, cascodes: &[[DeviceId; 4]], op: Opti
                     let (Some(gds), Some(vd)) = (o.gds_us, mv(d, "D", "S")) else { continue };
                     let pct = 100.0 * gds * (vd - vr).abs() * 1e-3 / o.id_ua.abs();
                     if o.id_ua != 0.0 && pct > f64::from(x) / 2.0 {
-                        let msg = format!("ΔV_DS {:.0} mV gives {pct:.2} % current error > {:.2} % (half the class limit, H13-33)", (vd - vr).abs(), x / 2.0);
+                        let msg = format!(
+                            "ΔV_DS {:.0} mV gives {pct:.2} % current error > {:.2} % (half the class limit, H13-33)",
+                            (vd - vr).abs(),
+                            x / 2.0
+                        );
                         out.push(Diagnostic { kind: "clm_mismatch", devices: vec![r, d], message: msg });
                     }
                 }
@@ -81,7 +88,11 @@ pub fn audit(intent: &Intent, nl: &Netlist, cascodes: &[[DeviceId; 4]], op: Opti
             let units: Vec<u32> = s.members.iter().map(|m| u32::from(m.parallel) * u32::from(m.series)).collect();
             let min = units.iter().copied().min().unwrap_or(1).max(1);
             if units.iter().any(|&u| u / min > 16 || (u / min > 1 && (u / min) % 2 == 1)) {
-                out.push(Diagnostic { kind: "bjt_ratio", devices: ids.clone(), message: format!("unit ratio {units:?}: over 16 or odd, no common centroid (Hastings H09-04)") });
+                out.push(Diagnostic {
+                    kind: "bjt_ratio",
+                    devices: ids.clone(),
+                    message: format!("unit ratio {units:?}: over 16 or odd, no common centroid (Hastings H09-04)"),
+                });
             }
             let vce: Option<Vec<f64>> = ids.iter().map(|&d| mv(d, "C", "E")).collect();
             if vce.is_none() {
@@ -90,7 +101,11 @@ pub fn audit(intent: &Intent, nl: &Netlist, cascodes: &[[DeviceId; 4]], op: Opti
             if let Some(v) = vce.filter(|v| !v.is_empty()) {
                 let spread = v.iter().copied().fold(f64::MIN, f64::max) - v.iter().copied().fold(f64::MAX, f64::min);
                 if spread > VCE_MAX_MV {
-                    out.push(Diagnostic { kind: "vce_unequal", devices: ids.clone(), message: format!("V_CE spread {spread:.0} mV > {VCE_MAX_MV} mV (Early effect, H09-23)") });
+                    out.push(Diagnostic {
+                        kind: "vce_unequal",
+                        devices: ids.clone(),
+                        message: format!("V_CE spread {spread:.0} mV > {VCE_MAX_MV} mV (Early effect, H09-23)"),
+                    });
                 }
             }
         }
@@ -100,12 +115,20 @@ pub fn audit(intent: &Intent, nl: &Netlist, cascodes: &[[DeviceId; 4]], op: Opti
         if let [Some(r0), Some(r1), Some(r2), Some(r3)] = c.map(ratio) {
             let (bottom, top) = (r0 / r1, r2 / r3);
             if (bottom - top).abs() > 0.01 * top {
-                out.push(Diagnostic { kind: "cascode_ratio", devices: c.to_vec(), message: format!("bottom W/L ratio {bottom:.3} ≠ top {top:.3} (Hastings H13-34)") });
+                out.push(Diagnostic {
+                    kind: "cascode_ratio",
+                    devices: c.to_vec(),
+                    message: format!("bottom W/L ratio {bottom:.3} ≠ top {top:.3} (Hastings H13-34)"),
+                });
             }
         }
         for &d in &c[2..] {
             if pin(d, "B") != pin(d, "S") {
-                out.push(Diagnostic { kind: "cascode_bulk", devices: vec![d], message: format!("{}: cascode bulk not tied to its source (body effect, H13-34)", name(d)) });
+                out.push(Diagnostic {
+                    kind: "cascode_bulk",
+                    devices: vec![d],
+                    message: format!("{}: cascode bulk not tied to its source (body effect, H13-34)", name(d)),
+                });
             }
         }
     }
@@ -122,8 +145,8 @@ mod tests {
     use super::*;
     use crate::evidence::DeviceOp;
     use crate::tests::fet;
-    use analog::intent::{ArrayStyle, ClassSource, ConstraintId, Member, Origin};
     use analog::base::netlist::{Device, DeviceKind};
+    use analog::intent::{ArrayStyle, ClassSource, ConstraintId, Member, Origin};
 
     fn set(family: Family, class: MatchClass, units: &[u16]) -> MatchSpec {
         MatchSpec {
@@ -149,7 +172,11 @@ mod tests {
 
     /// Two NMOS on nets 0=g 1=d0 2=d1 3=vss.
     fn pair() -> Netlist {
-        Netlist { devices: vec![fet("M0", DeviceKind::Nmos, 0, 1, 3, 3, 2_000, 1_000), fet("M1", DeviceKind::Nmos, 0, 2, 3, 3, 2_000, 1_000)], nets: crate::tests::nets(&["g", "d0", "d1", "vss"]), ..Default::default() }
+        Netlist {
+            devices: vec![fet("M0", DeviceKind::Nmos, 0, 1, 3, 3, 2_000, 1_000), fet("M1", DeviceKind::Nmos, 0, 2, 3, 3, 2_000, 1_000)],
+            nets: crate::tests::nets(&["g", "d0", "d1", "vss"]),
+            ..Default::default()
+        }
     }
 
     fn op(id_ua: f64, gm_us: f64, gds_us: Option<f64>, net_mv: Vec<Option<f64>>) -> OpFacts {
@@ -183,7 +210,12 @@ mod tests {
     fn cascode_ratio_mismatch() {
         let n = DeviceKind::Nmos;
         let mk = |w0: i64, w1: i64| -> Vec<Device> {
-            vec![fet("B0", n, 0, 0, 3, 3, w0, 1_000), fet("B1", n, 0, 1, 3, 3, w1, 1_000), fet("T0", n, 2, 2, 0, 0, 2_000, 500), fet("T1", n, 2, 4, 1, 1, 2_000, 500)]
+            vec![
+                fet("B0", n, 0, 0, 3, 3, w0, 1_000),
+                fet("B1", n, 0, 1, 3, 3, w1, 1_000),
+                fet("T0", n, 2, 2, 0, 0, 2_000, 500),
+                fet("T1", n, 2, 4, 1, 1, 2_000, 500),
+            ]
         };
         let nl = |w0, w1| Netlist { devices: mk(w0, w1), nets: crate::tests::nets(&["a", "b", "c", "vss", "o"]), ..Default::default() };
         let c = [[DeviceId(0), DeviceId(1), DeviceId(2), DeviceId(3)]];

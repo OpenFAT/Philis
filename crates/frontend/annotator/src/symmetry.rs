@@ -4,11 +4,11 @@
 
 use std::collections::{BTreeSet, VecDeque};
 
-use analog::intent::{AxisDir, Compound, ConstraintId, Diagnostic, SymKind};
-use analog::metadata::{NetClass, NetClassification};
 use analog::base::ids::{AxisId, DeviceId, NetId};
 use analog::base::netlist::DeviceKind;
 use analog::base::BipartiteHypergraph;
+use analog::intent::{AxisDir, Compound, ConstraintId, Diagnostic, SymKind};
+use analog::metadata::{NetClass, NetClassification};
 
 use crate::conflict;
 use crate::size::{self, Drawn};
@@ -86,11 +86,15 @@ impl State<'_> {
     /// equal (a shared net carries no constraint) or both rails.
     fn consistent_nets(&self, x: u32, y: u32) -> bool {
         let (xi, yi) = (x as usize, y as usize);
-        x == y || (self.rail[xi] && self.rail[yi]) || (!self.rail[xi] && !self.rail[yi] && match (self.mate[xi], self.mate[yi]) {
-            (None, None) => true,
-            (Some(a), Some(b)) => a == y && b == x,
-            _ => false,
-        })
+        x == y
+            || (self.rail[xi] && self.rail[yi])
+            || (!self.rail[xi]
+                && !self.rail[yi]
+                && match (self.mate[xi], self.mate[yi]) {
+                    (None, None) => true,
+                    (Some(a), Some(b)) => a == y && b == x,
+                    _ => false,
+                })
     }
 
     fn consistent(&self, d: u32, e: u32, flip: bool) -> bool {
@@ -179,10 +183,29 @@ impl State<'_> {
 /// does not join unrelated structures); one without a pair is dropped. Compounds
 /// are ordered by their smallest pair's canonical labels; `axis` is the index.
 #[must_use]
-pub fn analyze(hg: &BipartiteHypergraph, drawn: &[Drawn], classes: &[NetClassification], seeds: &[Seed], canon: &[u64]) -> (Vec<Compound>, Vec<Diagnostic>) {
+pub fn analyze(
+    hg: &BipartiteHypergraph,
+    drawn: &[Drawn],
+    classes: &[NetClassification],
+    seeds: &[Seed],
+    canon: &[u64],
+) -> (Vec<Compound>, Vec<Diagnostic>) {
     let (nd, nn) = (hg.device_count(), hg.net_devices.len());
     let rail: Vec<bool> = classes.iter().map(|c| matches!(c.class, NetClass::Supply | NetClass::Ground | NetClass::Substrate)).collect();
-    let mut s = State { hg, rail, pair_of: vec![None; nd], half_a: vec![false; nd], flip: vec![false; nd], is_self: vec![false; nd], mate: vec![None; nn], a_side: vec![false; nn], queue: VecDeque::new(), cur: ConstraintId(0), by: vec![None; nd], net_by: vec![None; nn] };
+    let mut s = State {
+        hg,
+        rail,
+        pair_of: vec![None; nd],
+        half_a: vec![false; nd],
+        flip: vec![false; nd],
+        is_self: vec![false; nd],
+        mate: vec![None; nn],
+        a_side: vec![false; nn],
+        queue: VecDeque::new(),
+        cur: ConstraintId(0),
+        by: vec![None; nd],
+        net_by: vec![None; nn],
+    };
     let sigs: Vec<_> = (0..nd).map(|d| sig(hg.kinds[d], &drawn[d])).collect();
     let pairable = |d: u32| !size::unknown_size(hg.kinds[d as usize], &drawn[d as usize]);
     let mut diags = Vec::new();
@@ -201,7 +224,11 @@ pub fn analyze(hg: &BipartiteHypergraph, drawn: &[Drawn], classes: &[NetClassifi
                 if !s.free(a) || !s.free(b) || !s.consistent(a, b, false) {
                     // GAP-09 (a): the earlier seed wins (user seeds first, in entry order).
                     let ids: Vec<ConstraintId> = std::iter::once(id).chain(s.owner(a, b)).collect();
-                    diags.push(conflict::diag(&ids, vec![DeviceId(a as u16), DeviceId(b as u16)], "SymmetricBlocks pair contradicts an earlier pairing; dropped"));
+                    diags.push(conflict::diag(
+                        &ids,
+                        vec![DeviceId(a as u16), DeviceId(b as u16)],
+                        "SymmetricBlocks pair contradicts an earlier pairing; dropped",
+                    ));
                     continue;
                 }
                 s.pair(a, b, false);
@@ -230,7 +257,9 @@ pub fn analyze(hg: &BipartiteHypergraph, drawn: &[Drawn], classes: &[NetClassifi
     // Fixpoint: a pairing can resolve an earlier ambiguity.
     for _ in 0..nd {
         let before = s.pair_of.iter().filter(|p| p.is_some()).count() + s.is_self.iter().filter(|&&b| b).count();
-        s.queue.extend((0..nn as u32).filter_map(|x| s.mate[x as usize].filter(|_| s.a_side[x as usize] || s.mate[x as usize] == Some(x)).map(|y| (x, y))));
+        s.queue.extend(
+            (0..nn as u32).filter_map(|x| s.mate[x as usize].filter(|_| s.a_side[x as usize] || s.mate[x as usize] == Some(x)).map(|y| (x, y))),
+        );
         propagate(&mut s, &sigs, &pairable, canon, &mut ambiguous);
         let after = s.pair_of.iter().filter(|p| p.is_some()).count() + s.is_self.iter().filter(|&&b| b).count();
         if after == before {
@@ -338,7 +367,8 @@ fn compounds(s: &State, canon: &[u64]) -> Vec<Compound> {
     let mut net_dev: Vec<Option<usize>> = vec![None; s.mate.len()];
     for (n, mate) in s.mate.iter().enumerate() {
         let Some(m) = *mate else { continue };
-        let members: Vec<usize> = s.on(n as u32).into_iter().filter(|(d, t)| sym(*d as usize) && (m != n as u32 || channel(t))).map(|(d, _)| d as usize).collect();
+        let members: Vec<usize> =
+            s.on(n as u32).into_iter().filter(|(d, t)| sym(*d as usize) && (m != n as u32 || channel(t))).map(|(d, _)| d as usize).collect();
         for w in members.windows(2) {
             union(&mut parent, w[0], w[1]);
         }
@@ -377,7 +407,15 @@ fn compounds(s: &State, canon: &[u64]) -> Vec<Compound> {
         }
     }
     let mut out: Vec<Compound> = by_root.into_values().filter(|c| !c.pairs.is_empty()).collect();
-    let pk = |c: &Compound| c.pairs.iter().map(|&(a, b)| { let (x, y) = (canon[a.0 as usize], canon[b.0 as usize]); (x.min(y), x.max(y)) }).min();
+    let pk = |c: &Compound| {
+        c.pairs
+            .iter()
+            .map(|&(a, b)| {
+                let (x, y) = (canon[a.0 as usize], canon[b.0 as usize]);
+                (x.min(y), x.max(y))
+            })
+            .min()
+    };
     for c in &mut out {
         c.pairs.sort_by_key(|&(a, b)| (canon[a.0 as usize].min(canon[b.0 as usize]), a.0));
         c.selfs.sort_by_key(|d| (canon[d.0 as usize], d.0));

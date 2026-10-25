@@ -29,11 +29,11 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::sync::{Arc, OnceLock};
 
+use analog::base::{DeviceKind, LayerId, Macro, Process};
 use arcstr::ArcStr;
 use gds::GdsUnits;
 use gdsconv::GdsLayer;
 use layir::{Cell, Element, Instance, LibraryBuilder, Text};
-use analog::base::{DeviceKind, LayerId, Macro, Process};
 use rust_decimal::Decimal;
 use spice::Spice;
 use substrate::block::Block;
@@ -317,9 +317,8 @@ pub const GDS_UNITS: GdsUnits = GdsUnits::new(1e-3, 1e-9);
 pub fn to_gds<P: PhilisPdk>(lib: &layir::Library<<P as layout::schema::Schema>::Layer>) -> (layir::Library<GdsLayer>, GdsUnits) {
     let deck = P::deck();
     let table = deck.layer_gds();
-    let label = |g: GdsLayer| {
-        table.iter().position(|&pair| pair == (g.0, g.1)).and_then(|id| deck.label_gds(id as u16)).map_or(g, |(l, d)| GdsLayer(l, d))
-    };
+    let label =
+        |g: GdsLayer| table.iter().position(|&pair| pair == (g.0, g.1)).and_then(|id| deck.label_gds(id as u16)).map_or(g, |(l, d)| GdsLayer(l, d));
     let mut out = LibraryBuilder::<GdsLayer>::new();
     for id in lib.topological_order() {
         let cell = lib.cell(id);
@@ -338,7 +337,11 @@ pub fn to_gds<P: PhilisPdk>(lib: &layir::Library<<P as layout::schema::Schema>::
                 Element::Text(_) => None,
             }) {
                 let c = s.bbox_rect().center();
-                oport.add_element(Element::Text(Text::with_transformation(label(P::gds(s.layer())), name.clone(), Transformation::translate(c.x, c.y))));
+                oport.add_element(Element::Text(Text::with_transformation(
+                    label(P::gds(s.layer())),
+                    name.clone(),
+                    Transformation::translate(c.x, c.y),
+                )));
             }
             ocell.add_port(name, oport);
         }

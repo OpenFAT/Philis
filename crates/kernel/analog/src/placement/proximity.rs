@@ -58,8 +58,8 @@ impl Rule for Proximity {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rule::RuleBatch;
     use crate::base::ids::{DeviceId, GroupId};
+    use crate::rule::RuleBatch;
 
     /// Device ids in `(a, b)` order; a `Group` side contributes nothing.
     #[test]

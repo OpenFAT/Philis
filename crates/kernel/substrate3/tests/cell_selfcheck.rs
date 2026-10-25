@@ -21,9 +21,9 @@
 //!    comparing anything.
 //! 3. **Well-hosted.** A PMOS must sit in an nwell that encloses its diffusion.
 
-use analog::cell::{SeriesParallel, Unitization};
-use substrate3::cells::{Cell, mosfet::Mosfet};
 use analog::base::{DeviceGroup, DeviceId, DeviceKind, Macro, Rect, Shape};
+use analog::cell::{SeriesParallel, Unitization};
+use substrate3::cells::{mosfet::Mosfet, Cell};
 
 /// The sky130 PDK the benchmarks use (built in: a broken one fails).
 fn pdk() -> Option<verify::Pdk> {
@@ -48,7 +48,10 @@ fn group_of(kind: DeviceKind, n: usize, nf: u16, dummy_required: bool) -> (Devic
         series_parallel: SeriesParallel::Parallel,
         dummy_required,
         route_matching_required: false,
-        class: None, kind: None, series: Vec::new(), style: None,
+        class: None,
+        kind: None,
+        series: Vec::new(),
+        style: None,
     });
     (group, c)
 }
@@ -64,10 +67,7 @@ fn variants(kind: DeviceKind, n: usize, nf: u16, pdk: &verify::Pdk) -> Vec<(Stri
     for dummy_required in [false, true] {
         let (group, c) = group_of(kind, n, nf, dummy_required);
         out.extend(Mosfet::enumerate(&group, &c, pdk).into_iter().map(|v| {
-            let label = format!(
-                "{kind:?} n={n} nf={} dummies={} {:?}",
-                v.nf, v.dummies_per_edge, v.style
-            );
+            let label = format!("{kind:?} n={n} nf={} dummies={} {:?}", v.nf, v.dummies_per_edge, v.style);
             (label, v.draw(&group, &c, pdk))
         }));
     }
@@ -97,10 +97,7 @@ fn on_layer<'a>(m: &'a Macro, pdk: &verify::Pdk, name: &str) -> Vec<&'a Shape> {
 }
 
 fn covers(outer: &Rect, inner: &Rect) -> bool {
-    outer.x <= inner.x
-        && outer.y <= inner.y
-        && outer.x + outer.w >= inner.x + inner.w
-        && outer.y + outer.h >= inner.y + inner.h
+    outer.x <= inner.x && outer.y <= inner.y && outer.x + outer.w >= inner.x + inner.w && outer.y + outer.h >= inner.y + inner.h
 }
 
 /// Does `cover` (any of them) fully contain `r`?
@@ -132,7 +129,10 @@ fn every_mos_terminal_s_pin_shares_sum_to_one() {
                 assert!((sum - 1.0).abs() < 1e-6, "{label}: {name} pins carry {sum} of the terminal");
                 for s in mine {
                     let touched = s * fingers;
-                    assert!((touched - 1.0).abs() < 1e-6 || (touched - 2.0).abs() < 1e-6, "{label}: a {name} region touches {touched} of {fingers} fingers");
+                    assert!(
+                        (touched - 1.0).abs() < 1e-6 || (touched - 2.0).abs() < 1e-6,
+                        "{label}: a {name} region touches {touched} of {fingers} fingers"
+                    );
                 }
             }
         }
@@ -178,10 +178,7 @@ fn a_mosfet_channel_carries_its_type_implant() {
 
         let nsdm = on_layer(&m, &pdk, "nsdm");
         let psdm = on_layer(&m, &pdk, "psdm");
-        assert!(
-            !nsdm.is_empty() || !psdm.is_empty(),
-            "{label}: a MOSFET must draw an implant layer (nsdm/psdm)"
-        );
+        assert!(!nsdm.is_empty() || !psdm.is_empty(), "{label}: a MOSFET must draw an implant layer (nsdm/psdm)");
 
         // Every diffusion rectangle that a poly stripe crosses is a channel, and
         // each one needs implant cover.
@@ -223,10 +220,7 @@ fn every_variant_extracts_unambiguously() {
     // into how many devices is LVS's job, not the generator's.
     let mut checker = verify::Checker::new(&pdk, false).expect("deck loads");
     for (label, m) in all_variants(&pdk) {
-        assert!(
-            checker.device_count(&m.shapes).is_some(),
-            "{label}: a device must extract without aborting"
-        );
+        assert!(checker.device_count(&m.shapes).is_some(), "{label}: a device must extract without aborting");
     }
 }
 
@@ -244,11 +238,7 @@ fn a_pmos_sits_in_a_well_that_encloses_its_diffusion() {
             let nwell = on_layer(&m, &pdk, "nwell");
             assert!(!nwell.is_empty(), "{label}: a PMOS must draw an nwell");
             for d in on_layer(&m, &pdk, "diff") {
-                assert!(
-                    any_covers(&nwell, &d.rect),
-                    "{label}: diffusion {:?} is not enclosed by any nwell rectangle",
-                    d.rect
-                );
+                assert!(any_covers(&nwell, &d.rect), "{label}: diffusion {:?} is not enclosed by any nwell rectangle", d.rect);
             }
         }
     }
@@ -285,10 +275,7 @@ fn every_half_extent_is_on_the_cut_lattice() {
     let bad: Vec<_> = all_variants(&pdk)
         .into_iter()
         .filter_map(|(name, m)| {
-            let off = (m.bbox.w / 2) % 10 != 0
-                || (m.bbox.h / 2) % 10 != 0
-                || m.bbox.x % 10 != 0
-                || m.bbox.y % 10 != 0;
+            let off = (m.bbox.w / 2) % 10 != 0 || (m.bbox.h / 2) % 10 != 0 || m.bbox.x % 10 != 0 || m.bbox.y % 10 != 0;
             off.then_some(name)
         })
         .collect();
@@ -318,7 +305,6 @@ fn a_bipolar_draws_its_well_only_as_its_construction() {
     }
 }
 
-
 /// The MOS generator on every deck: its process numbers come from the deck,
 /// so no variant may be clean only on the one it was written against.
 ///
@@ -334,11 +320,18 @@ fn the_mosfet_is_clean_on_every_deck() {
         // A fin deck draws its MOS with the FinFET generator (`cellgen`).
         let fin = analog::base::Process::layer(&pdk, "fin").is_some();
         let check_mos = |kind, n, nf, w, l, pdk: &verify::Pdk, sp| {
-            if fin { check::<substrate3::cells::finfet::FinFet>(deck, kind, n, nf, w, l, pdk, sp) } else { check::<Mosfet>(deck, kind, n, nf, w, l, pdk, sp) }
+            if fin {
+                check::<substrate3::cells::finfet::FinFet>(deck, kind, n, nf, w, l, pdk, sp)
+            } else {
+                check::<Mosfet>(deck, kind, n, nf, w, l, pdk, sp)
+            }
         };
         for kind in [DeviceKind::Nmos, DeviceKind::Pmos] {
             // The widest finger the deck allows (the flow folds to it).
-            let wide = pdk.p2p_max_ohm().zip(analog::base::Process::sheet_ohm(&pdk, "poly")).map_or(10_000, |(r, sq)| ((0.55 * r / sq * 500.0) as i32).min(10_000));
+            let wide = pdk
+                .p2p_max_ohm()
+                .zip(analog::base::Process::sheet_ohm(&pdk, "poly"))
+                .map_or(10_000, |(r, sq)| ((0.55 * r / sq * 500.0) as i32).min(10_000));
             for (n, nf, w, l) in [(1usize, 1u16, 1680, 500), (2, 2, 1680, 500), (2, 2, 5000, 1000), (1, 2, wide, 500)] {
                 dirty.extend(check_mos(kind, n, nf, w, l, &pdk, SeriesParallel::Parallel).into_iter().map(|d| format!("{deck} {d}")));
             }
@@ -369,7 +362,12 @@ fn every_generator_is_clean_on_every_deck() {
             }
         }
         // Every resistor recipe, drawn as the flow draws it.
-        let recipes: Vec<String> = pdk.cell.get("resistors").and_then(|r| r.get("recipes")).and_then(|r| r.as_object()).map_or(Vec::new(), |o| o.values().filter_map(|v| v.get("model")?.as_str().map(String::from)).collect());
+        let recipes: Vec<String> = pdk
+            .cell
+            .get("resistors")
+            .and_then(|r| r.get("recipes"))
+            .and_then(|r| r.as_object())
+            .map_or(Vec::new(), |o| o.values().filter_map(|v| v.get("model")?.as_str().map(String::from)).collect());
         for model in recipes {
             let ov = verify::pdk::Overlay { pdk: &pdk, recipe: pdk.recipe("resistor", &model).expect("recipe") };
             // A precision body (sky130 rpm.1b) draws only at a deck width:
@@ -397,7 +395,10 @@ fn every_generator_is_clean_on_every_deck() {
         }
         // Every PNP recipe, drawn as its fixed foundry cell (sky130 offers a
         // PNP no other way: x.25).
-        let recipes: Vec<String> = pdk.cell.get("bjts").and_then(|r| r.get("recipes")).and_then(|r| r.as_object()).map_or(Vec::new(), |o| o.values().filter_map(|v| v.get("model")?.as_str().map(String::from)).filter(|m| m.contains("pnp")).collect());
+        let recipes: Vec<String> =
+            pdk.cell.get("bjts").and_then(|r| r.get("recipes")).and_then(|r| r.as_object()).map_or(Vec::new(), |o| {
+                o.values().filter_map(|v| v.get("model")?.as_str().map(String::from)).filter(|m| m.contains("pnp")).collect()
+            });
         for model in recipes {
             let ov = verify::pdk::Overlay { pdk: &pdk, recipe: pdk.recipe("bjt", &model).expect("recipe") };
             add(&format!("bjt {model}"), check_on::<Bjt>(deck, DeviceKind::Pnp, vec![1, 8], 5000, 5000, &ov, SeriesParallel::Parallel));
@@ -438,7 +439,10 @@ fn sized(kind: DeviceKind, dev_nf: Vec<u16>, w: i32, l: i32, series_parallel: Se
         series_parallel,
         dummy_required: true,
         route_matching_required: false,
-        class: None, kind: None, series: Vec::new(), style: None,
+        class: None,
+        kind: None,
+        series: Vec::new(),
+        style: None,
     });
     (group, c)
 }
@@ -451,7 +455,9 @@ fn sized(kind: DeviceKind, dev_nf: Vec<u16>, w: i32, l: i32, series_parallel: Se
 /// MOS on a fin deck, `CapArray` before `Capacitor`.
 #[test]
 fn every_generator_enumerates_on_every_deck() {
-    use substrate3::cells::{bjt::Bjt, cap_array::CapArray, capacitor::Capacitor, diode::Diode, finfet::FinFet, inductor::Inductor, resistor::Resistor};
+    use substrate3::cells::{
+        bjt::Bjt, cap_array::CapArray, capacitor::Capacitor, diode::Diode, finfet::FinFet, inductor::Inductor, resistor::Resistor,
+    };
     let count = |kind, w, l, pdk: &verify::Pdk| -> usize {
         let (g, c) = sized(kind, vec![1], w, l, SeriesParallel::Parallel);
         let fin = analog::base::Process::layer(pdk, "fin").is_some();
@@ -495,12 +501,29 @@ fn every_generator_enumerates_on_every_deck() {
 /// DRC/ERC findings of every variant of a `n`-member group (dummies on),
 /// density and a lone cell's `floating_gate` excepted.
 #[cfg(not(debug_assertions))]
-fn check<G: Cell>(deck: &str, kind: DeviceKind, n: usize, nf: u16, w: i32, l: i32, pdk: &verify::Pdk, series_parallel: SeriesParallel) -> Vec<String> {
+fn check<G: Cell>(
+    deck: &str,
+    kind: DeviceKind,
+    n: usize,
+    nf: u16,
+    w: i32,
+    l: i32,
+    pdk: &verify::Pdk,
+    series_parallel: SeriesParallel,
+) -> Vec<String> {
     check_nf::<G>(deck, kind, vec![nf; n], w, l, pdk, series_parallel)
 }
 
 #[cfg(not(debug_assertions))]
-fn check_nf<G: Cell>(deck: &str, kind: DeviceKind, dev_nf: Vec<u16>, w: i32, l: i32, pdk: &verify::Pdk, series_parallel: SeriesParallel) -> Vec<String> {
+fn check_nf<G: Cell>(
+    deck: &str,
+    kind: DeviceKind,
+    dev_nf: Vec<u16>,
+    w: i32,
+    l: i32,
+    pdk: &verify::Pdk,
+    series_parallel: SeriesParallel,
+) -> Vec<String> {
     check_on::<G>(deck, kind, dev_nf, w, l, pdk, series_parallel)
 }
 
@@ -509,7 +532,15 @@ fn check_nf<G: Cell>(deck: &str, kind: DeviceKind, dev_nf: Vec<u16>, w: i32, l: 
 /// [`UNDRAWABLE`] lists `(deck, kind)`: a generator that draws nothing
 /// has nothing dirty, and would otherwise read clean.
 #[cfg(not(debug_assertions))]
-fn check_on<G: Cell>(deck: &str, kind: DeviceKind, dev_nf: Vec<u16>, w: i32, l: i32, view: &dyn Checked, series_parallel: SeriesParallel) -> Vec<String> {
+fn check_on<G: Cell>(
+    deck: &str,
+    kind: DeviceKind,
+    dev_nf: Vec<u16>,
+    w: i32,
+    l: i32,
+    view: &dyn Checked,
+    series_parallel: SeriesParallel,
+) -> Vec<String> {
     let (process, pdk) = (view.process(), view.deck());
     let (n, nf) = (dev_nf.len(), dev_nf[0]);
     let (group, c) = sized(kind, dev_nf, w, l, series_parallel);

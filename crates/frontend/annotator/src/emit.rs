@@ -31,15 +31,15 @@
 //! Matching and thermal budgets come from the netlist's areas and the deck's
 //! mismatch data; without them the documented fallbacks apply.
 
+use analog::base::ids::{BranchId, DeviceId, Target};
+use analog::base::layout::Layout;
+use analog::base::{DeviceKind, Netlist};
 use analog::intent::{ClassSource, Intent, MatchSpec};
 use analog::matching::class::{self, phi_arm, Family, MatchClass};
 use analog::matching::mismatch::{self, Budget, Coeffs};
 use analog::placement::symmetry::SymmetryGroup;
 use analog::placement::{DtiBand, Isolation, MatchedSet, OrientCheck, OrientationSet, Proximity, SubstrateBalance, SymMode, Symmetry};
 use analog::Requirements;
-use analog::base::ids::{BranchId, DeviceId, Target};
-use analog::base::layout::Layout;
-use analog::base::{DeviceKind, Netlist};
 
 use crate::block::{leaves, Block, BlockKind};
 use crate::size::Drawn;
@@ -156,7 +156,11 @@ pub fn placement(
         (Some((sa, ia)), Some((sb, ib))) if sa == sb => {
             let s = &intent.sets[sa];
             let m = |i: usize| (s.members[i].parallel, s.members[i].series);
-            if s.unit.is_some() { m(ia) == m(ib) } else { geom(a) == geom(b) }
+            if s.unit.is_some() {
+                m(ia) == m(ib)
+            } else {
+                geom(a) == geom(b)
+            }
         }
         _ => false,
     };
@@ -187,7 +191,16 @@ pub fn placement(
         }
         let areas = members.iter().map(|&d| area_um2(nl, drawn, d)).collect();
         let tol_nm = p.lattice_nm.max(1) as f32 / 2.0;
-        let set = MatchedSet::for_family(members.clone(), s.family, s.kind, s.class, coeffs(nl, p, members[0], s.family), set_budget(s, offset_sigma_mv), areas, tol_nm);
+        let set = MatchedSet::for_family(
+            members.clone(),
+            s.family,
+            s.kind,
+            s.class,
+            coeffs(nl, p, members[0], s.family),
+            set_budget(s, offset_sigma_mv),
+            areas,
+            tol_nm,
+        );
         r.budget.push(Box::new(set.clone()));
         r.cost.push(Box::new(set));
         if matches!(s.family, Family::Mos | Family::Bipolar) && members.len() >= 2 {
@@ -214,7 +227,9 @@ pub fn placement(
     }
     // A differential stage pulls each declared self (tail, shared bias) to its input pair.
     for stage in blocks {
-        let Some(dp) = leaves(std::slice::from_ref(stage)).into_iter().find(|l| l.kind == BlockKind::DiffPair && l.devices.len() == 2) else { continue };
+        let Some(dp) = leaves(std::slice::from_ref(stage)).into_iter().find(|l| l.kind == BlockKind::DiffPair && l.devices.len() == 2) else {
+            continue;
+        };
         for &d in &stage.selfs {
             let tail = vec![prox(d, dp.devices[0]), prox(d, dp.devices[1])];
             r.budget.push(Box::new(tail.clone()));
@@ -289,9 +304,7 @@ pub fn isolation(
     let dev = |d: usize| Target::Device(DeviceId(d as u16));
     let rules: Vec<Isolation> = (0..n)
         .filter(|&a| aggressor[a])
-        .flat_map(|a| {
-            (0..n).filter(move |&v| victim[v] && !related(a, v)).map(move |v| Isolation { a: dev(a), b: dev(v), min_distance_nm })
-        })
+        .flat_map(|a| (0..n).filter(move |&v| victim[v] && !related(a, v)).map(move |v| Isolation { a: dev(a), b: dev(v), min_distance_nm }))
         .collect();
     if rules.is_empty() {
         return None;
@@ -313,9 +326,11 @@ pub fn substrate_balance(aggressor: &[bool], blocks: &[Block], block_of: &[usize
         .filter(|l| l.kind == BlockKind::DiffPair && l.devices.len() == 2)
         .flat_map(|l| {
             let (a, b) = (l.devices[0].0 as usize, l.devices[1].0 as usize);
-            (0..aggressor.len())
-                .filter(move |&g| aggressor[g] && block_of[g] != block_of[a])
-                .map(move |g| SubstrateBalance { aggressor: dev(g), a: dev(a), b: dev(b) })
+            (0..aggressor.len()).filter(move |&g| aggressor[g] && block_of[g] != block_of[a]).map(move |g| SubstrateBalance {
+                aggressor: dev(g),
+                a: dev(a),
+                b: dev(b),
+            })
         })
         .collect();
     if !rules.is_empty() {
@@ -392,7 +407,11 @@ mod tests {
         assert!(ok(hi) && !ok(lo));
         while hi - lo > 1 {
             let mid = (lo + hi) / 2;
-            if ok(mid) { hi = mid } else { lo = mid }
+            if ok(mid) {
+                hi = mid
+            } else {
+                lo = mid
+            }
         }
         hi
     }

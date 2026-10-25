@@ -44,7 +44,11 @@ impl Shield {
             .filter(|s| s.rect.w.max(s.rect.h) >= RUN_ASPECT * s.rect.w.min(s.rect.h))
             .map(|s| {
                 let q = s.rect;
-                if q.w > q.h { (s.layer.0, true, q.y, q.y + q.h, q.x, q.x + q.w) } else { (s.layer.0, false, q.x, q.x + q.w, q.y, q.y + q.h) }
+                if q.w > q.h {
+                    (s.layer.0, true, q.y, q.y + q.h, q.x, q.x + q.w)
+                } else {
+                    (s.layer.0, false, q.x, q.x + q.w, q.y, q.y + q.h)
+                }
             })
             .collect();
         runs.sort_unstable();
@@ -97,7 +101,11 @@ pub(crate) fn intersection_len(p: &[(i32, i32)], q: &[(i32, i32)]) -> i64 {
     while i < p.len() && j < q.len() {
         let (a, b) = (p[i].0.max(q[j].0), p[i].1.min(q[j].1));
         len += i64::from((b - a).max(0));
-        if p[i].1 < q[j].1 { i += 1 } else { j += 1 }
+        if p[i].1 < q[j].1 {
+            i += 1
+        } else {
+            j += 1
+        }
     }
     len
 }
@@ -156,21 +164,21 @@ mod tests {
     #[test]
     fn coverage_needs_both_sides_along_the_run() {
         // Victim 10 µm at y=1000; reference tracks 140 nm away above and below.
-        let full = Routes { wires: vec![vec![h(1_000, 0, 10_000)], vec![h(720, 0, 10_000), h(1_280, 0, 10_000)]], ..Default::default()  };
+        let full = Routes { wires: vec![vec![h(1_000, 0, 10_000)], vec![h(720, 0, 10_000), h(1_280, 0, 10_000)]], ..Default::default() };
         assert!((rule().coverage(&full).unwrap() - 1.0).abs() < 1e-6);
         assert!(rule().satisfied(&full));
         // One side only: not a shield.
-        let one = Routes { wires: vec![vec![h(1_000, 0, 10_000)], vec![h(720, 0, 10_000)]], ..Default::default()  };
+        let one = Routes { wires: vec![vec![h(1_000, 0, 10_000)], vec![h(720, 0, 10_000)]], ..Default::default() };
         assert_eq!(rule().coverage(&one), Some(0.0));
         assert!(!rule().satisfied(&one));
         // Both sides over half the run: 50%, residual (0.8 − 0.5)/0.8.
-        let half = Routes { wires: vec![vec![h(1_000, 0, 10_000)], vec![h(720, 0, 5_000), h(1_280, 0, 5_000)]], ..Default::default()  };
+        let half = Routes { wires: vec![vec![h(1_000, 0, 10_000)], vec![h(720, 0, 5_000), h(1_280, 0, 5_000)]], ..Default::default() };
         assert!((rule().residual(&half) - 0.375).abs() < 1e-5);
         // Too far to shield.
-        let far = Routes { wires: vec![vec![h(1_000, 0, 10_000)], vec![h(400, 0, 10_000), h(1_600, 0, 10_000)]], ..Default::default()  };
+        let far = Routes { wires: vec![vec![h(1_000, 0, 10_000)], vec![h(400, 0, 10_000), h(1_600, 0, 10_000)]], ..Default::default() };
         assert_eq!(rule().coverage(&far), Some(0.0));
         // Unrouted victim: unknown.
-        assert!(!rule().known(&Routes { wires: vec![vec![], vec![]], ..Default::default()  }));
+        assert!(!rule().known(&Routes { wires: vec![vec![], vec![]], ..Default::default() }));
     }
 
     #[test]

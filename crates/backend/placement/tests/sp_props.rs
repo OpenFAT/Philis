@@ -1,10 +1,10 @@
 //! PLC-08 property tests over random symmetric-feasible codes (run in release:
 //! 10,000 trees).
 
+use analog::base::DeviceId;
 use placement::dp::sp::{decode, verify, Geo, Kid, Out, Scratch, Tree};
 use placement::gp::mechanics::SplitMix64;
 use placement::gp::spacing::SpacingTable;
-use analog::base::DeviceId;
 
 struct Case {
     t: Tree,
@@ -39,8 +39,7 @@ fn case(rng: &mut SplitMix64, block: bool) -> Case {
     let mut blocks = Vec::new();
     if block {
         let with_sym = rng.below(2) == 0;
-        let blk: Vec<DeviceId> =
-            (0..n).filter(|&c| if c < 2 * p + s { with_sym } else { rng.below(2) == 0 }).map(|c| DeviceId(c as u16)).collect();
+        let blk: Vec<DeviceId> = (0..n).filter(|&c| if c < 2 * p + s { with_sym } else { rng.below(2) == 0 }).map(|c| DeviceId(c as u16)).collect();
         blocks = vec![blk, Vec::new()];
     }
     let (mut t, errs) = Tree::build(n, &pairs, &blocks);
@@ -249,8 +248,8 @@ fn asymmetric_push_runs_fix_monotone() {
 /// column gap with cell 1 above cell 0 carries it.
 #[test]
 fn halo_follows_the_orient() {
-    use placement::gp::spacing::oriented_faces;
     use analog::base::Orient;
+    use placement::gp::spacing::oriented_faces;
     let (w, h) = (vec![1000, 1000], vec![1000, 1000]);
     let prof = vec![None; 2];
     let table = SpacingTable::uniform(100, 10);

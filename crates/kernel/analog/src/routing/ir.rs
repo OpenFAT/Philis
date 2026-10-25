@@ -1,9 +1,9 @@
 //! DC IR drop along a current-carrying net (routing tier, budget).
 
+use super::Stack;
 use crate::base::ids::NetId;
 use crate::base::routes::Routes;
 use crate::rule::Rule;
-use super::Stack;
 
 /// The drop a net's routing adds stays within `max_drop_uv` (PWR-02;
 /// Lampaert 1999 eq. 2.33 as `R ≤ ΔV_max / I`). With every terminal current
@@ -76,9 +76,9 @@ impl Rule for IrDrop {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::routing::stack::Layer;
     use crate::base::geom::{LayerId, Rect, Shape};
     use crate::base::routes::Terminal;
+    use crate::routing::stack::Layer;
 
     /// 1 mA through 20 □ of 0.125 Ω/□ (2.5 Ω) plus a 4.5 Ω cut drops 7 mV.
     #[test]
@@ -86,7 +86,7 @@ mod tests {
         let stack: &'static Stack = Box::leak(Box::new(Stack {
             layers: vec![Layer { id: 1, sheet_ohm: 0.125, ..Layer::default() }, Layer { id: 2, sheet_ohm: 4.5, cut: true, ..Layer::default() }],
             antenna_cumulative: false,
-        diode: None,
+            diode: None,
         }));
         let r = Routes {
             wires: vec![vec![

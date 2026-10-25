@@ -69,11 +69,7 @@ pub struct RefInput {
 ///
 /// # Errors
 /// A device whose terminals are fewer than its recogniser's arity.
-pub fn build(
-    input: &RefInput,
-    deck: &Deck,
-    strings: &mut StrTable,
-) -> Result<(Netlist, Vec<usize>), String> {
+pub fn build(input: &RefInput, deck: &Deck, strings: &mut StrTable) -> Result<(Netlist, Vec<usize>), String> {
     let mut n = Netlist::default();
     n.subckt_name.push(strings.intern("top"));
 
@@ -106,8 +102,7 @@ pub fn build(
             skipped.push(index);
             continue;
         };
-        let arity = (deck.devices.terminal_start[row + 1] - deck.devices.terminal_start[row])
-            as usize;
+        let arity = (deck.devices.terminal_start[row + 1] - deck.devices.terminal_start[row]) as usize;
         if dev.terminals.len() < arity {
             return Err(format!(
                 "reference device {index} ({:?}) states {} terminals, its deck recogniser \
@@ -135,11 +130,7 @@ pub fn build(
     n.net_subckt = vec![SubcktId(0); n.net_name.len()];
 
     debug_assert_eq!(n.subckt_count(), 1);
-    debug_assert_eq!(
-        n.device_param_start.last().copied().unwrap_or(0) as usize,
-        n.param.len(),
-        "the param CSR's terminator and its rows disagree"
-    );
+    debug_assert_eq!(n.device_param_start.last().copied().unwrap_or(0) as usize, n.param.len(), "the param CSR's terminator and its rows disagree");
     Ok((n, skipped))
 }
 

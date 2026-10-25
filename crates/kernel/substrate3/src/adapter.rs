@@ -2,10 +2,10 @@
 //! unitization it reads its sizing from, draw the variants `pick` accepts
 //! (all of them if none is accepted), keep the smallest.
 
-use analog::cell::{SeriesParallel, Unitization};
-use analog::Constraints;
 use crate::cells::Cell;
 use analog::base::{DeviceGroup, DeviceId, DeviceKind, Macro, Process, Rect};
+use analog::cell::{SeriesParallel, Unitization};
+use analog::Constraints;
 
 /// Draw `dev_nf.len()` devices of `kind` at unit `w`×`l`, `dev_nf[i]`
 /// fingers/units each, as one macro with `d{i}:` pins; `dummies` asks for the
@@ -36,15 +36,22 @@ pub(crate) fn draw<G: Cell>(
             series_parallel,
             dummy_required: dummies,
             route_matching_required: false,
-            class: None, kind: None, series: Vec::new(), style: None,
+            class: None,
+            kind: None,
+            series: Vec::new(),
+            style: None,
         }],
         ..Constraints::default()
     };
     let all = G::enumerate(&group, &c, process);
     let picked: Vec<&G> = all.iter().filter(|v| pick(v)).collect();
     let pool = if picked.is_empty() { all.iter().collect() } else { picked };
-    pool.into_iter()
-        .map(|v| v.draw(&group, &c, process))
-        .min_by_key(|m| i64::from(m.bbox.w) * i64::from(m.bbox.h))
-        .unwrap_or(Macro { shapes: Vec::new(), pins: Vec::new(), bbox: Rect { x: 0, y: 0, w: 0, h: 0 }, units: Vec::new(), dummies: Vec::new(), ..Default::default() })
+    pool.into_iter().map(|v| v.draw(&group, &c, process)).min_by_key(|m| i64::from(m.bbox.w) * i64::from(m.bbox.h)).unwrap_or(Macro {
+        shapes: Vec::new(),
+        pins: Vec::new(),
+        bbox: Rect { x: 0, y: 0, w: 0, h: 0 },
+        units: Vec::new(),
+        dummies: Vec::new(),
+        ..Default::default()
+    })
 }

@@ -3,10 +3,10 @@
 //! `rpoly`, with long contacted heads, all under rpm + npc + psdm.
 
 use crate::cells::builder::dim;
+use analog::base::{DeviceGroup, Drawn, DrawnKind, Macro, MatchClass, Node, Process, Rect};
 use analog::cell::SeriesParallel;
 use analog::matching::{class::resistor_env, pattern::segment_row};
 use analog::Constraints;
-use analog::base::{DeviceGroup, Drawn, DrawnKind, Macro, MatchClass, Node, Process, Rect};
 
 use crate::cells::builder::{cut_lattice, pin, req, sizing, snap_cut, unitization, Builder, Sizing};
 use crate::cells::{Cell, Pattern};
@@ -122,11 +122,7 @@ fn strings(group: &DeviceGroup, c: &Constraints, s: &Sizing) -> Vec<usize> {
 fn series_counts(group: &DeviceGroup, c: &Constraints) -> Option<Vec<u16>> {
     let u = unitization(group, c).filter(|u| u.series_parallel == SeriesParallel::Series && !u.series.is_empty())?;
     (group.devices.len() >= 2).then(|| {
-        group
-            .devices
-            .iter()
-            .map(|d| u.devices.iter().position(|x| x == d).and_then(|i| u.series.get(i)).copied().unwrap_or(1).max(1))
-            .collect()
+        group.devices.iter().map(|d| u.devices.iter().position(|x| x == d).and_then(|i| u.series.get(i)).copied().unwrap_or(1).max(1)).collect()
     })
 }
 
@@ -201,19 +197,13 @@ impl Cell for Resistor {
             }
             return out;
         }
-        let patterns = if group.devices.len() > 1 {
-            vec![Pattern::Single, Pattern::Interdig]
-        } else {
-            vec![Pattern::Single]
-        };
+        let patterns = if group.devices.len() > 1 { vec![Pattern::Single, Pattern::Interdig] } else { vec![Pattern::Single] };
         // A sequence with a non-adjacent join puts every join on met1, one
         // track per string inside the heads: as many strings as tracks fit.
         let n_strings: usize = strings(group, constraints, &s).iter().sum();
         feasible_segments(s.unit_w, s.unit_l, process)
             .into_iter()
-            .flat_map(|segments| {
-                patterns.iter().map(move |&pattern| Resistor { segments, pattern })
-            })
+            .flat_map(|segments| patterns.iter().map(move |&pattern| Resistor { segments, pattern }))
             .filter(|r| !(n_strings > tracks && far_join(&res_segment_sequence(&vec![r.segments; n_strings], r.pattern))))
             .collect()
     }
@@ -297,17 +287,9 @@ impl Cell for Resistor {
 
         // Contact column of a head, outer end first (the top head mirrors it).
         let cut_x = snap_cut(body_w / 2 - cw / 2, lat);
-        let cut_ys: Vec<i32> = (0..)
-            .map(|k| border + k * (ch + cut_space))
-            .take_while(|&y| y + ch + inner <= head_li_h)
-            .collect();
+        let cut_ys: Vec<i32> = (0..).map(|k| border + k * (ch + cut_space)).take_while(|&y| y + ch + inner <= head_li_h).collect();
         // The outermost cut of a head: where the pins land.
-        let end_cut = |sx: i32, top: bool, total_h: i32| Rect {
-            x: sx + cut_x,
-            y: if top { total_h - border - ch } else { border },
-            w: cw,
-            h: ch,
-        };
+        let end_cut = |sx: i32, top: bool, total_h: i32| Rect { x: sx + cut_x, y: if top { total_h - border - ch } else { border }, w: cw, h: ch };
 
         let mut seg_of = vec![0i32; owner.len()];
         // Per string, the column x of its previous segment.
@@ -377,7 +359,14 @@ impl Cell for Resistor {
                 k if k == n_d => Node::Pin("N"),
                 k => Node::Internal((j as i32 * n_d + k) as u16),
             };
-            b.drawn(Drawn { owner: di as u8, device: None, kind: DrawnKind::Resistor, nodes: [node(seg), node(seg + 1), Node::Unused], w: body_w, l: seg_l });
+            b.drawn(Drawn {
+                owner: di as u8,
+                device: None,
+                kind: DrawnKind::Resistor,
+                nodes: [node(seg), node(seg + 1), Node::Unused],
+                w: body_w,
+                l: seg_l,
+            });
             prev[g] = Some(sx);
             if seg == n_d - 1 {
                 b.pin(pin(di, "N", end_cut(sx, !enters_top, total_h), li));
@@ -458,7 +447,9 @@ impl Cell for Resistor {
         }
         if let Some(imp) = process.layer("res_implant") {
             // The implant past the resistor's poly, the deck's.
-            let keep = r("res_keepout", 0).max(process.enclosure("res_implant", "rpoly").unwrap_or(0)).max(process.enclosure("res_implant", "poly").unwrap_or(0));
+            let keep = r("res_keepout", 0)
+                .max(process.enclosure("res_implant", "rpoly").unwrap_or(0))
+                .max(process.enclosure("res_implant", "poly").unwrap_or(0));
             // ...and past the rpm it dopes (sky130 rpm.4).
             let ri = process.enclosure("res_implant", "rpm").unwrap_or(0);
             let (x0, x1) = ((rpm_rect.x - ri).min(lo - keep), (rpm_rect.x + rpm_w + ri).max(hi + keep));
@@ -506,9 +497,9 @@ fn jumper_tracks(process: &dyn Process, head: i32) -> Vec<i32> {
     let lat = cut_lattice(process);
     let (ct, m_ct, m_enc) = (dim(process, "contact"), dim(process, "mcon_size"), dim(process, "m1_enc"));
     let border = r("poly_encloses_licon_one_side", 0)
-            .max(process.enclosure("poly", "licon").unwrap_or(0))
-            .max(process.endcap("poly", "licon").unwrap_or(0))
-            .max(process.endcap("li", "licon").unwrap_or(0));
+        .max(process.enclosure("poly", "licon").unwrap_or(0))
+        .max(process.endcap("poly", "licon").unwrap_or(0))
+        .max(process.endcap("li", "licon").unwrap_or(0));
     let head_li_h = head - LAP;
     let pitch = m_ct + 2 * m_enc + dim(process, "met1_space");
     let first = snap_cut(border + ct + (m_ct + 2 * m_enc) + dim(process, "met1_space") + lat - 1, lat);
@@ -556,9 +547,9 @@ const LAP: i32 = 0;
 fn head_len(process: &dyn Process) -> i32 {
     let r = |name: &str, default: i32| process.rule(name, default);
     let border = r("poly_encloses_licon_one_side", 0)
-            .max(process.enclosure("poly", "licon").unwrap_or(0))
-            .max(process.endcap("poly", "licon").unwrap_or(0))
-            .max(process.endcap("li", "licon").unwrap_or(0));
+        .max(process.enclosure("poly", "licon").unwrap_or(0))
+        .max(process.endcap("poly", "licon").unwrap_or(0))
+        .max(process.endcap("li", "licon").unwrap_or(0));
     let inner = border
         .max(process.space_between("rpoly", "licon").unwrap_or(0))
         .max(process.space_between("rpoly_b", "licon").unwrap_or(0))
@@ -801,7 +792,8 @@ mod tests {
                 Node::Internal(k) => Some(usize::from(*k) / n),
                 _ => None,
             });
-            *out.entry((d.owner, if n == 1 { i } else { j.expect("a segmented string's card has an internal node") })).or_insert(0.0) += model.ohm(d.w, d.l);
+            *out.entry((d.owner, if n == 1 { i } else { j.expect("a segmented string's card has an internal node") })).or_insert(0.0) +=
+                model.ohm(d.w, d.l);
         }
         out
     }

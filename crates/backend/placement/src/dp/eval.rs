@@ -6,9 +6,9 @@
 //! [`crate::gp::mechanics`] sums them, so a cached value is bit-identical to a full
 //! evaluation, not merely close.
 
-use analog::Requirements;
 use crate::gp::mechanics::Nets;
 use analog::base::Layout;
+use analog::Requirements;
 
 /// One batch's cached numbers: hard `(residual, 0, violations)`, budget
 /// `(residual, priced term, 0)`, cost `(criticality·cost, 0, 0)`.

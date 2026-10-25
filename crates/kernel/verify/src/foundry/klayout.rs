@@ -46,13 +46,29 @@ fn drc_deck(run: &Run) -> Result<Deck, Refused> {
         // feol/beol default to false in sky130A_mr.drc: without both it checks nothing.
         "sky130" => Deck {
             file: deck("klayout", "sky130", "sky130A_mr.drc", "KLayout DRC")?,
-            vars: vec![("input", input), ("top_cell", top), ("report", rep), ("feol", "1".into()), ("beol", "1".into()), ("offgrid", "1".into()), ("thr", thr)],
+            vars: vec![
+                ("input", input),
+                ("top_cell", top),
+                ("report", rep),
+                ("feol", "1".into()),
+                ("beol", "1".into()),
+                ("offgrid", "1".into()),
+                ("thr", thr),
+            ],
         },
         // Variant E is the 6-metal, 9 kÅ top stack pdks/gpurify/gf180mcu.deck draws.
         // Density is a chip-level check (GPurify defers it the same way).
         "gf180mcu" => Deck {
             file: deck("klayout", "gf180mcu", "drc/gf180mcu.drc", "KLayout DRC")?,
-            vars: vec![("input", input), ("topcell", top), ("report", rep), ("variant", "E".into()), ("run_mode", "deep".into()), ("threads", thr), ("decks", "all,-density".into())],
+            vars: vec![
+                ("input", input),
+                ("topcell", top),
+                ("report", rep),
+                ("variant", "E".into()),
+                ("run_mode", "deep".into()),
+                ("threads", thr),
+                ("decks", "all,-density".into()),
+            ],
         },
         // The rule values live in the PDK's pycell tech JSON, which the deck
         // otherwise looks for at ../../python/ (not vendored as a tree).
@@ -79,7 +95,8 @@ fn drc_with(run: &Run, d: &Deck) -> Result<Vec<(String, usize)>, Refused> {
     if !ok {
         return Err(crashed(d, &log));
     }
-    let xml = std::fs::read_to_string(&report).map_err(|_| refuse("foundry/run", format!("KLayout DRC wrote no report ({}):\n{}", report.display(), tail(&log, 20))))?;
+    let xml = std::fs::read_to_string(&report)
+        .map_err(|_| refuse("foundry/run", format!("KLayout DRC wrote no report ({}):\n{}", report.display(), tail(&log, 20))))?;
     Ok(parse_lyrdb(&xml))
 }
 
@@ -107,7 +124,15 @@ fn lvs_deck(run: &Run) -> Result<Deck, Refused> {
         // bulk net; with several (isolated wells) left at the default, so
         // LVS reports the difference rather than hiding it.
         "sky130" => {
-            let mut vars = vec![("input", input), ("report", rep), ("schematic", sch), ("target_netlist", ext), ("run_mode", "deep".into()), ("schematic_simplify", "true".into()), ("thr", thr)];
+            let mut vars = vec![
+                ("input", input),
+                ("report", rep),
+                ("schematic", sch),
+                ("target_netlist", ext),
+                ("run_mode", "deep".into()),
+                ("schematic_simplify", "true".into()),
+                ("thr", thr),
+            ];
             if let Some(sub) = substrate(run.reference) {
                 vars.push(("lvs_sub", sub));
             }
@@ -115,12 +140,30 @@ fn lvs_deck(run: &Run) -> Result<Deck, Refused> {
         }
         "gf180mcu" => Deck {
             file: deck("klayout", "gf180mcu", "lvs/gf180mcu.lvs", "KLayout LVS")?,
-            vars: vec![("input", input), ("report", rep), ("schematic", sch), ("target_netlist", ext), ("topcell", run.top.to_string()), ("run_mode", "deep".into()), ("metal_level", "6LM".into()), ("metal_top", "9K".into()), ("mim_option", "B".into())],
+            vars: vec![
+                ("input", input),
+                ("report", rep),
+                ("schematic", sch),
+                ("target_netlist", ext),
+                ("topcell", run.top.to_string()),
+                ("run_mode", "deep".into()),
+                ("metal_level", "6LM".into()),
+                ("metal_top", "9K".into()),
+                ("mim_option", "B".into()),
+            ],
         },
         // Taps extract as ntap1/ptap1 devices unless disabled; the reference has none.
         "ihp_sg13g2" => Deck {
             file: deck("klayout", "ihp_sg13g2", "lvs/sg13g2.lvs", "KLayout LVS")?,
-            vars: vec![("input", input), ("report", rep), ("schematic", sch), ("target_netlist", ext), ("topcell", run.top.to_string()), ("run_mode", "deep".into()), ("disable_tap_extraction", "true".into())],
+            vars: vec![
+                ("input", input),
+                ("report", rep),
+                ("schematic", sch),
+                ("target_netlist", ext),
+                ("topcell", run.top.to_string()),
+                ("run_mode", "deep".into()),
+                ("disable_tap_extraction", "true".into()),
+            ],
         },
         other => return Err(refuse("foundry/no-deck", format!("no open KLayout LVS deck exists for {other} (pdks/README.md)"))),
     };

@@ -1,9 +1,9 @@
 //! The drawing surface shared by every generator (and by `macro_master`), plus
 //! the sizing/pin helpers the generators have in common.
 
+use analog::base::{DeviceGroup, LayerId, Macro, NetId, Pin, Process, Rect, Shape};
 use analog::cell::Unitization;
 use analog::Constraints;
-use analog::base::{DeviceGroup, LayerId, Macro, NetId, Pin, Process, Rect, Shape};
 
 /// Accumulates grid-snapped rectangles and pins into a [`Macro`].
 pub struct Builder {
@@ -20,7 +20,16 @@ pub struct Builder {
 impl Builder {
     #[must_use]
     pub fn new(grid: i32) -> Self {
-        Self { grid, shapes: Vec::new(), pins: Vec::new(), units: Vec::new(), dummies: Vec::new(), drawn: Vec::new(), keepouts: Vec::new(), cells: Vec::new() }
+        Self {
+            grid,
+            shapes: Vec::new(),
+            pins: Vec::new(),
+            units: Vec::new(),
+            dummies: Vec::new(),
+            drawn: Vec::new(),
+            keepouts: Vec::new(),
+            cells: Vec::new(),
+        }
     }
 
     /// Draw `r` on `layer`, snapped to grid. Width/height clamp up to one grid
@@ -98,7 +107,9 @@ impl Builder {
         // it could bridge columns past a max enclosure (sky130 npc.5).
         let npcs: Vec<Rect> = self.shapes.iter().filter(|s| s.layer == npc).map(|s| s.rect).collect();
         let mut rows: Vec<Rect> = Vec::new();
-        for c in self.shapes.iter().filter(|s| s.layer == licon && polys.iter().any(|p| inside(&s.rect, p)) && !npcs.iter().any(|n| inside(&s.rect, n))) {
+        for c in
+            self.shapes.iter().filter(|s| s.layer == licon && polys.iter().any(|p| inside(&s.rect, p)) && !npcs.iter().any(|n| inside(&s.rect, n)))
+        {
             let r = Rect { x: c.rect.x - enc, y: c.rect.y - enc, w: c.rect.w + 2 * enc, h: c.rect.h + 2 * enc };
             match rows.iter_mut().find(|q| q.y == r.y && q.h == r.h) {
                 Some(q) => *q = hull(*q, r),
@@ -167,13 +178,18 @@ impl Builder {
         let ext = 2 * step;
         let x = tight.x.div_euclid(step) * step;
         let y = tight.y.div_euclid(step) * step;
-        let bbox = Rect {
-            x,
-            y,
-            w: (tight.x + tight.w - x + ext - 1) / ext * ext,
-            h: (tight.y + tight.h - y + ext - 1) / ext * ext,
-        };
-        Macro { shapes: self.shapes, pins: self.pins, bbox, units: self.units, dummies: self.dummies, drawn: self.drawn, keepouts: self.keepouts, cells, ..Default::default() }
+        let bbox = Rect { x, y, w: (tight.x + tight.w - x + ext - 1) / ext * ext, h: (tight.y + tight.h - y + ext - 1) / ext * ext };
+        Macro {
+            shapes: self.shapes,
+            pins: self.pins,
+            bbox,
+            units: self.units,
+            dummies: self.dummies,
+            drawn: self.drawn,
+            keepouts: self.keepouts,
+            cells,
+            ..Default::default()
+        }
     }
 }
 
@@ -225,9 +241,7 @@ pub(crate) fn snap_to_grid(value: i32, grid: i32) -> i32 {
 /// reaching here is a generator/deck bug, never a process variation).
 #[must_use]
 pub fn req(process: &dyn Process, role: &str) -> LayerId {
-    process.layer(role).unwrap_or_else(|| {
-        panic!("PDK declares no layer for mandatory role {role:?}; add it to the deck's cell.layers section")
-    })
+    process.layer(role).unwrap_or_else(|| panic!("PDK declares no layer for mandatory role {role:?}; add it to the deck's cell.layers section"))
 }
 
 /// A cell dimension the deck states: its value under the legacy sidecar
@@ -247,10 +261,9 @@ pub fn dim(process: &dyn Process, key: &str) -> i32 {
         "nwell_diff_enc" => q(process.enclosure("nwell", "diff")),
         "nwell_min_width" => q(process.width("nwell")),
         // A Philis margin (`cap_strap_via_enclosure_nm`) raises only this.
-        "cap_strap_via_enclosure_nm" => [("met1", "via1"), ("met2", "via1")]
-            .iter()
-            .map(|&(m, v)| q(process.enclosure(m, v)).max(q(process.endcap(m, v))))
-            .fold(0, i32::max),
+        "cap_strap_via_enclosure_nm" => {
+            [("met1", "via1"), ("met2", "via1")].iter().map(|&(m, v)| q(process.enclosure(m, v)).max(q(process.endcap(m, v)))).fold(0, i32::max)
+        }
         _ => 0,
     };
     process.rule(key, 0).max(deck)
@@ -304,11 +317,7 @@ pub fn sizing(group: &DeviceGroup, c: &Constraints, def_w: i32, def_l: i32) -> S
     if dev_nf.is_empty() {
         dev_nf = vec![1; n];
     }
-    Sizing {
-        unit_w: if u.unit_w > 0 { u.unit_w } else { def_w },
-        unit_l: if u.unit_l > 0 { u.unit_l } else { def_l },
-        dev_nf,
-    }
+    Sizing { unit_w: if u.unit_w > 0 { u.unit_w } else { def_w }, unit_l: if u.unit_l > 0 { u.unit_l } else { def_l }, dev_nf }
 }
 
 #[cfg(test)]

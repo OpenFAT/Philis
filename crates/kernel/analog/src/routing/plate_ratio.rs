@@ -50,7 +50,8 @@ impl PlateRatio {
             .map(|&(bit, _)| {
                 let lead: Vec<Shape> = r.shapes(bit).iter().copied().filter(|s| !inside(s)).collect();
                 let b = bit.0 as usize;
-                let coupled: f32 = (0..r.wires.len()).filter(|&m| m != b).map(|m| net_pair_af(Some(self.stack), &lead, &r.wires[m], &screens_but(r, &[b, m]))).sum();
+                let coupled: f32 =
+                    (0..r.wires.len()).filter(|&m| m != b).map(|m| net_pair_af(Some(self.stack), &lead, &r.wires[m], &screens_but(r, &[b, m]))).sum();
                 self.stack.ground_af(&lead) + coupled
             })
             .collect()
@@ -130,13 +131,17 @@ impl RuleBatch<Routes> for PlateRatios {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::routing::stack::Layer;
     use crate::base::geom::LayerId;
+    use crate::routing::stack::Layer;
 
     /// Ground C only (30 aF/µm², no fringe, negligible lateral `ε·t`): a
     /// lead's C is its area.
     pub(crate) fn area_stack() -> &'static Stack {
-        Box::leak(Box::new(Stack { layers: vec![Layer { id: 1, area_af_um2: 30.0, lateral: 1e-9, ..Layer::default() }], antenna_cumulative: false, diode: None }))
+        Box::leak(Box::new(Stack {
+            layers: vec![Layer { id: 1, area_af_um2: 30.0, lateral: 1e-9, ..Layer::default() }],
+            antenna_cumulative: false,
+            diode: None,
+        }))
     }
 
     /// Bits of 1/2/4/8 units with equal 10 µm met1 leads, 20 µm apart: per
@@ -144,7 +149,12 @@ mod tests {
     /// the spread is far over 1 %.
     #[test]
     fn lead_capacitance_is_equalised_per_unit() {
-        let set = PlateSet { top: NetId(0), bits: [1, 2, 4, 8].iter().enumerate().map(|(i, &n)| (NetId(i as u16 + 1), n)).collect(), c_unit_af: 1_000.0, array: Rect { x: 0, y: 0, w: 100_000, h: 1_000 } };
+        let set = PlateSet {
+            top: NetId(0),
+            bits: [1, 2, 4, 8].iter().enumerate().map(|(i, &n)| (NetId(i as u16 + 1), n)).collect(),
+            c_unit_af: 1_000.0,
+            array: Rect { x: 0, y: 0, w: 100_000, h: 1_000 },
+        };
         let rule = PlateRatio { set, tol_pct10: 10, stack: area_stack(), space_nm: 140 };
         let mut wires = vec![Vec::new()];
         for i in 0..4 {

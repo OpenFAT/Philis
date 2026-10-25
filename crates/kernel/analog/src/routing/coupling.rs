@@ -8,9 +8,9 @@ use crate::base::geom::{Rect, Shape};
 use crate::base::ids::NetId;
 use crate::base::routes::Routes;
 
+use super::Stack;
 use crate::metadata::{NetClass, NetClassification};
 use crate::rule::Rule;
-use super::Stack;
 
 /// `ε·h` in `C = ε·h·run/gap`, aF (εr 3.9, ~0.35 µm metal): two wires 400 nm
 /// apart couple ~30 aF/µm of parallel run.
@@ -79,9 +79,14 @@ pub fn net_pair_af(stack: Option<&Stack>, a: &[Shape], b: &[Shape], screens: &[S
                 .chain(screens.iter().map(|q| (q, false)))
                 .filter(|(q, _)| q.layer.0 == layer)
                 .filter_map(|(q, mine)| {
-                    let (v0, v1, s0, s1) = if horiz { (r.y, r.y + r.h, q.rect.y, q.rect.y + q.rect.h) } else { (r.x, r.x + r.w, q.rect.x, q.rect.x + q.rect.w) };
+                    let (v0, v1, s0, s1) =
+                        if horiz { (r.y, r.y + r.h, q.rect.y, q.rect.y + q.rect.h) } else { (r.x, r.x + r.w, q.rect.x, q.rect.x + q.rect.w) };
                     let gap = if below { (s1 <= v0).then_some(v0 - s1) } else { (s0 >= v1).then_some(s0 - v1) }?;
-                    let (lo, hi) = if horiz { (r.x.max(q.rect.x), (r.x + r.w).min(q.rect.x + q.rect.w)) } else { (r.y.max(q.rect.y), (r.y + r.h).min(q.rect.y + q.rect.h)) };
+                    let (lo, hi) = if horiz {
+                        (r.x.max(q.rect.x), (r.x + r.w).min(q.rect.x + q.rect.w))
+                    } else {
+                        (r.y.max(q.rect.y), (r.y + r.h).min(q.rect.y + q.rect.h))
+                    };
                     (gap > 0 && lo < hi).then_some((gap, (lo, hi), mine))
                 })
                 .collect();
@@ -107,7 +112,8 @@ pub fn net_pair_af(stack: Option<&Stack>, a: &[Shape], b: &[Shape], screens: &[S
         // End-on: separated along the run, overlapping across it.
         for q in b.iter().filter(|q| q.layer.0 == layer) {
             if let Some((run, gap)) = super::stack::parallel(&r, &q.rect) {
-                let along = if horiz { q.rect.x >= r.x + r.w || q.rect.x + q.rect.w <= r.x } else { q.rect.y >= r.y + r.h || q.rect.y + q.rect.h <= r.y };
+                let along =
+                    if horiz { q.rect.x >= r.x + r.w || q.rect.x + q.rect.w <= r.x } else { q.rect.y >= r.y + r.h || q.rect.y + q.rect.h <= r.y };
                 if along {
                     c += run_af(stack, layer, run, gap);
                 }
@@ -228,8 +234,8 @@ impl Rule for CouplingBudget {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rule::RuleBatch;
     use crate::base::geom::{LayerId, Shape};
+    use crate::rule::RuleBatch;
 
     fn wire(x: i32, y: i32, w: i32, h: i32, layer: u16) -> Shape {
         Shape { layer: LayerId(layer), rect: Rect { x, y, w, h } }
@@ -243,7 +249,7 @@ mod tests {
             let x = if i % 2 == 0 { 100 + gap } else { -(gap + 100) };
             wires.push(vec![wire(x, 0, 100, 10_000, 0)]);
         }
-        Routes { wires, ..Default::default()  }
+        Routes { wires, ..Default::default() }
     }
 
     fn budget(max_af: i64) -> Vec<CouplingBudget> {

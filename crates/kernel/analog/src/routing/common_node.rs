@@ -4,8 +4,8 @@ use crate::base::geom::{Rect, Shape};
 use crate::base::ids::NetId;
 use crate::base::routes::{conductor_layers_meet, Join, Routes};
 
-use crate::rule::RuleBatch;
 use super::Stack;
+use crate::rule::RuleBatch;
 
 /// Terminal groups sharing a net (a pair's tail, a mirror's rail; a star's
 /// branches; a Kelvin force/sense split): the routed R from the feeds to each
@@ -174,8 +174,8 @@ impl RuleBatch<Routes> for CommonNodes {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::routing::stack::Layer;
     use crate::base::geom::{LayerId, Shape};
+    use crate::routing::stack::Layer;
 
     /// A tail rail fed from one end: the near member's source sees less R
     /// than the far one's. Balanced (fed from the middle), the skew vanishes.
@@ -188,11 +188,17 @@ mod tests {
         }));
         let wire = |x, y, w, h| Shape { layer: LayerId(1), rect: Rect { x, y, w, h } };
         let pin = |x| Rect { x, y: 0, w: 100, h: 100 };
-        let mut routes = Routes { wires: vec![Vec::new()], ..Default::default()  };
+        let mut routes = Routes { wires: vec![Vec::new()], ..Default::default() };
         // 40 µm rail at 0.5 µm: members at x = 0 and 10 µm, fed at 40 µm.
         routes.wires[0] = vec![wire(0, 0, 40_100, 500)];
         let node = |feed: i32, max| CommonNodes {
-            nodes: vec![CommonNode { net: NetId(0), groups: vec![vec![pin(0)], vec![pin(10_000)]], feeds: vec![pin(feed)], max_delta_ohm: max, star: false }],
+            nodes: vec![CommonNode {
+                net: NetId(0),
+                groups: vec![vec![pin(0)], vec![pin(10_000)]],
+                feeds: vec![pin(feed)],
+                max_delta_ohm: max,
+                star: false,
+            }],
             stack,
             halo_nm: 0,
             joins: Vec::new(),
@@ -209,7 +215,11 @@ mod tests {
     /// Two groups' branches from a feed at x = 0: `a_end`/`b_end` pins, the
     /// branches sharing the rail up to `shared` nm before they split.
     fn star(shared: i32) -> (CommonNodes, Routes) {
-        let stack: &'static Stack = Box::leak(Box::new(Stack { layers: vec![Layer { id: 1, sheet_ohm: 0.125, ..Layer::default() }], antenna_cumulative: false, diode: None }));
+        let stack: &'static Stack = Box::leak(Box::new(Stack {
+            layers: vec![Layer { id: 1, sheet_ohm: 0.125, ..Layer::default() }],
+            antenna_cumulative: false,
+            diode: None,
+        }));
         let wire = |x, y, w, h| Shape { layer: LayerId(1), rect: Rect { x, y, w, h } };
         let pin = |x, y| Rect { x, y, w: 100, h: 100 };
         // Trunk from the feed to x = shared, then one branch up, one down.
@@ -217,7 +227,13 @@ mod tests {
             wires: vec![vec![wire(0, 0, shared + 100, 100), wire(shared, 0, 100, 10_000), wire(shared, -10_000, 100, 10_000)]],
             ..Default::default()
         };
-        let node = CommonNode { net: NetId(0), groups: vec![vec![pin(shared, 9_900)], vec![pin(shared, -10_000)]], feeds: vec![pin(0, 0)], max_delta_ohm: 0.0, star: true };
+        let node = CommonNode {
+            net: NetId(0),
+            groups: vec![vec![pin(shared, 9_900)], vec![pin(shared, -10_000)]],
+            feeds: vec![pin(0, 0)],
+            max_delta_ohm: 0.0,
+            star: true,
+        };
         (CommonNodes { nodes: vec![node], stack, halo_nm: 420, joins: Vec::new() }, routes)
     }
 

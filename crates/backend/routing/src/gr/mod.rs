@@ -6,10 +6,10 @@
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap};
 
-use analog::{RepairKind, Requirements};
 use analog::base::geom::{LayerId, Rect, Shape};
 use analog::base::report::Violation;
 use analog::base::{Macro, Routes};
+use analog::{RepairKind, Requirements};
 
 pub use analog::base::place_macros;
 
@@ -380,15 +380,7 @@ impl TrackGrid {
     /// `0..=rmax`, layer 0 before layer 1, nearest ring first. A layer-1 node within
     /// two rows of a claimed layer-1 node in its column is skipped (stacked vias).
     #[must_use]
-    pub fn candidates(
-        &self,
-        x: i32,
-        y: i32,
-        claimed: &[bool],
-        ok: impl Fn(u32) -> bool,
-        rmax: i32,
-        k: usize,
-    ) -> Vec<u32> {
+    pub fn candidates(&self, x: i32, y: i32, claimed: &[bool], ok: impl Fn(u32) -> bool, rmax: i32, k: usize) -> Vec<u32> {
         let (cx, cy) = (self.bin_x(x) as i32, self.bin_y(y) as i32);
         let (nx, ny) = (self.nx as i32, self.ny as i32);
         let mut out = Vec::new();
@@ -542,7 +534,11 @@ impl RGraph for TrackGrid {
         // The horizontal layer's tracks step y, the vertical one's x.
         let ((kh, sh), (kv, sv)) = {
             let (ta, tb) = ((ka.max(1), self.stride(la)), (kb.max(1), self.stride(lb)));
-            if la % 2 == 0 { (ta, tb) } else { (tb, ta) }
+            if la % 2 == 0 {
+                (ta, tb)
+            } else {
+                (tb, ta)
+            }
         };
         for l in [la, lb] {
             for i in 0..u32::from(kh) {
@@ -660,7 +656,11 @@ impl RouteHot {
     /// 0; a node with halos and no metal is not over.
     #[must_use]
     pub fn over(&self, n: usize, cap: u16) -> u16 {
-        if self.usage[n] > 0 { (self.usage[n] + self.halo[n]).saturating_sub(cap) } else { 0 }
+        if self.usage[n] > 0 {
+            (self.usage[n] + self.halo[n]).saturating_sub(cap)
+        } else {
+            0
+        }
     }
 
     /// Price parasitics with per-net sensitivity `weight` and aggressor
@@ -832,11 +832,7 @@ impl<G: RGraph> RouteCtx<G> {
     #[must_use]
     pub fn branch_k(&self, net: usize, branch: &[u32]) -> [u8; MAX_LAYERS] {
         let tk = self.term_k.get(net).map_or(&[][..], Vec::as_slice);
-        branch
-            .last()
-            .and_then(|n| self.terms[net].iter().position(|t| t == n))
-            .and_then(|i| tk.get(i).copied())
-            .unwrap_or_else(|| self.k_of(net).0)
+        branch.last().and_then(|n| self.terms[net].iter().position(|t| t == n)).and_then(|i| tk.get(i).copied()).unwrap_or_else(|| self.k_of(net).0)
     }
 
     /// `net`'s tracks and guard tracks per layer.
@@ -948,7 +944,11 @@ impl<G: RGraph> RouteCtx<G> {
             partner_elec: self.elec(hot, part),
         };
         let tree = self.search(hot, lead, p_fac, if leader { penalty } else { &[] }, Some(mirror), dij)?;
-        if leader { Some(tree) } else { self.map_tree(&tree, map) }
+        if leader {
+            Some(tree)
+        } else {
+            self.map_tree(&tree, map)
+        }
     }
 
     fn search(&self, hot: &RouteHot, net: usize, p_fac: f32, penalty: &[f32], mirror: Option<Mirror>, dij: &mut Dij) -> Option<Vec<Vec<u32>>> {
@@ -1173,7 +1173,9 @@ pub fn route_net<G: RGraph>(g: &G, hot: &RouteHot, reserved: &[u32], q: &NetSear
         if q.sep.is_empty() || waived.binary_search(&n).is_ok() {
             return false;
         }
-        let on = |o: u32, m: u32| q.foot.get(o as usize).is_some_and(|f| f.binary_search(&m).is_ok()) || q.terms_of.get(o as usize).is_some_and(|t| t.contains(&m));
+        let on = |o: u32, m: u32| {
+            q.foot.get(o as usize).is_some_and(|f| f.binary_search(&m).is_ok()) || q.terms_of.get(o as usize).is_some_and(|t| t.contains(&m))
+        };
         let l = g.pos(n).2 as usize;
         q.sep.iter().any(|&(o, tracks, no_cross)| {
             near.clear();
@@ -1237,7 +1239,9 @@ pub fn route_net<G: RGraph>(g: &G, hot: &RouteHot, reserved: &[u32], q: &NetSear
             p_cong(j)?
         };
         let foreign = keepout.0.get(j).is_some_and(|&c| c != NONE && m.partner_cells.binary_search(&c).is_err());
-        c += m.partner_penalty.get(j).copied().unwrap_or(0.0) + elec_at(g, usage, &m.partner_elec, j, &p_mine) + if foreign { KEEPOUT_COST } else { 0.0 };
+        c += m.partner_penalty.get(j).copied().unwrap_or(0.0)
+            + elec_at(g, usage, &m.partner_elec, j, &p_mine)
+            + if foreign { KEEPOUT_COST } else { 0.0 };
         Some(c)
     };
     let mut fp = Vec::new();
@@ -1274,7 +1278,8 @@ pub fn route_net<G: RGraph>(g: &G, hot: &RouteHot, reserved: &[u32], q: &NetSear
     // (or pre-image) of its own metal; both trees would then share it.
     // ponytail: nodes, not wide footprints.
     let shift = q.mirror.as_ref().map(|m| m.map).filter(|m| matches!(m, LatticeMap::Shift { .. }));
-    let shift_clash = |n: u32, mine: &dyn Fn(u32) -> bool| shift.is_some_and(|m| g.map(m, n).is_some_and(mine) || g.map(m.inverse(), n).is_some_and(mine));
+    let shift_clash =
+        |n: u32, mine: &dyn Fn(u32) -> bool| shift.is_some_and(|m| g.map(m, n).is_some_and(mine) || g.map(m.inverse(), n).is_some_and(mine));
     let mut forbid: Vec<u32> = Vec::new();
     let (x0, y0, _) = g.pos(root);
     let mut targets: Vec<usize> = (1..terms.len()).collect();
@@ -1365,10 +1370,8 @@ pub fn route_net<G: RGraph>(g: &G, hot: &RouteHot, reserved: &[u32], q: &NetSear
                 for (at, &n) in path.iter().enumerate() {
                     // The later of the two goes, or the earlier when the later is
                     // the target; a clash with the tree drops the path node.
-                    let hit = [g.map(m, n), g.map(m.inverse(), n)]
-                        .into_iter()
-                        .flatten()
-                        .find(|&x| in_tree[x as usize] == call || path[..at].contains(&x));
+                    let hit =
+                        [g.map(m, n), g.map(m.inverse(), n)].into_iter().flatten().find(|&x| in_tree[x as usize] == call || path[..at].contains(&x));
                     match hit {
                         Some(x) if n == target && in_tree[x as usize] != call => forbid.push(x),
                         Some(_) => forbid.push(n),
@@ -1535,7 +1538,13 @@ pub struct Via {
 /// ponytail: the corner block is merged even past the threshold; the
 /// search's guard tracks keep foreign metal at the wide spacing.
 #[must_use]
-pub fn extract_geometry(hot: &RouteHot, grid: &TrackGrid, widths: &[i32], k: &dyn Fn(usize, &[u32]) -> [u8; MAX_LAYERS], wide: &[i32]) -> (Vec<Wire>, Vec<Via>) {
+pub fn extract_geometry(
+    hot: &RouteHot,
+    grid: &TrackGrid,
+    widths: &[i32],
+    k: &dyn Fn(usize, &[u32]) -> [u8; MAX_LAYERS],
+    wide: &[i32],
+) -> (Vec<Wire>, Vec<Via>) {
     let width_of = |l: u32| widths.get(l as usize).or(widths.last()).copied().unwrap_or(0);
     let wide_of = |l: u32| wide.get(l as usize).copied().unwrap_or(i32::MAX);
     let step = |l: u32| grid.stride(l) as i32 * grid.pitch;
@@ -1653,27 +1662,23 @@ mod tests {
 
     fn m(pins: Vec<(u16, i32, i32)>) -> Macro {
         let r = Rect { x: 0, y: 0, w: 20_000, h: 20_000 };
-        let pin = |(net, x, y)| Pin {
-            name: format!("p{net}"),
-            net: NetId(net),
-            at: Rect { x, y, w: 200, h: 200 },
-            layer: LayerId(0),
-        };
-        Macro { shapes: vec![Shape { layer: LayerId(0), rect: r }], pins: pins.into_iter().map(pin).collect(), bbox: r, units: Vec::new(), dummies: Vec::new(), ..Default::default() }
+        let pin = |(net, x, y)| Pin { name: format!("p{net}"), net: NetId(net), at: Rect { x, y, w: 200, h: 200 }, layer: LayerId(0) };
+        Macro {
+            shapes: vec![Shape { layer: LayerId(0), rect: r }],
+            pins: pins.into_iter().map(pin).collect(),
+            bbox: r,
+            units: Vec::new(),
+            dummies: Vec::new(),
+            ..Default::default()
+        }
     }
 
     fn wire(len: i32) -> Routes {
-        Routes { wires: vec![vec![Shape { layer: LayerId(0), rect: Rect { x: 0, y: 0, w: len, h: 1 } }]], ..Default::default()  }
+        Routes { wires: vec![vec![Shape { layer: LayerId(0), rect: Rect { x: 0, y: 0, w: len, h: 1 } }]], ..Default::default() }
     }
 
     fn budget(cap: i64) -> Box<dyn analog::RuleBatch<Routes>> {
-        Box::new(vec![analog::routing::ParasiticBudget {
-            net: NetId(0),
-            max_len_nm: cap,
-            max_c_af: 0,
-            margin_pct: 10,
-            stack: None,
-        }])
+        Box::new(vec![analog::routing::ParasiticBudget { net: NetId(0), max_len_nm: cap, max_c_af: 0, margin_pct: 10, stack: None }])
     }
 
     /// A budget residual reaches Θ with a measured, nonzero margin.
@@ -1883,7 +1888,14 @@ mod tests {
     fn symmetric_nets_first_then_impact_shields_last() {
         use analog::routing::{Differential, Shield};
         let mut reqs = Requirements::<Routes>::default();
-        reqs.budget.push(Box::new(vec![Differential { pos: NetId(3), neg: NetId(4), max_len_delta_pct10: 50, same_layer_required: true, stack: None, aggressor_weight: None }]));
+        reqs.budget.push(Box::new(vec![Differential {
+            pos: NetId(3),
+            neg: NetId(4),
+            max_len_delta_pct10: 50,
+            same_layer_required: true,
+            stack: None,
+            aggressor_weight: None,
+        }]));
         reqs.budget.push(Box::new(vec![Shield { victim: NetId(5), reference: NetId(2), min_coverage_pct: 80, max_gap_nm: 400 }]));
         // Compact i is net i; nets 0 and 1 are free, 1 the more sensitive.
         let order = order_by_priority(&[2; 6], &[0, 1, 2, 3, 4, 5], &reqs, &[0.2, 0.9, 0.0, 0.0, 0.0, 0.0], &[]);
@@ -1895,7 +1907,14 @@ mod tests {
     fn wide_nets_route_before_other_hard_nets() {
         use analog::routing::{CrosstalkExclusion, Differential};
         let mut reqs = Requirements::<Routes>::default();
-        reqs.hard.push(Box::new(vec![Differential { pos: NetId(0), neg: NetId(1), max_len_delta_pct10: 50, same_layer_required: true, stack: None, aggressor_weight: None }]));
+        reqs.hard.push(Box::new(vec![Differential {
+            pos: NetId(0),
+            neg: NetId(1),
+            max_len_delta_pct10: 50,
+            same_layer_required: true,
+            stack: None,
+            aggressor_weight: None,
+        }]));
         let x = |a, b| CrosstalkExclusion { a: NetId(a), b: NetId(b), min_spacing_nm: 2_000, margin_pct: 0 };
         reqs.hard.push(Box::new(vec![x(2, 3), x(3, 4)]));
         let ids = [0, 1, 2, 3, 4];
@@ -1915,7 +1934,16 @@ mod tests {
         assert!(g.lattice_map(map));
         let terms = [g.node(0, 3, 0), g.node(15, 3, 0), g.node(20, 9, 0)];
         let hot = RouteHot::new(g.nodes(), 2);
-        let mirror = Mirror { map, partner: 1, partner_own: &[], partner_halo: &[], partner_blocked: &[], partner_penalty: &[], partner_cells: &[], partner_elec: Elec::default() };
+        let mirror = Mirror {
+            map,
+            partner: 1,
+            partner_own: &[],
+            partner_halo: &[],
+            partner_blocked: &[],
+            partner_penalty: &[],
+            partner_cells: &[],
+            partner_elec: Elec::default(),
+        };
         let q = NetSearch { mirror: Some(mirror), ..search(&terms, Elec::default()) };
         let tree = route_net(&g, &hot, &[], &q, 1.0, &mut Dij::new(g.nodes())).expect("a legal joint tree");
         let mut nodes = tree.concat();
@@ -1927,7 +1955,24 @@ mod tests {
     }
 
     fn search<'a>(terms: &'a [u32], elec: Elec<'a>) -> NetSearch<'a> {
-        NetSearch { net: 0, owner: 0, terms, k: [1; MAX_LAYERS], guard: [0; MAX_LAYERS], term_k: &[], own: &[], own_halo: &[], penalty: &[], keepout: (&[], &[]), blocked: &[], sep: &[], foot: &[], terms_of: &[], mirror: None, elec }
+        NetSearch {
+            net: 0,
+            owner: 0,
+            terms,
+            k: [1; MAX_LAYERS],
+            guard: [0; MAX_LAYERS],
+            term_k: &[],
+            own: &[],
+            own_halo: &[],
+            penalty: &[],
+            keepout: (&[], &[]),
+            blocked: &[],
+            sep: &[],
+            foot: &[],
+            terms_of: &[],
+            mirror: None,
+            elec,
+        }
     }
 
     fn spec(stride: u32, halo_via: u8) -> LayerSpec {

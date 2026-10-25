@@ -43,16 +43,7 @@ pub enum Orient {
 
 impl Orient {
     /// The whole group, rotations first.
-    pub const ALL: [Orient; 8] = [
-        Orient::R0,
-        Orient::R90,
-        Orient::R180,
-        Orient::R270,
-        Orient::Mx,
-        Orient::Mx90,
-        Orient::Mx180,
-        Orient::Mx270,
-    ];
+    pub const ALL: [Orient; 8] = [Orient::R0, Orient::R90, Orient::R180, Orient::R270, Orient::Mx, Orient::Mx90, Orient::Mx180, Orient::Mx270];
 
     /// `self` then `next`: `a.then(b).apply(p) == b.apply(a.apply(p))`. D4 members are told apart by
     /// the image of (1, 2) (`the_eight_transforms_are_distinct`), so the product is found by search.

@@ -9,13 +9,10 @@ pub mod spacing;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use analog::Requirements;
 use analog::base::{Layout, Macro, Report};
+use analog::Requirements;
 
-use mechanics::{
-    analog_cost, analog_phi, canvas_side, choose_variants, clamp_to_die, half_extents,
-    initial_layout, report, snap, Nets, SplitMix64,
-};
+use mechanics::{analog_cost, analog_phi, canvas_side, choose_variants, clamp_to_die, half_extents, initial_layout, report, snap, Nets, SplitMix64};
 
 /// One placeable cell's pre-drawn alternatives; `layout.variant[i]` indexes
 /// `alternatives`.
@@ -112,16 +109,8 @@ impl Prices {
             // Slack only where the batch can measure it: spent fraction
             // (`worst_usage`) else headroom-derived criticality. A batch that
             // reports neither has criticality 1 → g = 0 → price held.
-            let g = if r > 0.0 {
-                r
-            } else {
-                b.worst_usage(l).map_or(-(1.0 - b.criticality(l)), |u| (u - 1.0).min(0.0))
-            };
-            let p = self.priced.entry(key).or_insert(Price {
-                lambda: 0.0,
-                rho: RHO_FLOOR,
-                residual: f32::INFINITY,
-            });
+            let g = if r > 0.0 { r } else { b.worst_usage(l).map_or(-(1.0 - b.criticality(l)), |u| (u - 1.0).min(0.0)) };
+            let p = self.priced.entry(key).or_insert(Price { lambda: 0.0, rho: RHO_FLOOR, residual: f32::INFINITY });
             if g > 0.0 && g >= p.residual {
                 p.rho = (p.rho * RHO_GAIN).min(RHO_MAX); // stuck → harder
             } else if g <= 0.0 {
@@ -176,10 +165,7 @@ fn keys(reqs: &Requirements<Layout>) -> Vec<PriceKey> {
                 return PriceKey::Id(m.id);
             }
             let kind = reqs.budget[bi].kind();
-            let ord = reqs.budget[..bi]
-                .iter()
-                .filter(|o| o.meta().is_none() && o.kind() == kind)
-                .count() as u32;
+            let ord = reqs.budget[..bi].iter().filter(|o| o.meta().is_none() && o.kind() == kind).count() as u32;
             PriceKey::Ord(kind, ord)
         })
         .collect()
@@ -629,11 +615,7 @@ mod price_tests {
     }
 
     fn bench() -> (Requirements<Layout>, Layout) {
-        let reqs = Requirements {
-            hard: Vec::new(),
-            budget: vec![Box::new(vec![Budget])],
-            cost: Vec::new(),
-        };
+        let reqs = Requirements { hard: Vec::new(), budget: vec![Box::new(vec![Budget])], cost: Vec::new() };
         let l = Layout {
             x: vec![1_000],
             y: vec![0],
@@ -674,14 +656,8 @@ mod price_tests {
         // Price rising is the ratchet; the *increments* rising is ρ escalating, which
         // is the part a recompute-from-headroom weight can never do.
         let steps: Vec<f32> = weights.windows(2).map(|w| w[1] - w[0]).collect();
-        assert!(
-            weights.windows(2).all(|w| w[1] > w[0]),
-            "price must rise every epoch: {weights:?}"
-        );
-        assert!(
-            steps.windows(2).all(|s| s[1] > s[0]),
-            "rho must escalate, so each epoch's step must exceed the last: {steps:?}"
-        );
+        assert!(weights.windows(2).all(|w| w[1] > w[0]), "price must rise every epoch: {weights:?}");
+        assert!(steps.windows(2).all(|s| s[1] > s[0]), "rho must escalate, so each epoch's step must exceed the last: {steps:?}");
     }
 
     /// PLAN §5 terminates on `‖λ_{k+1} − λ_k‖ < δ`. That probe is only usable if it
@@ -700,15 +676,8 @@ mod price_tests {
             prices.settle(&reqs, &l);
             drifts.push(prices.drift());
         }
-        assert!(
-            drifts.windows(2).all(|d| d[1] < d[0]),
-            "drift must fall as the residual shrinks: {drifts:?}"
-        );
-        assert_eq!(
-            *drifts.last().unwrap(),
-            0.0,
-            "a satisfied budget trades nothing, so its price is stationary"
-        );
+        assert!(drifts.windows(2).all(|d| d[1] < d[0]), "drift must fall as the residual shrinks: {drifts:?}");
+        assert_eq!(*drifts.last().unwrap(), 0.0, "a satisfied budget trades nothing, so its price is stationary");
     }
 
     /// PLAN.md:124: a budget gone slack loses its price instead of keeping the
@@ -773,11 +742,7 @@ mod price_tests {
         assert!(paid > 0.0);
 
         // Next epoch: `Requirements` re-derived with a feedback batch appended.
-        let grown = Requirements {
-            hard: Vec::new(),
-            budget: vec![Box::new(vec![Budget]), Box::new(vec![Budget, Budget])],
-            cost: Vec::new(),
-        };
+        let grown = Requirements { hard: Vec::new(), budget: vec![Box::new(vec![Budget]), Box::new(vec![Budget, Budget])], cost: Vec::new() };
         prices.bind(&grown);
         assert_eq!(prices.weight_of(0), paid, "the surviving batch kept its price");
         assert_eq!(prices.weight_of(1), 0.0, "the new batch starts unpriced");
@@ -785,10 +750,7 @@ mod price_tests {
 
     fn tagged(id: u32, inner: Box<dyn analog::RuleBatch<Layout>>) -> Box<dyn analog::RuleBatch<Layout>> {
         Box::new(analog::rule::Tagged {
-            meta: analog::intent::BatchMeta {
-                id: analog::intent::ConstraintId(id),
-                origin: analog::intent::Origin::NetClass,
-            },
+            meta: analog::intent::BatchMeta { id: analog::intent::ConstraintId(id), origin: analog::intent::Origin::NetClass },
             inner,
         })
     }
@@ -802,10 +764,7 @@ mod price_tests {
         l.x[0] = 1_000;
         let reqs = Requirements {
             hard: Vec::new(),
-            budget: vec![
-                tagged(1, Box::new(vec![Budget])),
-                tagged(2, Box::new(vec![Budget, Budget])),
-            ],
+            budget: vec![tagged(1, Box::new(vec![Budget])), tagged(2, Box::new(vec![Budget, Budget]))],
             cost: Vec::new(),
         };
         let mut prices = Prices::new();
@@ -816,10 +775,7 @@ mod price_tests {
 
         let swapped = Requirements {
             hard: Vec::new(),
-            budget: vec![
-                tagged(2, Box::new(vec![Budget, Budget])),
-                tagged(1, Box::new(vec![Budget])),
-            ],
+            budget: vec![tagged(2, Box::new(vec![Budget, Budget])), tagged(1, Box::new(vec![Budget]))],
             cost: Vec::new(),
         };
         prices.bind(&swapped);
@@ -833,22 +789,14 @@ mod price_tests {
     fn untagged_batches_keep_todays_behaviour() {
         let (_, mut l) = bench();
         l.x[0] = 1_000;
-        let reqs = Requirements {
-            hard: Vec::new(),
-            budget: vec![Box::new(vec![Budget]), Box::new(vec![Budget, Budget])],
-            cost: Vec::new(),
-        };
+        let reqs = Requirements { hard: Vec::new(), budget: vec![Box::new(vec![Budget]), Box::new(vec![Budget, Budget])], cost: Vec::new() };
         let mut prices = Prices::new();
         prices.settle(&reqs, &l);
         let wa = prices.weight_of(0);
         let wb = prices.weight_of(1);
         assert!(wa > 0.0 && wa != wb);
 
-        let swapped = Requirements {
-            hard: Vec::new(),
-            budget: vec![Box::new(vec![Budget, Budget]), Box::new(vec![Budget])],
-            cost: Vec::new(),
-        };
+        let swapped = Requirements { hard: Vec::new(), budget: vec![Box::new(vec![Budget, Budget]), Box::new(vec![Budget])], cost: Vec::new() };
         prices.bind(&swapped);
         assert_eq!(prices.weight_of(0), wa, "position 0 keeps wa (today's position keying)");
     }
@@ -856,8 +804,8 @@ mod price_tests {
 
 #[cfg(test)]
 mod weight_tests {
-    use analog::metadata::{NetClass, NetClassification};
     use analog::base::NetId;
+    use analog::metadata::{NetClass, NetClassification};
 
     fn class(net: u16, c_budget_af: Option<i64>) -> NetClassification {
         NetClassification { net: NetId(net), class: NetClass::Signal, c_budget_af, max_coupling_af: None }
@@ -904,17 +852,16 @@ mod weight_tests {
         assert!((w[0] + w[1] - 2.0).abs() < 1e-5, "{w:?}");
         assert_eq!(w[2], 1.0, "only rail: I_ref is its own current: {w:?}");
     }
-
 }
 
 #[cfg(test)]
 mod place_tests {
     use super::*;
+    use analog::base::geom::Rect;
+    use analog::base::ids::{AxisId, DeviceId, Target};
     use analog::matching::mismatch::{Budget, Coeffs, MatchKind};
     use analog::placement::symmetry::{SymMode, Symmetry, SymmetryGroup};
     use analog::placement::MatchedSet;
-    use analog::base::geom::Rect;
-    use analog::base::ids::{AxisId, DeviceId, Target};
 
     fn input<'a>(macros: &'a [Macro], reqs: &'a Requirements<Layout>, n_axes: usize, power: &'a [i32]) -> GpInput<'a> {
         GpInput {

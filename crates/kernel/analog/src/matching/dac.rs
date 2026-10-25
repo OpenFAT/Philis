@@ -155,11 +155,7 @@ mod tests {
     fn grid(counts: &[u16], rows: usize, cols: usize, fill: Fill, p: f64) -> Vec<(u8, f64, f64)> {
         let (slots, _) = centro_assign(counts, rows, cols, fill);
         let (cx, cy) = ((cols as f64 - 1.0) / 2.0, (rows as f64 - 1.0) / 2.0);
-        slots
-            .iter()
-            .enumerate()
-            .filter_map(|(i, s)| s.map(|s| (s, ((i % cols) as f64 - cx) * p, ((i / cols) as f64 - cy) * p)))
-            .collect()
+        slots.iter().enumerate().filter_map(|(i, s)| s.map(|s| (s, ((i % cols) as f64 - cx) * p, ((i / cols) as f64 - cy) * p))).collect()
     }
 
     #[test]
@@ -211,11 +207,7 @@ mod tests {
         for (lb, mb, rows, cols) in [(2u8, 2u8, 3usize, 3usize), (3, 3, 3, 6), (3, 3, 4, 5), (4, 3, 5, 5)] {
             let slot = split_dac_assign(lb, mb, rows, cols);
             let n = slot.len();
-            let want: Vec<usize> = std::iter::once(1)
-                .chain((0..lb).map(|k| 1 << k))
-                .chain((0..mb).map(|k| 1 << k))
-                .chain([2])
-                .collect();
+            let want: Vec<usize> = std::iter::once(1).chain((0..lb).map(|k| 1 << k)).chain((0..mb).map(|k| 1 << k)).chain([2]).collect();
             for (d, &w) in want.iter().enumerate() {
                 let cells: Vec<usize> = (0..n).filter(|&i| slot[i] == Some(d as u8)).collect();
                 assert_eq!(cells.len(), w, "L={lb} M={mb} {rows}×{cols} id {d}");

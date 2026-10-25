@@ -43,11 +43,18 @@ pub fn run(run: &Run) -> Result<Verdict, Refused> {
     std::fs::write(&reference, text).map_err(|e| refuse("foundry/run", e.to_string()))?;
     let comp = run.dir.join("comp.out");
     let mut cmd = Command::new(netgen);
-    cmd.arg("-batch").arg("lvs").arg(format!("{} {top}", layout.display())).arg(format!("{} {top}", reference.display())).arg(&setup).arg(&comp).current_dir(run.dir);
+    cmd.arg("-batch")
+        .arg("lvs")
+        .arg(format!("{} {top}", layout.display()))
+        .arg(format!("{} {top}", reference.display()))
+        .arg(&setup)
+        .arg(&comp)
+        .current_dir(run.dir);
     // netgen's exit status is not its verdict; comp.out's last line is.
     let (log, _) = output(&mut cmd, &run.dir.join("netgen.log"))?;
     let report = std::fs::read_to_string(&comp).unwrap_or_default();
-    let (lvs_match, lvs_detail) = netgen_verdict(&report).ok_or_else(|| refuse("foundry/run", format!("netgen gave no verdict:\n{}", tail(&log, 20))))?;
+    let (lvs_match, lvs_detail) =
+        netgen_verdict(&report).ok_or_else(|| refuse("foundry/run", format!("netgen gave no verdict:\n{}", tail(&log, 20))))?;
     Ok(Verdict { drc, lvs_match, lvs_detail })
 }
 

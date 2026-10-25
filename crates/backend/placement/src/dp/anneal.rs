@@ -6,10 +6,10 @@
 
 use std::sync::Arc;
 
-use analog::Requirements;
 use crate::gp::mechanics::{choose_variants, report, Nets, SplitMix64};
 use crate::gp::spacing::Profile;
 use analog::base::{DeviceId, Layout, Macro, Orient, Report, UnitLib, Violation};
+use analog::Requirements;
 
 use crate::dp::eval::Eval;
 use crate::dp::sp::{self, decode, Geo, Out, Scratch, Tree};
@@ -264,7 +264,9 @@ impl<'a> St<'a> {
         self.u_branch = None;
         let n = self.l.x.len();
         let total = self.pick.last().map_or(0, |p| p.1);
-        let node = if total == 0 { None } else {
+        let node = if total == 0 {
+            None
+        } else {
             let r = rng.below(total);
             self.pick.iter().find(|p| r < p.1).map(|p| p.0)
         };
@@ -428,7 +430,10 @@ fn init<'a>(inp: &'a PlaceInput<'a>, start: &Start, prices: &'a crate::gp::Price
         _ => true,
     };
     let (variant, orient): (Vec<u16>, Vec<Orient>) = match start {
-        Start::Cold(l0) => ((0..n).map(|c| l0.variant.get(c).copied().unwrap_or(0)).collect(), (0..n).map(|c| l0.orient.get(c).copied().unwrap_or_default()).collect()),
+        Start::Cold(l0) => (
+            (0..n).map(|c| l0.variant.get(c).copied().unwrap_or(0)).collect(),
+            (0..n).map(|c| l0.orient.get(c).copied().unwrap_or_default()).collect(),
+        ),
         Start::Warm { variant, orient, .. } if warm_ok => (variant.to_vec(), orient.to_vec()),
         _ => ((0..n).map(|c| inp.assignment.get(c).copied().unwrap_or(0)).collect(), vec![Orient::R0; n]),
     };
@@ -487,12 +492,7 @@ fn init<'a>(inp: &'a PlaceInput<'a>, start: &Start, prices: &'a crate::gp::Price
         moved: Vec::new(),
         pick,
         branches,
-        stats: PlaceStats {
-            matched_incompatible: Some(inp.locks.incompatible),
-            decode_fail: Some(0),
-            warm_fallback: !warm_ok,
-            ..Default::default()
-        },
+        stats: PlaceStats { matched_incompatible: Some(inp.locks.incompatible), decode_fail: Some(0), warm_fallback: !warm_ok, ..Default::default() },
     };
     for c in 0..n {
         st.set_geom(c);
@@ -557,7 +557,8 @@ pub fn place_sp(inp: &PlaceInput, start: Start, schedule: Schedule, prices: &mut
     let t0 = if n_up > 0 { -(up / f64::from(n_up)) / schedule.p0.ln() } else { 1e-12 };
     let n_t = schedule.moves_per_kid as usize * m;
     let mut temp = t0;
-    let snap = |st: &St, key| Best { key, tree: st.tree.clone(), variant: st.l.variant.clone(), orient: st.l.orient.clone(), branch: st.l.branch.clone() };
+    let snap =
+        |st: &St, key| Best { key, tree: st.tree.clone(), variant: st.l.variant.clone(), orient: st.l.orient.clone(), branch: st.l.branch.clone() };
     let qkey = |st: &St| (st.key(true), st.energy());
     let mut best = snap(&st, qkey(&st));
     let mut best_e = cur.1;
@@ -628,10 +629,10 @@ mod tests {
     use super::*;
     use crate::dp::sp::to_layout;
     use crate::gp::mechanics::{analog_phi, analog_theta};
-    use analog::placement::symmetry::{SymMode, Symmetry, SymmetryGroup};
-    use analog::Rule;
     use analog::base::geom::Rect;
     use analog::base::ids::{AxisId, Target};
+    use analog::placement::symmetry::{SymMode, Symmetry, SymmetryGroup};
+    use analog::Rule;
 
     fn cell(w: i32, h: i32, pin: Option<u16>) -> Macro {
         let pins = pin.map_or(Vec::new(), |net| {
@@ -795,7 +796,10 @@ mod tests {
                 Box::new(vec![Isolation { a: d(0), b: d(7), min_distance_nm: 6_000 }, Isolation { a: d(3), b: d(9), min_distance_nm: 4_000 }]),
                 Box::new(Utilization { u_min: 0.9 }),
             ],
-            cost: vec![Box::new(vec![Proximity { a: d(1), b: d(12), max_distance_nm: 2_000 }, Proximity { a: d(5), b: d(6), max_distance_nm: 1_000 }])],
+            cost: vec![Box::new(vec![
+                Proximity { a: d(1), b: d(12), max_distance_nm: 2_000 },
+                Proximity { a: d(5), b: d(6), max_distance_nm: 1_000 },
+            ])],
             ..Default::default()
         };
         (macros, reqs)

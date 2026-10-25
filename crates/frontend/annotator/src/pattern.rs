@@ -168,8 +168,8 @@ fn unary_ok(slot: &Slot, s: &Search, cell: u32) -> bool {
         DiodeReq::Forbidden => !is_diode(s.pins, k, cell),
         DiodeReq::Any => true,
     };
-    let gate_ok = !slot.gate_is_signal
-        || pin_of(s.pins, cell, if bjt(k) { "B" } else { "G" }).map_or(true, |n| s.roles[n.0 as usize] == NetRole::Signal);
+    let gate_ok =
+        !slot.gate_is_signal || pin_of(s.pins, cell, if bjt(k) { "B" } else { "G" }).map_or(true, |n| s.roles[n.0 as usize] == NetRole::Signal);
     let family_ok = match slot.kind {
         SlotKind::AnyFet | SlotKind::SameTypeAs(_) | SlotKind::ComplementOf(_) => fet(k),
         SlotKind::Kind(want) => k == want,
@@ -304,7 +304,13 @@ impl Search<'_> {
         };
         let mut best: Option<(NetId, usize)> = None;
         for l in self.pat.links.iter().filter(|l| matches!(l.rel, PinRel::Same | PinRel::SameSignal)) {
-            let (pk, o, po) = if l.a == k { (l.pin_a, l.b, l.pin_b) } else if l.b == k { (l.pin_b, l.a, l.pin_a) } else { continue };
+            let (pk, o, po) = if l.a == k {
+                (l.pin_a, l.b, l.pin_b)
+            } else if l.b == k {
+                (l.pin_b, l.a, l.pin_a)
+            } else {
+                continue;
+            };
             if o == k || assigned[o as usize] == EMPTY {
                 continue;
             }
@@ -388,7 +394,14 @@ pub(crate) fn matches(
 /// device names), so the result does not depend on netlist order.
 /// `cfg.do_not_identify` devices and `cfg.do_not_use` templates are skipped.
 #[must_use]
-pub fn recognize_all(hg: &BipartiteHypergraph, drawn: &[Drawn], roles: &[NetRole], cfg: &AnnotationConfig, canon: &[u64], names: &[&str]) -> Vec<PatternMatch> {
+pub fn recognize_all(
+    hg: &BipartiteHypergraph,
+    drawn: &[Drawn],
+    roles: &[NetRole],
+    cfg: &AnnotationConfig,
+    canon: &[u64],
+    names: &[&str],
+) -> Vec<PatternMatch> {
     let allowed: Vec<bool> = (0..hg.device_count() as u32).map(|d| !cfg.do_not_identify.contains(&d)).collect();
     let pins = pins(hg);
     let on = on_pin(hg, &pins);
@@ -396,11 +409,7 @@ pub fn recognize_all(hg: &BipartiteHypergraph, drawn: &[Drawn], roles: &[NetRole
     by.sort_by_key(|&d| (canon[d], names[d]));
     let mut rank = vec![0u32; by.len()];
     by.iter().enumerate().for_each(|(r, &d)| rank[d] = r as u32);
-    PATTERNS
-        .iter()
-        .filter(|p| !cfg.do_not_use.contains(p.name))
-        .flat_map(|p| matches(p, hg, &pins, &on, drawn, roles, &allowed, &rank))
-        .collect()
+    PATTERNS.iter().filter(|p| !cfg.do_not_use.contains(p.name)).flat_map(|p| matches(p, hg, &pins, &on, drawn, roles, &allowed, &rank)).collect()
 }
 
 fn hash<T: Hash>(t: &T) -> u64 {
@@ -420,11 +429,8 @@ pub fn canonical_labels(hg: &BipartiteHypergraph, drawn: &[Drawn], models: &[Str
     let mut dev: Vec<u64> = (0..hg.device_count())
         .map(|d| {
             let s = &drawn[d];
-            let mut p: Vec<(&str, u8, usize)> = hg.terminals[d]
-                .iter()
-                .zip(&hg.device_nets[d])
-                .map(|(t, &n)| (t.as_str(), role(n), hg.net_devices[n.0 as usize].len()))
-                .collect();
+            let mut p: Vec<(&str, u8, usize)> =
+                hg.terminals[d].iter().zip(&hg.device_nets[d]).map(|(t, &n)| (t.as_str(), role(n), hg.net_devices[n.0 as usize].len())).collect();
             p.sort_unstable();
             hash(&(hg.kinds[d] as u8, s.w_finger_nm, s.l_nm, s.fingers, &models[s.model as usize], p))
         })

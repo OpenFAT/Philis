@@ -2,14 +2,13 @@
 //! (Hastings MOS rules 1, 11 and eq. 13.49; resistor rule 5; BJT unit
 //! emitters; Lampaert: a ratioed group is built of equal units).
 
-use analog::intent::{
-    ClassSource, Compound, ConstraintId, Diagnostic, Family, Half, MatchClass, MatchKind, MatchSpec, Member, Origin, ArrayStyle, ReqType,
-    UnitGeom,
-};
-use analog::metadata::{NetClass, NetClassification};
 use analog::base::ids::DeviceId;
 use analog::base::netlist::DeviceKind;
 use analog::base::BipartiteHypergraph;
+use analog::intent::{
+    ArrayStyle, ClassSource, Compound, ConstraintId, Diagnostic, Family, Half, MatchClass, MatchKind, MatchSpec, Member, Origin, ReqType, UnitGeom,
+};
+use analog::metadata::{NetClass, NetClassification};
 
 use crate::block::Block;
 use crate::graph::Req;
@@ -55,7 +54,13 @@ pub(crate) fn diode(hg: &BipartiteHypergraph, d: usize) -> bool {
 pub fn shared_bias_groups(hg: &BipartiteHypergraph, drawn: &[Drawn], classes: &[NetClassification]) -> Vec<Vec<DeviceId>> {
     let keyed = drawn.iter().enumerate().filter_map(|(d, dr)| {
         let k = hg.kinds[d];
-        let (g, s) = if fet(k) { ("G", "S") } else if bjt(k) { ("B", "E") } else { return None };
+        let (g, s) = if fet(k) {
+            ("G", "S")
+        } else if bjt(k) {
+            ("B", "E")
+        } else {
+            return None;
+        };
         Some(((k as u8, dr.model, dr.l_nm, net(hg, d, g), net(hg, d, s)), d))
     });
     group(keyed)
@@ -114,7 +119,11 @@ pub(crate) fn inside(idx: &[Vec<usize>], g: impl IntoIterator<Item = usize>, all
 }
 
 fn gcd(a: i64, b: i64) -> i64 {
-    if b == 0 { a.abs() } else { gcd(b, a % b) }
+    if b == 0 {
+        a.abs()
+    } else {
+        gcd(b, a % b)
+    }
 }
 
 fn err(kind: &'static str, members: &[DeviceId], message: String) -> Diagnostic {
@@ -133,7 +142,13 @@ fn err(kind: &'static str, members: &[DeviceId], message: String) -> Diagnostic 
 /// # Errors
 /// `unit_deck_incomplete` (a deck key is 0), `non_integer_ratio`,
 /// `resistor_widths_differ` or `unknown_size`; the set then has `unit: None`.
-pub fn unitize(members: &[DeviceId], drawn: &[Drawn], kind: DeviceKind, class: MatchClass, deck: &UnitDeck) -> Result<(UnitGeom, Vec<(u16, u16)>), Diagnostic> {
+pub fn unitize(
+    members: &[DeviceId],
+    drawn: &[Drawn],
+    kind: DeviceKind,
+    class: MatchClass,
+    deck: &UnitDeck,
+) -> Result<(UnitGeom, Vec<(u16, u16)>), Diagnostic> {
     let d = |m: &DeviceId| drawn[m.0 as usize];
     let deck_keys = [deck.grid_nm, deck.min_w_nm, deck.max_w_nm, deck.min_l_nm, deck.res_min_segment_nm];
     if deck_keys.contains(&0) {
@@ -148,12 +163,18 @@ pub fn unitize(members: &[DeviceId], drawn: &[Drawn], kind: DeviceKind, class: M
     let moderate = class >= MatchClass::Moderate;
     match kind {
         DeviceKind::Nmos | DeviceKind::Pmos => {
-            let (Some(ws), Some(ls)) = (members.iter().map(|m| d(m).w_finger_nm.map(|w| w * i64::from(d(m).fingers))).collect::<Option<Vec<i64>>>(), members.iter().map(|m| d(m).l_nm).collect::<Option<Vec<i64>>>()) else {
+            let (Some(ws), Some(ls)) = (
+                members.iter().map(|m| d(m).w_finger_nm.map(|w| w * i64::from(d(m).fingers))).collect::<Option<Vec<i64>>>(),
+                members.iter().map(|m| d(m).l_nm).collect::<Option<Vec<i64>>>(),
+            ) else {
                 return Err(err("unknown_size", members, "W/L unknown".into()));
             };
             let g = ws.iter().fold(0, |a, &w| gcd(a, w));
             let floor = deck.min_w_nm.max(if moderate { 1000 } else { 0 });
-            let w_u = (1..=g.min(deck.max_w_nm)).rev().find(|&x| g % x == 0 && x % deck.grid_nm == 0 && x >= floor).ok_or_else(|| ratio("no unit width on the grid"))?;
+            let w_u = (1..=g.min(deck.max_w_nm))
+                .rev()
+                .find(|&x| g % x == 0 && x % deck.grid_nm == 0 && x >= floor)
+                .ok_or_else(|| ratio("no unit width on the grid"))?;
             let l_u = if ls.iter().all(|&l| l == ls[0]) {
                 ls[0]
             } else {
@@ -163,7 +184,12 @@ pub fn unitize(members: &[DeviceId], drawn: &[Drawn], kind: DeviceKind, class: M
                 }
                 l_u
             };
-            let units = ws.iter().zip(&ls).map(|(&w, &l)| Some((n16(w / w_u)?, n16(l / l_u)?))).collect::<Option<Vec<_>>>().ok_or_else(|| ratio("too many units"))?;
+            let units = ws
+                .iter()
+                .zip(&ls)
+                .map(|(&w, &l)| Some((n16(w / w_u)?, n16(l / l_u)?)))
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| ratio("too many units"))?;
             Ok((UnitGeom { w_nm: w_u as i32, l_nm: l_u as i32, model }, units))
         }
         DeviceKind::Resistor => {
@@ -171,12 +197,18 @@ pub fn unitize(members: &[DeviceId], drawn: &[Drawn], kind: DeviceKind, class: M
             if members.iter().any(|m| d(m).w_finger_nm != w) {
                 return Err(err("resistor_widths_differ", members, "matched resistors need one width (Hastings R2)".into()));
             }
-            let ls = members.iter().map(|m| d(m).l_nm).collect::<Option<Vec<i64>>>().ok_or_else(|| err("unknown_size", members, "L unknown".into()))?;
+            let ls =
+                members.iter().map(|m| d(m).l_nm).collect::<Option<Vec<i64>>>().ok_or_else(|| err("unknown_size", members, "L unknown".into()))?;
             let l_u = ls.iter().fold(0, |a, &l| gcd(a, l));
             if l_u < deck.res_min_segment_nm {
                 return Err(ratio("segment below res_min_segment"));
             }
-            let units = members.iter().zip(&ls).map(|(m, &l)| Some((n16(i64::from(d(m).fingers))?, n16(l / l_u)?))).collect::<Option<Vec<_>>>().ok_or_else(|| ratio("too many units"))?;
+            let units = members
+                .iter()
+                .zip(&ls)
+                .map(|(m, &l)| Some((n16(i64::from(d(m).fingers))?, n16(l / l_u)?)))
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| ratio("too many units"))?;
             Ok((UnitGeom { w_nm: w.unwrap_or(0) as i32, l_nm: l_u as i32, model }, units))
         }
         DeviceKind::Capacitor => {
@@ -189,12 +221,18 @@ pub fn unitize(members: &[DeviceId], drawn: &[Drawn], kind: DeviceKind, class: M
             if members.iter().any(|x| d(x).w_finger_nm != w) {
                 return Err(ratio("capacitor widths differ"));
             }
-            let ls = members.iter().map(|x| d(x).l_nm).collect::<Option<Vec<i64>>>().ok_or_else(|| err("unknown_size", members, "L unknown".into()))?;
+            let ls =
+                members.iter().map(|x| d(x).l_nm).collect::<Option<Vec<i64>>>().ok_or_else(|| err("unknown_size", members, "L unknown".into()))?;
             let l_min = *ls.iter().min().unwrap_or(&0);
             if l_min <= 0 || ls.iter().any(|&l| l % l_min != 0) {
                 return Err(ratio("areas are not multiples of the smallest"));
             }
-            let units = members.iter().zip(&ls).map(|(x, &l)| Some((n16(m(x) * (l / l_min))?, 1))).collect::<Option<Vec<_>>>().ok_or_else(|| ratio("too many units"))?;
+            let units = members
+                .iter()
+                .zip(&ls)
+                .map(|(x, &l)| Some((n16(m(x) * (l / l_min))?, 1)))
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| ratio("too many units"))?;
             Ok((UnitGeom { w_nm: w.unwrap_or(0) as i32, l_nm: l_min as i32, model }, units))
         }
         _ => {
@@ -202,7 +240,11 @@ pub fn unitize(members: &[DeviceId], drawn: &[Drawn], kind: DeviceKind, class: M
             if members.iter().any(|x| (d(x).w_finger_nm, d(x).l_nm) != (w, l)) {
                 return Err(ratio("unit emitters differ"));
             }
-            let units = members.iter().map(|x| Some((n16(i64::from(d(x).fingers))?, 1))).collect::<Option<Vec<_>>>().ok_or_else(|| ratio("too many units"))?;
+            let units = members
+                .iter()
+                .map(|x| Some((n16(i64::from(d(x).fingers))?, 1)))
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| ratio("too many units"))?;
             Ok((UnitGeom { w_nm: w.unwrap_or(0) as i32, l_nm: l.unwrap_or(0) as i32, model }, units))
         }
     }
@@ -319,7 +361,11 @@ pub fn matched_sets(
             MatchSpec {
                 id: ConstraintId(i as u32),
                 origin,
-                members: g.iter().zip(&units).map(|(&d, &(parallel, series))| Member { device: DeviceId(d as u16), parallel, series, half: half[d] }).collect(),
+                members: g
+                    .iter()
+                    .zip(&units)
+                    .map(|(&d, &(parallel, series))| Member { device: DeviceId(d as u16), parallel, series, half: half[d] })
+                    .collect(),
                 reference: bank_ref.or((diodes.len() == 1).then(|| diodes[0])),
                 family: Family::of(kind).expect("inductors dropped above"),
                 kind: if matches!(kind, DeviceKind::Resistor | DeviceKind::Capacitor) { MatchKind::Ratio } else { MatchKind::Current },
@@ -339,7 +385,14 @@ pub fn matched_sets(
 ///
 /// # Errors
 /// As [`unitize`].
-pub fn unitize_set(members: &[DeviceId], passive: &[crate::passive::PassiveSet], drawn: &[Drawn], kind: DeviceKind, class: MatchClass, deck: &UnitDeck) -> Result<(UnitGeom, Vec<(u16, u16)>), Diagnostic> {
+pub fn unitize_set(
+    members: &[DeviceId],
+    passive: &[crate::passive::PassiveSet],
+    drawn: &[Drawn],
+    kind: DeviceKind,
+    class: MatchClass,
+    deck: &UnitDeck,
+) -> Result<(UnitGeom, Vec<(u16, u16)>), Diagnostic> {
     let bridge = |d: &DeviceId| passive.iter().any(|p| p.bridge == Some(*d));
     let core: Vec<DeviceId> = members.iter().copied().filter(|d| !bridge(d)).collect();
     let (u, units) = unitize(&core, drawn, kind, class, deck)?;
@@ -366,7 +419,8 @@ pub fn set_pairs(compounds: &mut [Compound], sets: &[MatchSpec]) {
         }
         let mate = |d: DeviceId| mates.get(&d).copied();
         // Only sets wholly inside the pairs can map onto one another.
-        let near = inside(&idx, mates.keys().map(|d| d.0 as usize).filter(|&d| d < n), |s| sets[s].members.iter().all(|m| mates.contains_key(&m.device)));
+        let near =
+            inside(&idx, mates.keys().map(|d| d.0 as usize).filter(|&d| d < n), |s| sets[s].members.iter().all(|m| mates.contains_key(&m.device)));
         let mut found = Vec::new();
         for (k, &i) in near.iter().enumerate() {
             let Some(mut img) = sets[i].members.iter().map(|m| mate(m.device).map(|d| d.0)).collect::<Option<Vec<u16>>>() else { continue };

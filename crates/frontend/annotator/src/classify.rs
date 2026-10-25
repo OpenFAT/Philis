@@ -2,10 +2,10 @@
 //! structure gives the two classes a name can't: **Sensitive** (feeds a matched
 //! device's gate, or gates-only = a bias rail) and **Substrate** (bulk-only).
 
-use analog::intent::{EvidenceLevel, MatchKind, MatchSpec, NetFacts, RcClass};
-use analog::metadata::{NetClass, NetClassification};
 use analog::base::ids::NetId;
 use analog::base::BipartiteHypergraph;
+use analog::intent::{EvidenceLevel, MatchKind, MatchSpec, NetFacts, RcClass};
+use analog::metadata::{NetClass, NetClassification};
 
 use crate::class::SetRole;
 use crate::evidence::Evidence;
@@ -27,9 +27,7 @@ pub(crate) fn budgets(class: NetClass, c_load_af: f32) -> (Option<i64>, Option<i
     match class {
         NetClass::Sensitive | NetClass::Bias | NetClass::Reference => frac(1.0, 1.0),
         NetClass::Signal => frac(2.0, 2.0),
-        NetClass::Clock | NetClass::DigitalSwitching | NetClass::Noisy | NetClass::DigitalStatic => {
-            (Some((2.0 * c_load_af) as i64), None)
-        }
+        NetClass::Clock | NetClass::DigitalSwitching | NetClass::Noisy | NetClass::DigitalStatic => (Some((2.0 * c_load_af) as i64), None),
         NetClass::Supply | NetClass::Ground | NetClass::Substrate => (None, None),
     }
 }
@@ -68,9 +66,7 @@ pub fn classify(
                     touches_gate[i] = true;
                     gate_of_sensitive[i] |= sensitive_devices[d];
                 }
-                crate::terms::TermRole::Channel
-                | crate::terms::TermRole::BjtBase
-                | crate::terms::TermRole::Passive => touches_channel[i] = true,
+                crate::terms::TermRole::Channel | crate::terms::TermRole::BjtBase | crate::terms::TermRole::Passive => touches_channel[i] = true,
                 crate::terms::TermRole::Body => touches_bulk[i] = true,
                 crate::terms::TermRole::Plate => {}
             }
@@ -80,13 +76,7 @@ pub fn classify(
     let load_af = net_load_af(hg, gate_um2, gate_af_per_um2, loads);
     (0..n_nets)
         .map(|i| {
-            let class = classify_one(
-                roles[i],
-                gate_of_sensitive[i],
-                touches_gate[i],
-                touches_channel[i],
-                touches_bulk[i],
-            );
+            let class = classify_one(roles[i], gate_of_sensitive[i], touches_gate[i], touches_channel[i], touches_bulk[i]);
             let (c_budget_af, max_coupling_af) = load_af[i].map_or((None, None), |c| budgets(class, c));
             NetClassification { net: NetId(i as u16), class, c_budget_af, max_coupling_af }
         })
@@ -344,13 +334,7 @@ fn impedance(hg: &BipartiteHypergraph, op: Option<&crate::evidence::OpFacts>) ->
 }
 
 /// The classification rule itself, isolated so it is testable without a graph.
-fn classify_one(
-    role: NetRole,
-    gate_of_sensitive: bool,
-    touches_gate: bool,
-    touches_channel: bool,
-    touches_bulk: bool,
-) -> NetClass {
+fn classify_one(role: NetRole, gate_of_sensitive: bool, touches_gate: bool, touches_channel: bool, touches_bulk: bool) -> NetClass {
     match role {
         // A rail's name is authoritative: nothing structural should demote it.
         NetRole::Supply => NetClass::Supply,
@@ -399,33 +383,21 @@ mod tests {
     #[test]
     fn a_gate_only_net_is_a_sensitive_reference() {
         // No DC path — gates only. This is a bias rail, the classic victim.
-        assert_eq!(
-            classify_one(NetRole::Signal, false, true, false, false),
-            NetClass::Sensitive
-        );
+        assert_eq!(classify_one(NetRole::Signal, false, true, false, false), NetClass::Sensitive);
     }
 
     #[test]
     fn driving_a_matched_gate_makes_a_net_sensitive_even_with_a_dc_path() {
         // A differential input is driven *and* feeds a matched gate: still the
         // small-signal path whose coupling shows up as offset.
-        assert_eq!(
-            classify_one(NetRole::Signal, true, true, true, false),
-            NetClass::Sensitive
-        );
+        assert_eq!(classify_one(NetRole::Signal, true, true, true, false), NetClass::Sensitive);
         // The same net without the matched-device connection is ordinary signal.
-        assert_eq!(
-            classify_one(NetRole::Signal, false, true, true, false),
-            NetClass::Signal
-        );
+        assert_eq!(classify_one(NetRole::Signal, false, true, true, false), NetClass::Signal);
     }
 
     #[test]
     fn bulk_only_nets_are_substrate() {
-        assert_eq!(
-            classify_one(NetRole::Signal, false, false, false, true),
-            NetClass::Substrate
-        );
+        assert_eq!(classify_one(NetRole::Signal, false, false, false, true), NetClass::Substrate);
     }
 
     #[test]
@@ -463,22 +435,14 @@ mod tests {
                     name: "XQ1".into(),
                     kind: DeviceKind::Npn,
                     model: String::new(),
-                    terminals: vec![
-                        ("C".into(), NetId(0)),
-                        ("B".into(), NetId(1)),
-                        ("E".into(), NetId(2)),
-                    ],
+                    terminals: vec![("C".into(), NetId(0)), ("B".into(), NetId(1)), ("E".into(), NetId(2))],
                     params: vec![],
                 },
                 Device {
                     name: "XQ2".into(),
                     kind: DeviceKind::Pnp,
                     model: String::new(),
-                    terminals: vec![
-                        ("C".into(), NetId(3)),
-                        ("B".into(), NetId(1)),
-                        ("E".into(), NetId(4)),
-                    ],
+                    terminals: vec![("C".into(), NetId(3)), ("B".into(), NetId(1)), ("E".into(), NetId(4))],
                     params: vec![],
                 },
             ],
@@ -504,11 +468,7 @@ mod tests {
             params: vec![],
         };
         let m1 = crate::tests::fet("M1", DeviceKind::Nmos, 0, 2, 3, 3, 1_000, 1_000);
-        let nl = Netlist {
-            devices: vec![r1, m1],
-            nets: crate::tests::nets(&["a", "b", "dn", "VSS"]),
-            ..Default::default()
-        };
+        let nl = Netlist { devices: vec![r1, m1], nets: crate::tests::nets(&["a", "b", "dn", "VSS"]), ..Default::default() };
         let classes = classify_netlist(&nl);
         assert_eq!(class_of(&nl, &classes, "a"), NetClass::Signal);
 
@@ -544,11 +504,18 @@ mod tests {
             nets: crate::tests::nets(&["a1", "p1", "b1", "VSS", "a2", "p2", "b2"]),
             ..Default::default()
         };
-        let op = DeviceOp { id_ua: 10.0, headroom_mv: -20.0, gm_us: 50.0, power_uw: 0.0, vgs_mv: None, vbs_mv: None, vth_mv: None, gmb_us: None, gds_us: None };
-        let ev = crate::Evidence {
-            op: Some(crate::OpFacts { dev: vec![Some(op); 2], net_mv: vec![None; 7] }),
-            ..Default::default()
+        let op = DeviceOp {
+            id_ua: 10.0,
+            headroom_mv: -20.0,
+            gm_us: 50.0,
+            power_uw: 0.0,
+            vgs_mv: None,
+            vbs_mv: None,
+            vth_mv: None,
+            gmb_us: None,
+            gds_us: None,
         };
+        let ev = crate::Evidence { op: Some(crate::OpFacts { dev: vec![Some(op); 2], net_mv: vec![None; 7] }), ..Default::default() };
         let cfg = crate::AnnotationConfig { clock_nets: vec!["p1".into(), "p2".into()], ..Default::default() };
         let p = crate::annotate_with(&nl, &cfg, &ev);
         for n in ["p1", "p2"] {
@@ -591,7 +558,17 @@ mod tests {
             ..Default::default()
         };
         let with_gds = |gds: f64| {
-            let op = DeviceOp { id_ua: 10.0, headroom_mv: 100.0, gm_us: 50.0, power_uw: 0.0, vgs_mv: None, vbs_mv: None, vth_mv: None, gmb_us: None, gds_us: Some(gds) };
+            let op = DeviceOp {
+                id_ua: 10.0,
+                headroom_mv: 100.0,
+                gm_us: 50.0,
+                power_uw: 0.0,
+                vgs_mv: None,
+                vbs_mv: None,
+                vth_mv: None,
+                gmb_us: None,
+                gds_us: Some(gds),
+            };
             let ev = crate::Evidence { op: Some(crate::OpFacts { dev: vec![Some(op)], net_mv: vec![None; 3] }), ..Default::default() };
             crate::annotate_with(&nl, &crate::AnnotationConfig::default(), &ev)
         };

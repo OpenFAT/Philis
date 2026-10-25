@@ -2,7 +2,14 @@
 use analog::base::DeviceKind;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum TermRole { FetGate, Channel, Body, BjtBase, Plate, Passive }
+pub enum TermRole {
+    FetGate,
+    Channel,
+    Body,
+    BjtBase,
+    Plate,
+    Passive,
+}
 
 /// FET `G`/`D`,`S`/`B`; bipolar `B` = base, `C`/`E` = channel; capacitor pins are plates;
 /// anything else (resistor, diode, inductor, unknown pin names) is a passive DC path.

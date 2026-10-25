@@ -7,8 +7,8 @@ use crate::base::layout::Layout;
 
 use crate::matching::class::{Family, MatchClass};
 use crate::matching::mismatch::{
-    bjt_sigma_vbe_mv, mobility_pct, ratio_thermal_pct, sigma_grad_mv, sigma_current_pct, sigma_pair, sigma_voltage_mv, Budget, Coeffs, Ledger, LedgerRow, LedgerUnit,
-    MatchKind, GRADIENT_SHARE,
+    bjt_sigma_vbe_mv, mobility_pct, ratio_thermal_pct, sigma_current_pct, sigma_grad_mv, sigma_pair, sigma_voltage_mv, Budget, Coeffs, Ledger,
+    LedgerRow, LedgerUnit, MatchKind, GRADIENT_SHARE,
 };
 use crate::matching::moments::{cancelled_order, phi_equal, sums, Pt};
 use crate::matching::pattern::{cc_feasible, diffusion_cc_row, Outer};
@@ -54,15 +54,20 @@ pub struct MatchedSet {
 /// 7·cells but is 50 % low within ~L of a heater (card m2-analog-matching-3).
 fn member(l: &Layout, d: DeviceId, hot: bool) -> (crate::matching::moments::Sums, f64, f64, f64) {
     let (mut lw, mut w, mut t) = (0.0f64, 0.0f64, 0.0f64);
-    let s = sums(l.units.of_device(l, d).inspect(|u| {
-        if u.lod.is_finite() {
-            lw += u.weight as f64 * f64::from(u.lod);
-            w += u.weight as f64;
-        }
-        if hot {
-            t += u.weight as f64 * f64::from(l.rise_at_point_mc(u.x, u.y));
-        }
-    }).map(Pt::from));
+    let s = sums(
+        l.units
+            .of_device(l, d)
+            .inspect(|u| {
+                if u.lod.is_finite() {
+                    lw += u.weight as f64 * f64::from(u.lod);
+                    w += u.weight as f64;
+                }
+                if hot {
+                    t += u.weight as f64 * f64::from(l.rise_at_point_mc(u.x, u.y));
+                }
+            })
+            .map(Pt::from),
+    );
     (s, lw, w, t)
 }
 
@@ -82,7 +87,19 @@ impl MatchedSet {
         areas_um2: Vec<f32>,
         tol_nm: f32,
     ) -> MatchedSet {
-        MatchedSet { members, kind, family, class, coeffs, budget, gate_um2: areas_um2, tol_nm, cell_of: Vec::new(), gm_over_id: None, sigma_rand_override: None }
+        MatchedSet {
+            members,
+            kind,
+            family,
+            class,
+            coeffs,
+            budget,
+            gate_um2: areas_um2,
+            tol_nm,
+            cell_of: Vec::new(),
+            gm_over_id: None,
+            sigma_rand_override: None,
+        }
     }
 
     fn cell(&self, d: DeviceId) -> usize {
@@ -105,7 +122,11 @@ impl MatchedSet {
         let at = |s: &crate::matching::moments::Sums, d: DeviceId| {
             s.centroid().unwrap_or_else(|| {
                 let c = self.cell(d);
-                if c < l.x.len() { (f64::from(l.x[c]), f64::from(l.y[c])) } else { (0.0, 0.0) }
+                if c < l.x.len() {
+                    (f64::from(l.x[c]), f64::from(l.y[c]))
+                } else {
+                    (0.0, 0.0)
+                }
             })
         };
         let (ca, cb) = (at(&sa, a), at(&sb, b));
@@ -129,12 +150,13 @@ impl MatchedSet {
             let (ma, mb) = (sa.second(c), sb.second(c));
             let d = [ma[0] - mb[0], ma[1] - mb[1], ma[2] - mb[2]];
             let f = (d[0] * d[0] + 2.0 * d[1] * d[1] + d[2] * d[2]).sqrt();
-            let reach = [a, b]
-                .iter()
-                .flat_map(|&m| l.units.of_device(l, m))
-                .map(|u| (f64::from(u.x) - c.0).hypot(f64::from(u.y) - c.1))
-                .fold(0.0, f64::max);
-            if reach > 0.0 { (f / reach) as f32 } else { 0.0 }
+            let reach =
+                [a, b].iter().flat_map(|&m| l.units.of_device(l, m)).map(|u| (f64::from(u.x) - c.0).hypot(f64::from(u.y) - c.1)).fold(0.0, f64::max);
+            if reach > 0.0 {
+                (f / reach) as f32
+            } else {
+                0.0
+            }
         } else {
             0.0
         };
@@ -364,13 +386,7 @@ pub(crate) fn pair(a: u16, b: u16) -> MatchedSet {
         kind: MatchKind::Current,
         family: Family::Mos,
         class: MatchClass::Moderate,
-        coeffs: Coeffs {
-            avt_mv_um: Some(9.5),
-            svt_uv_per_um: Some(1.63),
-            kvth0_mv_um: Some(9.8),
-            tc_uv_per_k: Some(765.0),
-            ..Coeffs::default()
-        },
+        coeffs: Coeffs { avt_mv_um: Some(9.5), svt_uv_per_um: Some(1.63), kvth0_mv_um: Some(9.8), tc_uv_per_k: Some(765.0), ..Coeffs::default() },
         budget: Budget::Eta(0.3),
         gate_um2: vec![20.0, 20.0],
         tol_nm: 5.0,
@@ -419,8 +435,8 @@ pub(crate) fn singles(dx: i32) -> Layout {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rule::RuleBatch;
     use crate::base::{Rect, Unit, UnitLib};
+    use crate::rule::RuleBatch;
     use std::sync::Arc;
 
     /// Devices 0 and 1 drawn in one cell (cell 0) over `bbox`.

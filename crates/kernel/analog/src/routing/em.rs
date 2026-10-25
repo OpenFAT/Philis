@@ -1,12 +1,12 @@
 //! DC electromigration (routing tier, hard), plus the per-layer limit model
 //! the detailed router sizes segments and via arrays with.
 
+use super::current::net_flow;
+use super::Stack;
 use crate::base::geom::{Rect, Shape};
 use crate::base::ids::NetId;
 use crate::base::routes::Routes;
 use crate::rule::Rule;
-use super::current::net_flow;
-use super::Stack;
 
 /// Boltzmann's constant, eV/K.
 const K_EV: f32 = 8.617e-5;
@@ -224,7 +224,10 @@ impl Electromigration {
             for (root, ms) in members.iter().enumerate().filter(|(_, ms)| !ms.is_empty()) {
                 let rects: Vec<&Rect> = ms.iter().map(|&i| &routed[cuts[i].0].rect).collect();
                 let first = &cuts[ms[0]];
-                let front = first.2.iter().chain(&first.3)
+                let front = first
+                    .2
+                    .iter()
+                    .chain(&first.3)
                     .filter(|m| ms.iter().all(|&i| cuts[i].2.contains(m) || cuts[i].3.contains(m)))
                     .map(|&m| front_row(&rects, &all[m].rect))
                     .min();
@@ -343,10 +346,10 @@ impl Rule for Electromigration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::routing::current::net_flow;
-    use crate::routing::stack::Layer;
     use crate::base::geom::{LayerId, Rect};
     use crate::base::routes::Terminal;
+    use crate::routing::current::net_flow;
+    use crate::routing::stack::Layer;
 
     /// REL-05: sky130's 90 °C rating with the Cu fallback (0.9 eV, n 1.1)
     /// allows ≈ 10 % of the current at 125 °C.
@@ -359,7 +362,10 @@ mod tests {
     /// met1 (id 1, 0.125 Ω/□), via (2, 4.5 Ω/cut), met2 (3).
     fn stack() -> &'static Stack {
         let metal = |id| Layer { id, sheet_ohm: 0.125, ..Layer::default() };
-        Box::leak(Box::new(Stack { layers: vec![metal(1), Layer { id: 2, sheet_ohm: 4.5, cut: true, ..Layer::default() }, metal(3)], ..Stack::default() }))
+        Box::leak(Box::new(Stack {
+            layers: vec![metal(1), Layer { id: 2, sheet_ohm: 4.5, cut: true, ..Layer::default() }, metal(3)],
+            ..Stack::default()
+        }))
     }
 
     /// The sky130 values (`pdks/gpurify/sky130.deck:496-497`) as `em_limits`
@@ -433,7 +439,8 @@ mod tests {
     #[test]
     fn a_via_group_needs_ceil_i_over_i_cut() {
         // met1 → two via cuts → met2, 700 µA end to end.
-        let wires = vec![shape(1, 0, 0, 5_000, 1_000), shape(2, 4_200, 200, 200, 200), shape(2, 4_600, 600, 200, 200), shape(3, 4_000, 0, 6_000, 1_000)];
+        let wires =
+            vec![shape(1, 0, 0, 5_000, 1_000), shape(2, 4_200, 200, 200, 200), shape(2, 4_600, 600, 200, 200), shape(3, 4_000, 0, 6_000, 1_000)];
         let r = routes(wires, vec![term(0, 400, 200, 200, Some(700.0)), term(9_800, 400, 200, 200, Some(-700.0))]);
         assert_eq!(em().limit(2).unwrap().cuts(700.0), 3, "⌈700/290⌉");
         // Front row: the cuts lie along both metals' long axis x, one per column.
@@ -601,12 +608,7 @@ mod tests {
     #[test]
     fn parallel_paths_are_bounded_by_the_tree_path() {
         // Two equal met1 wires between end bars: A(+1000) left, B(−1000) right.
-        let wires = vec![
-            shape(1, 0, 0, 200, 2_200),
-            shape(1, 9_800, 0, 200, 2_200),
-            shape(1, 0, 2_000, 10_000, 200),
-            shape(1, 0, 0, 10_000, 200),
-        ];
+        let wires = vec![shape(1, 0, 0, 200, 2_200), shape(1, 9_800, 0, 200, 2_200), shape(1, 0, 2_000, 10_000, 200), shape(1, 0, 0, 10_000, 200)];
         let flow = net_flow(stack(), &wires, &[term(0, 1_000, 200, 200, Some(1_000.0)), term(9_800, 1_000, 200, 200, Some(-1_000.0))]).unwrap();
         assert!((flow.shape_ua[2] - 1_000.0).abs() < 1e-3 && (flow.shape_ua[3] - 1_000.0).abs() < 1e-3, "{:?}", flow.shape_ua);
     }

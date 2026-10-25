@@ -256,12 +256,7 @@ mod tests {
     }
 
     fn rule() -> Symmetry {
-        Symmetry {
-            a: Target::Device(DeviceId(0)),
-            b: Target::Device(DeviceId(1)),
-            axis: AxisId(0),
-            mode: SymMode::Perfect,
-        }
+        Symmetry { a: Target::Device(DeviceId(0)), b: Target::Device(DeviceId(1)), axis: AxisId(0), mode: SymMode::Perfect }
     }
 
     #[test]
@@ -404,7 +399,8 @@ mod tests {
 
     #[test]
     fn demote_mirrors_keeps_only_allowed_pairs() {
-        let pair = |a: u16, b: u16| Symmetry { a: Target::Device(DeviceId(a)), b: Target::Device(DeviceId(b)), axis: AxisId(0), mode: SymMode::Mirror };
+        let pair =
+            |a: u16, b: u16| Symmetry { a: Target::Device(DeviceId(a)), b: Target::Device(DeviceId(b)), axis: AxisId(0), mode: SymMode::Mirror };
         let mut g = SymmetryGroup(vec![pair(0, 1), pair(2, 3)]);
         g.demote_mirrors(&|a, _| a == 2);
         let mut out = Vec::new();
@@ -429,13 +425,8 @@ mod tests {
     fn retarget_maps_both_partners_through_cell_of() {
         // Devices 0 and 1 collapsed into cell 0, device 2 became cell 1.
         let cell_of = [0u16, 0, 1];
-        let r = Symmetry {
-            a: Target::Device(DeviceId(1)),
-            b: Target::Device(DeviceId(2)),
-            axis: AxisId(0),
-            mode: SymMode::Perfect,
-        }
-        .retarget(&cell_of);
+        let r =
+            Symmetry { a: Target::Device(DeviceId(1)), b: Target::Device(DeviceId(2)), axis: AxisId(0), mode: SymMode::Perfect }.retarget(&cell_of);
         assert_eq!(r.a, Target::Device(DeviceId(0)));
         assert_eq!(r.b, Target::Device(DeviceId(1)));
 
@@ -456,12 +447,7 @@ mod tests {
         // on the lattice, or the hard equality becomes unprojectable (PLAN §4a).
         let g = 5;
         let mut l = layout(1_003, 40, 9_999, 260); // device 1 is unrelated ballast
-        let self_pair = Symmetry {
-            a: Target::Device(DeviceId(0)),
-            b: Target::Device(DeviceId(0)),
-            axis: AxisId(0),
-            mode: SymMode::Perfect,
-        };
+        let self_pair = Symmetry { a: Target::Device(DeviceId(0)), b: Target::Device(DeviceId(0)), axis: AxisId(0), mode: SymMode::Perfect };
         self_pair.project(&mut l, g);
         assert!(self_pair.satisfied(&l), "self-pair must land exactly on the axis");
         assert_eq!(l.x[0], l.axis[0], "x = axis is the degenerate mirror equation");

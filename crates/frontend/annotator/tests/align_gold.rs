@@ -10,15 +10,8 @@ use common::{canon, canon_intent, net, sorted, strongarm_cfg, STRONGARM};
 
 /// The device pairs its `SymmetricBlocks` implies (`xdp`, `xccn`, `xccp` and
 /// `xinv_n`/`xinv_p` expanded to their instances).
-const GOLD_PAIRS: [(&str, &str); 7] = [
-    ("mn1", "mn2"),
-    ("mn3", "mn4"),
-    ("mp5", "mp6"),
-    ("mp7", "mp8"),
-    ("mp9", "mp10"),
-    ("mp11", "mp12"),
-    ("mn13", "mn14"),
-];
+const GOLD_PAIRS: [(&str, &str); 7] =
+    [("mn1", "mn2"), ("mn3", "mn4"), ("mp5", "mp6"), ("mp7", "mp8"), ("mp9", "mp10"), ("mp11", "mp12"), ("mn13", "mn14")];
 const GOLD_SELF: [&str; 1] = ["mn0"];
 const GOLD_NET_PAIRS: [(&str, &str); 3] = [("vin", "vip"), ("vin_d", "vip_d"), ("vin_o", "vip_o")];
 

@@ -208,7 +208,11 @@ pub fn pin_shares(m: &Macro) -> Vec<f32> {
         .enumerate()
         .map(|(i, p)| {
             let (sum, n) = m.pins.iter().zip(&w).filter(|(q, _)| q.name == p.name).fold((0, 0), |(s, n), (_, &wj)| (s + wj, n + 1));
-            if sum > 0 { w[i] as f32 / sum as f32 } else { (2.0 / n as f32).min(1.0) }
+            if sum > 0 {
+                w[i] as f32 / sum as f32
+            } else {
+                (2.0 / n as f32).min(1.0)
+            }
         })
         .collect()
 }
@@ -222,7 +226,10 @@ mod tests {
     fn cell(pins: &[(&str, i32)], units: &[(i32, i8)]) -> Macro {
         Macro {
             shapes: Vec::new(),
-            pins: pins.iter().map(|&(n, x)| Pin { name: n.into(), net: NetId(0), at: Rect { x: x - 85, y: -85, w: 170, h: 170 }, layer: LayerId(0) }).collect(),
+            pins: pins
+                .iter()
+                .map(|&(n, x)| Pin { name: n.into(), net: NetId(0), at: Rect { x: x - 85, y: -85, w: 170, h: 170 }, layer: LayerId(0) })
+                .collect(),
             bbox: Rect { x: 0, y: 0, w: 8_000, h: 1_000 },
             units: units.iter().map(|&(x, phi)| Unit { owner: 0, x, y: 0, weight: 1, phi: (phi, 0), sa: 0, sb: 0 }).collect(),
             dummies: Vec::new(),
@@ -251,7 +258,14 @@ mod tests {
 
     #[test]
     fn place_macro_moves_keepouts_and_keeps_drawn() {
-        let drawn = vec![Drawn { owner: 0, device: None, kind: DrawnKind::Resistor, nodes: [Node::Pin("P"), Node::Pin("N"), Node::Unused], w: 690, l: 20_000 }];
+        let drawn = vec![Drawn {
+            owner: 0,
+            device: None,
+            kind: DrawnKind::Resistor,
+            nodes: [Node::Pin("P"), Node::Pin("N"), Node::Unused],
+            w: 690,
+            l: 20_000,
+        }];
         let m = Macro {
             bbox: Rect { x: 0, y: 0, w: 400, h: 200 },
             keepouts: vec![Keepout { rect: Rect { x: 0, y: 0, w: 100, h: 50 }, why: KeepWhy::ResistorBody { owner: 0 } }],

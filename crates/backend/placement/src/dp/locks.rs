@@ -1,8 +1,8 @@
 //! Matched cells move as one (PLC-03): a set rotates together and, when the
 //! members' variant spaces agree index by index, reshapes together.
 
-use analog::Requirements;
 use analog::base::{Layout, Orient, UnionFind};
+use analog::Requirements;
 
 /// Orient and shape sets over cells, from every tier's `matched_pairs`.
 #[derive(Clone, Debug, Default)]
@@ -41,9 +41,7 @@ pub fn locks(reqs: &Requirements<Layout>, n: usize, variants: &[crate::gp::Varia
         v.dedup();
     }
 
-    let dims = |i: u32| {
-        variants.get(i as usize).map(|s| s.alternatives.iter().map(|m| (m.bbox.w, m.bbox.h)).collect::<Vec<_>>())
-    };
+    let dims = |i: u32| variants.get(i as usize).map(|s| s.alternatives.iter().map(|m| (m.bbox.w, m.bbox.h)).collect::<Vec<_>>());
     let (mut orient, mut shape) = (UnionFind::new(n), UnionFind::new(n));
     let mut incompatible = 0;
     for &(a, b) in &pairs {
@@ -149,11 +147,11 @@ impl Locks {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use analog::placement::symmetry::{SymMode, Symmetry};
     use crate::gp::VariantSpace;
     use analog::base::geom::Rect;
     use analog::base::ids::{AxisId, Target};
     use analog::base::{DeviceId, Macro};
+    use analog::placement::symmetry::{SymMode, Symmetry};
 
     fn sym(a: u16, b: u16) -> Symmetry {
         Symmetry { a: Target::Device(DeviceId(a)), b: Target::Device(DeviceId(b)), axis: AxisId(0), mode: SymMode::Perfect }

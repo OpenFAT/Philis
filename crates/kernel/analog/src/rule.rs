@@ -610,10 +610,7 @@ mod tests {
     #[test]
     fn batch_criticality_follows_the_tightest_rule() {
         let s = ();
-        let mixed: Vec<Budgeted> = vec![
-            Budgeted { used: 0.1, margin: 0.2 },
-            Budgeted { used: 0.95, margin: 0.2 },
-        ];
+        let mixed: Vec<Budgeted> = vec![Budgeted { used: 0.1, margin: 0.2 }, Budgeted { used: 0.95, margin: 0.2 }];
         assert!((mixed.criticality(&s) - 0.75).abs() < 1e-6);
     }
 
@@ -625,20 +622,11 @@ mod tests {
     /// overshoot below.
     fn one_wire(len: i32, h: i32) -> crate::base::Routes {
         use crate::base::geom::{LayerId, Rect, Shape};
-        crate::base::Routes {
-            wires: vec![vec![Shape { layer: LayerId(0), rect: Rect { x: 0, y: 0, w: len, h } }]],
-            ..Default::default()
-        }
+        crate::base::Routes { wires: vec![vec![Shape { layer: LayerId(0), rect: Rect { x: 0, y: 0, w: len, h } }]], ..Default::default() }
     }
 
     fn parasitic(max_len_nm: i64) -> crate::routing::ParasiticBudget {
-        crate::routing::ParasiticBudget {
-            net: crate::base::NetId(0),
-            max_len_nm,
-            max_c_af: 0,
-            margin_pct: 20,
-            stack: None,
-        }
+        crate::routing::ParasiticBudget { net: crate::base::NetId(0), max_len_nm, max_c_af: 0, margin_pct: 20, stack: None }
     }
 
     #[test]
@@ -671,7 +659,7 @@ mod tests {
         // **ratio ×100**. Same wire, both rules 50% past their own spec.
         let r = one_wire(15_000, 100); // length 15_000 nm, area 1.5e6 nm²
         let p = parasitic(10_000); // 50% over a 10_000 nm cap
-        // area/gate ×100 = 1.5e6/1e4 ×100 = 15_000; cap it at 10_000.
+                                   // area/gate ×100 = 1.5e6/1e4 ×100 = 15_000; cap it at 10_000.
         let a = crate::routing::Antenna { net: crate::base::NetId(0), max_ratio_x100: 10_000, gate_area_nm2: 10_000, margin_pct: 20, stack: None };
 
         let (pr, ar) = (p.residual(&r), a.residual(&r));

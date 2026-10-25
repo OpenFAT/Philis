@@ -1,10 +1,10 @@
 //! Post-layout netlist export: extract the drawn geometry and hand it to
 //! gdsverify's SPICE writer. No schematic is consulted.
 
+use analog::base::Shape;
 use gdsverify::engine::Checks;
 use gdsverify::export::netlist::write_spice;
 use gdsverify::export::Header;
-use analog::base::Shape;
 
 use crate::checker::Checker;
 use crate::geom::LabeledPin;
@@ -22,12 +22,7 @@ pub use gdsverify::export::netlist::Detail;
 /// # Errors
 /// A deck the checker refuses, geometry that fails to load, an extraction
 /// fault, or a circuit the writer cannot represent.
-pub fn extract_spice(
-    shapes: &[Shape],
-    pins: &[LabeledPin],
-    pdk: &Pdk,
-    detail: Detail,
-) -> Result<String, String> {
+pub fn extract_spice(shapes: &[Shape], pins: &[LabeledPin], pdk: &Pdk, detail: Detail) -> Result<String, String> {
     let mut checker = Checker::new(pdk, false)?;
     let pex = detail == Detail::WithParasitics;
     checker.run(shapes, pins, Checks { drc: false, erc: false, lvs: false, pex })?;
@@ -35,13 +30,16 @@ pub fn extract_spice(
     let header = Header {
         tool_version: concat!("philis ", env!("CARGO_PKG_VERSION")),
         deck_path: "<philis deck>".into(),
-        layout_path: if pex { "<elaborated, post-layout>" } else { "<elaborated, schematic>" }
-            .into(),
+        layout_path: if pex { "<elaborated, post-layout>" } else { "<elaborated, schematic>" }.into(),
         timestamp: None,
     };
     let mut out = String::new();
     write_spice(
-        gdsverify::check::topology::Extraction { nets: &checker.extracted().nets, devices: &checker.extracted().devices, ports: &checker.extracted().ports },
+        gdsverify::check::topology::Extraction {
+            nets: &checker.extracted().nets,
+            devices: &checker.extracted().devices,
+            ports: &checker.extracted().ports,
+        },
         checker.outputs().parasitics.as_ref(),
         detail,
         &checker.loaded.strings,

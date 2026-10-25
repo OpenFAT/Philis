@@ -1,9 +1,9 @@
 //! Thermal separation of matched sets from power sources (placement tier, PLC-14).
 
-use crate::rule::Rule;
 use crate::base::ids::{DeviceId, Target};
 use crate::base::layout::Layout;
 use crate::base::MatchClass;
+use crate::rule::Rule;
 
 /// Hastings rule 14 (L42569–42589): ≥ 1 µm per mW edge-to-edge between a
 /// power source and a matched set. A separate type from

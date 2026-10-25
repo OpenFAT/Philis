@@ -21,8 +21,7 @@ pub enum NetRole {
 const SUPPLY_ROOTS: &[&str] = &["vdd", "vcc", "vpwr", "vddio", "avdd", "dvdd", "vdda", "vddd", "vpb"];
 /// Ground rail roots; `vnb` is the sky130 NMOS body pin, `vee` the most
 /// negative rail of a bipolar circuit (low impedance, hence ground-class).
-const GROUND_ROOTS: &[&str] =
-    &["vss", "gnd", "vgnd", "vssio", "avss", "dvss", "vssa", "vssd", "vnb", "vee", "agnd", "dgnd"];
+const GROUND_ROOTS: &[&str] = &["vss", "gnd", "vgnd", "vssio", "avss", "dvss", "vssa", "vssd", "vnb", "vee", "agnd", "dgnd"];
 /// Substrings that mark a clock anywhere in the name.
 const CLK_SUBSTR: &[&str] = &["clk", "clock"];
 /// Clock prefixes that must be followed by digits/`_`/`b`/end (`phi1`, `ck_b`),
@@ -43,9 +42,7 @@ pub fn rail_of(name: &str) -> Option<NetRole> {
             .iter()
             .any(|r| {
                 s.strip_prefix(r).is_some_and(|rest| {
-                    rest.is_empty()
-                        || rest.starts_with('_')
-                        || rest.bytes().all(|c| c.is_ascii_digit() || c == b'p' || c == b'v')
+                    rest.is_empty() || rest.starts_with('_') || rest.bytes().all(|c| c.is_ascii_digit() || c == b'p' || c == b'v')
                 })
             })
             .then_some(role)
@@ -112,9 +109,7 @@ pub fn classify_nets(hg: &BipartiteHypergraph, cfg: &AnnotationConfig) -> Vec<Ne
 
 pub(crate) fn is_clock(lower: &str) -> bool {
     CLK_SUBSTR.iter().any(|p| lower.contains(p))
-        || CLK_PREFIX.iter().any(|p| {
-            lower.strip_prefix(p).is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit() || c == '_' || c == 'b'))
-        })
+        || CLK_PREFIX.iter().any(|p| lower.strip_prefix(p).is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit() || c == '_' || c == 'b')))
 }
 
 /// User overrides on recognition — the library's channel to override our

@@ -6,9 +6,9 @@
 //! both in one nwell per device.
 
 use crate::cells::builder::dim;
+use analog::base::{DeviceGroup, Drawn, DrawnKind, Macro, Node, Process, Rect};
 use analog::matching::pattern::{self, Fill};
 use analog::Constraints;
-use analog::base::{DeviceGroup, Drawn, DrawnKind, Macro, Node, Process, Rect};
 
 use crate::cells::builder::{cut_lattice, pin, req, sizing, snap_cut, Builder, Sizing};
 use crate::cells::Cell;
@@ -123,10 +123,7 @@ impl Cell for Diode {
             for j in 0..ny_tap {
                 b.rect(licon, Rect { x: ax + ax_cut, y: ay0 + j * pitch, w: ct, h: ct });
             }
-            b.rect(
-                li,
-                Rect { x: ax + ax_cut - pad_enc, y: ay0 - pad_enc, w: ct + 2 * pad_enc, h: (ny_tap - 1) * pitch + ct + 2 * pad_enc },
-            );
+            b.rect(li, Rect { x: ax + ax_cut - pad_enc, y: ay0 - pad_enc, w: ct + 2 * pad_enc, h: (ny_tap - 1) * pitch + ct + 2 * pad_enc });
             b.pin(pin(di, a_term, Rect { x: ax + ax_cut, y: ay0 + (ny_tap / 2) * pitch, w: ct, h: ct }, li));
 
             if let Some((mk, nwell, enc)) = well {

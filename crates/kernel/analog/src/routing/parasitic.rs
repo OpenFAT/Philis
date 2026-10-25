@@ -1,10 +1,10 @@
 //! Per-net parasitic budget (routing tier).
 
+use super::Stack;
 use crate::base::ids::NetId;
 use crate::base::routes::Routes;
 use crate::base::{BipartiteHypergraph, UnionFind};
 use crate::rule::Rule;
-use super::Stack;
 
 /// Per-net ground-capacitance budget (NET-02): the routed net's C, measured
 /// per layer from the deck's `pex` (area + fringe; Lampaert 1999 eqs.
@@ -83,13 +83,7 @@ impl Rule for ParasiticBudget {
             .iter()
             .enumerate()
             .filter(|(_, devs)| devs.len() >= 2)
-            .map(|(n, _)| ParasiticBudget {
-                net: NetId(n as u16),
-                max_len_nm: 1_000_000,
-                max_c_af: 0,
-                margin_pct: 20,
-                stack: None,
-            })
+            .map(|(n, _)| ParasiticBudget { net: NetId(n as u16), max_len_nm: 1_000_000, max_c_af: 0, margin_pct: 20, stack: None })
             .collect()
     }
 }
@@ -97,8 +91,8 @@ impl Rule for ParasiticBudget {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::routing::stack::Layer;
     use crate::base::geom::{LayerId, Rect, Shape};
+    use crate::routing::stack::Layer;
 
     /// The budget is capacitance from the deck's per-layer pex: the same 10 µm
     /// run passes on a low-C upper metal and fails on a high-C lower one; with
@@ -111,9 +105,10 @@ mod tests {
                 Layer { id: 1, area_af_um2: 10.0, fringe_af_um: 20.0, ..Layer::default() },
             ],
             antenna_cumulative: false,
-        diode: None,
+            diode: None,
         }));
-        let run = |layer| Routes { wires: vec![vec![Shape { layer: LayerId(layer), rect: Rect { x: 0, y: 0, w: 10_000, h: 500 } }]], ..Default::default()  };
+        let run =
+            |layer| Routes { wires: vec![vec![Shape { layer: LayerId(layer), rect: Rect { x: 0, y: 0, w: 10_000, h: 500 } }]], ..Default::default() };
         // m0: 40·5 + 40·21 = 1040 aF; m1: 10·5 + 20·21 = 470 aF (full perimeter).
         let b = ParasiticBudget { net: NetId(0), max_len_nm: 1_000_000, max_c_af: 600, margin_pct: 20, stack: Some(stack) };
         assert!(!b.satisfied(&run(0)) && b.satisfied(&run(1)));

@@ -4,9 +4,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use analog::RuleBatch;
 use analog::base::ids::NetId;
 use analog::base::netlist::{Device, DeviceKind, Net, Netlist};
+use analog::RuleBatch;
 
 /// Devices separated by newlines or ` | `: `NAME n1 … nk MODEL [w=4u] [l=0.5u] [m=8] [nf=2]`,
 /// SPICE order (the model is the last bare token, as in every corpus line).
@@ -90,12 +90,7 @@ pub const STRONGARM: &str = "mn0 vcom clk vss vss nfet w=1u l=14n m=8
 
 /// The gold's `PowerPorts`, `GroundPorts` and `ClockPorts`; never its symmetry entries.
 pub fn strongarm_cfg() -> annotator::AnnotationConfig {
-    annotator::AnnotationConfig {
-        supply_nets: vec!["VCC".into()],
-        ground_nets: vec!["VSS".into()],
-        clock_nets: vec!["clk".into()],
-        ..cfg()
-    }
+    annotator::AnnotationConfig { supply_nets: vec!["VCC".into()], ground_nets: vec!["VSS".into()], clock_nets: vec!["clk".into()], ..cfg() }
 }
 
 /// The default config with sky130's unitization bounds (`library::annotation`
@@ -133,10 +128,8 @@ pub fn permute(nl: &Netlist, seed: u64) -> Netlist {
         .into_iter()
         .map(|i| {
             let d = &nl.devices[i];
-            let terminals = shuffle(d.terminals.len())
-                .into_iter()
-                .map(|t| (d.terminals[t].0.clone(), NetId(new_id[d.terminals[t].1 .0 as usize])))
-                .collect();
+            let terminals =
+                shuffle(d.terminals.len()).into_iter().map(|t| (d.terminals[t].0.clone(), NetId(new_id[d.terminals[t].1 .0 as usize]))).collect();
             Device { terminals, ..d.clone() }
         })
         .collect();
@@ -160,7 +153,11 @@ pub struct Canon {
 
 /// `(a, b)` with the smaller name first.
 pub fn sorted(a: &str, b: &str) -> (String, String) {
-    if a <= b { (a.into(), b.into()) } else { (b.into(), a.into()) }
+    if a <= b {
+        (a.into(), b.into())
+    } else {
+        (b.into(), a.into())
+    }
 }
 
 /// [`Canon`] of `p`, device and net ids resolved through `nl`, so two annotations of

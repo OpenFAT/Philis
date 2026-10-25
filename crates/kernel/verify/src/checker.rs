@@ -2,15 +2,15 @@
 //! string table (re-parsed from `pdk.source`), so every `StrId` the engine
 //! reports resolves against `self.loaded.strings`.
 
+use analog::base::Shape;
+use gdsverify::check::deck::CompiledDeck;
 use gdsverify::check::lvs::CompareOptions;
 use gdsverify::check::report::{Outcome, Severity, Violations};
 use gdsverify::engine::pipeline::{extract, intern_report_ids, Extracted, Loaded};
 use gdsverify::engine::run::run_checks;
 use gdsverify::engine::{Checks, Outputs, RunOptions, Summary};
-use gdsverify::check::deck::CompiledDeck;
 use gdsverify::ingest::deck::{parse_deck, Deck};
 use gdsverify::ingest::{StrId, StrTable};
-use analog::base::Shape;
 
 use crate::geom::{build_store, LabeledPin};
 use crate::pdk::{nm_grid, GvLayerId, Pdk};
@@ -57,8 +57,7 @@ impl Checker {
     /// The deck failing gdsverify's parser (cannot happen for a loaded `Pdk`).
     pub fn new(pdk: &Pdk, strip_density: bool) -> Result<Self, String> {
         let mut strings = StrTable::default();
-        let mut deck = parse_deck(&pdk.source, nm_grid(), &mut strings)
-            .map_err(|e| format!("deck rejected: {e}"))?;
+        let mut deck = parse_deck(&pdk.source, nm_grid(), &mut strings).map_err(|e| format!("deck rejected: {e}"))?;
         if strip_density {
             let kinds = [strings.get("density"), strings.get("density_cmp")];
             deck.rules.spec.retain(|s| !kinds.contains(&Some(s.kind)));
@@ -127,8 +126,7 @@ impl Checker {
     /// # Errors
     /// A device stating fewer terminals than its recogniser's arity.
     pub fn set_reference(&mut self, input: &RefInput) -> Result<Vec<(RefKind, Option<String>)>, String> {
-        let (netlist, skipped) =
-            reference::build(input, &self.deck, &mut self.loaded.strings)?;
+        let (netlist, skipped) = reference::build(input, &self.deck, &mut self.loaded.strings)?;
         self.loaded.reference = Some(netlist);
         let strings = &mut self.loaded.strings;
         self.external = input.external_ports.as_ref().map(|p| p.iter().map(|n| strings.intern(n)).collect());
@@ -192,8 +190,7 @@ impl Checker {
     }
 
     fn load_geometry(&mut self, shapes: &[Shape], pins: &[LabeledPin]) -> Result<(), String> {
-        let (store, provenance) =
-            build_store(shapes, pins, &self.deck, &mut self.loaded.strings, &self.merge, &self.cells)?;
+        let (store, provenance) = build_store(shapes, pins, &self.deck, &mut self.loaded.strings, &self.merge, &self.cells)?;
         self.loaded.store = store;
         self.loaded.provenance = provenance;
         Ok(())
@@ -213,22 +210,13 @@ impl Checker {
     /// # Errors
     /// Geometry that cannot be loaded (a mislanded pin label, a derived-layer
     /// failure), an extraction fault, or an engine refusal of the deck.
-    pub fn run(
-        &mut self,
-        shapes: &[Shape],
-        pins: &[LabeledPin],
-        checks: Checks,
-    ) -> Result<Summary, String> {
+    pub fn run(&mut self, shapes: &[Shape], pins: &[LabeledPin], checks: Checks) -> Result<Summary, String> {
         self.load_geometry(shapes, pins)?;
         self.extracted = extract(&self.loaded).map_err(|e| format!("extract: {e}"))?;
         if let Some(names) = self.label_nets().into_iter().map(|g| g.1).find(|g| g.len() > 1) {
             return Err(format!("{LABEL_SHORT}: labels {names:?} bind to one extracted net"));
         }
-        let options = RunOptions {
-            checks,
-            lvs: CompareOptions::default(),
-            quasistatic_nets: self.field_nets.clone(),
-        };
+        let options = RunOptions { checks, lvs: CompareOptions::default(), quasistatic_nets: self.field_nets.clone() };
         let (out, mut summary) = run_checks(&self.loaded, &self.extracted, &options);
         self.out = out;
         self.drop_port_floating(&mut summary);
@@ -237,14 +225,15 @@ impl Checker {
 
     fn drop_port_floating(&mut self, summary: &mut Summary) {
         let kinds: Vec<StrId> = ["unconnected_pin", "floating_gate"].iter().filter_map(|k| self.loaded.strings.get(k)).collect();
-        let rules: Vec<StrId> =
-            self.deck.rules.spec.iter().filter(|s| kinds.contains(&s.kind)).map(|s| s.id).collect();
+        let rules: Vec<StrId> = self.deck.rules.spec.iter().filter(|s| kinds.contains(&s.kind)).map(|s| s.id).collect();
         let v = &self.out.violations;
         let exempt = |i: usize| {
             rules.contains(&v.rule[i])
-                && self.extracted.ports.name_of(self.extracted.nets.net_of(v.shape_a[i])).is_some_and(|name| {
-                    self.external.as_ref().is_none_or(|e| e.contains(&name))
-                })
+                && self
+                    .extracted
+                    .ports
+                    .name_of(self.extracted.nets.net_of(v.shape_a[i]))
+                    .is_some_and(|name| self.external.as_ref().is_none_or(|e| e.contains(&name)))
         };
         if !(0..v.len()).any(exempt) {
             return;
@@ -262,7 +251,6 @@ impl Checker {
         }
         self.out.violations = kept;
     }
-
 
     /// The label names of each extracted net that carries more than one —
     /// what a [`LABEL_SHORT`] is — over the last loaded geometry, first-seen

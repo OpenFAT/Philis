@@ -6,9 +6,9 @@
 //! Every gap and width is the deck's.
 
 use crate::cells::builder::dim;
+use analog::base::{DeviceGroup, DeviceKind, Macro, NetId, Pin, Process, Rect};
 use analog::matching::pattern::{self, Fill};
 use analog::Constraints;
-use analog::base::{DeviceGroup, DeviceKind, Macro, NetId, Pin, Process, Rect};
 
 use crate::cells::builder::{cut_lattice, pin, req, sizing, snap_cut, unitization, Builder, Sizing};
 use crate::cells::post_cell::{tap_ring, WellShape};
@@ -173,7 +173,15 @@ impl Unit {
         let lat = cut_lattice(process);
         let ct = dim(process, "contact");
         let e = at(self.emitter);
-        b.unit(analog::base::Unit { owner: di as u8, x: e.x + e.w / 2, y: e.y + e.h / 2, weight: i64::from(e.w) * i64::from(e.h), phi: (0, 0), sa: 0, sb: 0 });
+        b.unit(analog::base::Unit {
+            owner: di as u8,
+            x: e.x + e.w / 2,
+            y: e.y + e.h / 2,
+            weight: i64::from(e.w) * i64::from(e.h),
+            phi: (0, 0),
+            sa: 0,
+            sb: 0,
+        });
         // Pin order matches `cellgen::BJT_PINS`.
         b.drawn(analog::base::Drawn {
             owner: di as u8,
@@ -379,9 +387,10 @@ mod tests {
                     let at = format!("{a}:{b} on {}×{}", v.rows, v.columns);
                     assert_eq!(m.units.len(), usize::from(a + b), "{at}");
                     let centre = |d: u8| {
-                        let (w, x, y) = m.units.iter().filter(|u| u.owner == d).fold((0i64, 0i64, 0i64), |(w, x, y), u| {
-                            (w + u.weight, x + u.weight * i64::from(u.x), y + u.weight * i64::from(u.y))
-                        });
+                        let (w, x, y) =
+                            m.units.iter().filter(|u| u.owner == d).fold((0i64, 0i64, 0i64), |(w, x, y), u| {
+                                (w + u.weight, x + u.weight * i64::from(u.x), y + u.weight * i64::from(u.y))
+                            });
                         (x as f64 / w as f64, y as f64 / w as f64)
                     };
                     let ((x0, y0), (x1, y1)) = (centre(0), centre(1));

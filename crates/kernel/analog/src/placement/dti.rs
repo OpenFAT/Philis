@@ -192,10 +192,8 @@ mod tests {
 
         // A batch of `DtiBand`s hands the consumer exactly its `(id, seed)` pairs, in
         // rule order — the seam `dp`'s flip move seeds `Layout::branch` from.
-        let batch = vec![
-            DtiBand { branch: BranchId(0), seed_isolate: false, ..rule() },
-            DtiBand { branch: BranchId(1), seed_isolate: true, ..rule() },
-        ];
+        let batch =
+            vec![DtiBand { branch: BranchId(0), seed_isolate: false, ..rule() }, DtiBand { branch: BranchId(1), seed_isolate: true, ..rule() }];
         let mut out = Vec::new();
         batch.branches(&mut out);
         assert_eq!(out, vec![(BranchId(0), false), (BranchId(1), true)]);

@@ -10,9 +10,9 @@
 
 use std::collections::BTreeMap;
 
+use analog::base::ids::NetId;
 use analog::intent::{Diagnostic, RcClass};
 use analog::routing::PerformanceBudget;
-use analog::base::ids::NetId;
 
 use crate::allocate::margins;
 use crate::evidence::Sensitivities;
@@ -25,7 +25,12 @@ use crate::policy::Policy;
 /// lowest-layer wire; without `r_ohm_per_um` the R test is skipped and a net
 /// seen only in `d_r` is not classed (stays Unknown).
 #[must_use]
-pub fn rows(sens: &Sensitivities, af_per_nm: f32, r_ohm_per_um: Option<f32>, policy: &Policy) -> (Vec<PerformanceBudget>, Vec<(NetId, RcClass)>, Vec<Diagnostic>) {
+pub fn rows(
+    sens: &Sensitivities,
+    af_per_nm: f32,
+    r_ohm_per_um: Option<f32>,
+    policy: &Policy,
+) -> (Vec<PerformanceBudget>, Vec<(NetId, RcClass)>, Vec<Diagnostic>) {
     let c_ref = f64::from(af_per_nm) * 1000.0 * policy.rc_ref_len_um;
     let r_ref = r_ohm_per_um.map(|r| f64::from(r) * policy.rc_ref_len_um);
     let keep = |w: f64| w > 0.0 || (policy.credit_helpful && w != 0.0);
@@ -39,7 +44,9 @@ pub fn rows(sens: &Sensitivities, af_per_nm: f32, r_ohm_per_um: Option<f32>, pol
             let (scale, limit) = if m > 0.0 {
                 (m, 1.0)
             } else {
-                diags.push(Diagnostic { kind: "no_layout_margin", devices: vec![], message: format!("{metric}: margin {m} ≤ 0, do-not-worsen row") });
+                diags.push(Diagnostic {
+                    kind: "no_layout_margin", devices: vec![], message: format!("{metric}: margin {m} ≤ 0, do-not-worsen row")
+                });
                 (if bound == 0.0 { 1.0 } else { bound.abs() }, 0.0)
             };
             let w = |d: f64| sign * d / scale;
@@ -78,7 +85,19 @@ mod tests {
     use crate::evidence::SpecSens;
 
     fn spec(lo: f64, hi: f64, f0: f64) -> SpecSens {
-        SpecSens { metric: "ugf".into(), f0, lo: Some(lo), hi: Some(hi), proc: None, sigma_f: None, d_c: vec![], d_r: vec![], d_vt: vec![], d_t: vec![], d_cc: vec![] }
+        SpecSens {
+            metric: "ugf".into(),
+            f0,
+            lo: Some(lo),
+            hi: Some(hi),
+            proc: None,
+            sigma_f: None,
+            d_c: vec![],
+            d_r: vec![],
+            d_vt: vec![],
+            d_t: vec![],
+            d_cc: vec![],
+        }
     }
 
     fn run(s: SpecSens, policy: &Policy) -> (Vec<PerformanceBudget>, Vec<(NetId, RcClass)>, Vec<Diagnostic>) {
@@ -123,7 +142,10 @@ mod tests {
         let s = SpecSens { d_c: vec![(NetId(0), -1.0)], ..spec(10.0, 20.0, 15.0) };
         let credit = Policy { credit_helpful: true, ..Policy::default() };
         let (r, _, _) = run(s.clone(), &credit);
-        assert_eq!(r.iter().map(|r| (r.metric.as_str(), r.weights.clone(), r.limit)).collect::<Vec<_>>(), [("ugf:min", vec![0.2], 1.0), ("ugf:max", vec![-0.2], 1.0)]);
+        assert_eq!(
+            r.iter().map(|r| (r.metric.as_str(), r.weights.clone(), r.limit)).collect::<Vec<_>>(),
+            [("ugf:min", vec![0.2], 1.0), ("ugf:max", vec![-0.2], 1.0)]
+        );
         let (r, _, _) = run(s, &Policy::default());
         assert_eq!((r[0].nets.as_slice(), r[1].nets.len()), (&[NetId(0)][..], 0));
     }

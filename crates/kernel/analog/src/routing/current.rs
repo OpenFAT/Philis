@@ -1,9 +1,9 @@
 //! DC current distribution over a routed net's drawn shapes: what the
 //! electromigration rule checks each segment and via against.
 
+use super::Stack;
 use crate::base::geom::Shape;
 use crate::base::routes::Terminal;
-use super::Stack;
 
 /// DC current distribution of one routed net.
 pub struct NetFlow {

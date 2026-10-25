@@ -1,8 +1,9 @@
 //! Drawn geometry → gdsverify's `GeometryStore` + `Provenance`. A Philis
 //! `LayerId` is the deck's own layer id, so shapes feed the store directly.
 
-use gdsverify::geom::ops::Point;
+use analog::base::{NamedCell, Shape};
 use gdsverify::geom::derive::merge_into;
+use gdsverify::geom::ops::Point;
 use gdsverify::geom::rects::decompose_into;
 use gdsverify::geom::view::validate_layer_into;
 use gdsverify::geom::{Dbu, GeometryStore, GeometryStoreBuilder, LayerId as GvLayerId, ValidatedLayer};
@@ -10,7 +11,6 @@ use gdsverify::ingest::deck::Deck;
 use gdsverify::ingest::layout::gds::Library;
 use gdsverify::ingest::layout::{derive_layers, UnknownLayers};
 use gdsverify::ingest::{Provenance, StrTable};
-use analog::base::{NamedCell, Shape};
 
 /// A named pin label. The point `(x, y)` (nm) must lie on a shape of `layer`,
 /// the pin's drawing layer; the label goes on whichever layer the deck's
@@ -113,7 +113,8 @@ pub fn build_store(
             }
         }
     }
-    let label_of = |p: &LabeledPin| label_layer(deck, p.layer).ok_or_else(|| format!("pin {}: no label layer names a conductor of layer {}", p.name, p.layer));
+    let label_of =
+        |p: &LabeledPin| label_layer(deck, p.layer).ok_or_else(|| format!("pin {}: no label layer names a conductor of layer {}", p.name, p.layer));
     let (store, mut provenance) = match sink {
         Sink::Store(builder) => {
             let mut provenance = Provenance::default();
@@ -134,9 +135,7 @@ pub fn build_store(
             lib.flatten(deck, strings, UnknownLayers::Reject).map_err(|e| format!("cell hierarchy: {e}"))?
         }
     };
-    provenance
-        .resolve_labels(&store, &deck.connectivity)
-        .map_err(|e| format!("pin label: {e}"))?;
+    provenance.resolve_labels(&store, &deck.connectivity).map_err(|e| format!("pin label: {e}"))?;
     Ok((store, provenance))
 }
 
@@ -290,11 +289,7 @@ mod gds {
 pub fn label_layer(deck: &Deck, drawn: u16) -> Option<u16> {
     let c = &deck.connectivity;
     let d = GvLayerId(drawn);
-    let rows: Vec<usize> = (0..c.label_layer.len())
-        .filter(|&r| c.label_names[r] == d || deck.layers.operands(c.label_names[r]).contains(&d))
-        .collect();
-    rows.iter()
-        .find(|&&r| c.label_layer[r] == d)
-        .or_else(|| rows.first())
-        .map(|&r| c.label_layer[r].0)
+    let rows: Vec<usize> =
+        (0..c.label_layer.len()).filter(|&r| c.label_names[r] == d || deck.layers.operands(c.label_names[r]).contains(&d)).collect();
+    rows.iter().find(|&&r| c.label_layer[r] == d).or_else(|| rows.first()).map(|&r| c.label_layer[r].0)
 }
