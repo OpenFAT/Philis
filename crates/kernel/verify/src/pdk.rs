@@ -461,7 +461,8 @@ impl Pdk {
             // `min_one_side` only by granting it on every side.
             let enclose = self
                 .max_enclosure_of(cut, "min_enclosure", "limit")
-                .max(self.max_enclosure_of(cut, "asymmetric_enclosure", "min_one_side"));
+                .max(self.max_enclosure_of(cut, "asymmetric_enclosure", "min_one_side"))
+                .max(self.max_enclosure_of(cut, "adjacent_enclosure", "min_one_side"));
             let enclosed = size + 2 * enclose;
             cuts.push((
                 LayerId(cut),
@@ -1053,6 +1054,14 @@ impl Pdk {
         self.widest_on("min_enclosure", "limit", &[outer, inner]).max(self.widest_on("edge_enclosure", "limit", &[inner, outer]))
     }
 
+    /// The widest end-cap of `inner` by `outer`, nm: the opposite-sides
+    /// rules and the adjacent-sides ones (sky130 li.5 `adjacent`). A cap on
+    /// both sides of one axis meets every corner's adjacent pair too.
+    pub(crate) fn endcap_nm(&self, outer: u16, inner: u16) -> Option<i64> {
+        let l = [outer, inner];
+        self.widest_on("asymmetric_enclosure", "min_one_side", &l).max(self.widest_on("adjacent_enclosure", "min_one_side", &l))
+    }
+
     /// Whether a `full_width(inner, outer)` rule binds: `inner` must span
     /// its `outer` host exactly across one axis (ASAP7 V0.M1.AUX.3).
     pub(crate) fn full_width_on(&self, outer: u16, inner: u16) -> bool {
@@ -1268,8 +1277,7 @@ impl Process for Pdk {
         l(outer).zip(l(inner)).is_some_and(|(o, i)| self.full_width_on(o, i))
     }
     fn endcap(&self, outer: &str, inner: &str) -> Option<i32> {
-        let l = [analog::base::Process::layer(self, outer)?.0, analog::base::Process::layer(self, inner)?.0];
-        self.widest_on("asymmetric_enclosure", "min_one_side", &l).map(|v| v as i32)
+        self.endcap_nm(analog::base::Process::layer(self, outer)?.0, analog::base::Process::layer(self, inner)?.0).map(|v| v as i32)
     }
     fn area(&self, role: &str) -> Option<i64> {
         self.min_area(analog::base::Process::layer(self, role)?.0)
@@ -1352,9 +1360,8 @@ impl Pdk {
     /// end-cap (Hastings H15-18). `0` for a rule the deck does not set.
     #[must_use]
     pub fn cut_enclosure_pair(&self, outer: LayerId, inner: LayerId) -> (i32, i32) {
-        let l = [outer.0, inner.0];
-        let e = self.widest_on("min_enclosure", "limit", &l).unwrap_or(0);
-        let c = self.widest_on("asymmetric_enclosure", "min_one_side", &l).unwrap_or(0);
+        let e = self.enclosure_nm(outer.0, inner.0).unwrap_or(0);
+        let c = self.endcap_nm(outer.0, inner.0).unwrap_or(0);
         (e as i32, e.max(c) as i32)
     }
 
@@ -1542,7 +1549,7 @@ impl Process for Overlay<'_> {
         self.layer(outer).zip(self.layer(inner)).is_some_and(|(o, i)| self.pdk.full_width_on(o.0, i.0))
     }
     fn endcap(&self, outer: &str, inner: &str) -> Option<i32> {
-        self.pdk.widest_on("asymmetric_enclosure", "min_one_side", &[self.layer(outer)?.0, self.layer(inner)?.0]).map(|v| v as i32)
+        self.pdk.endcap_nm(self.layer(outer)?.0, self.layer(inner)?.0).map(|v| v as i32)
     }
     fn area(&self, role: &str) -> Option<i64> {
         self.pdk.min_area(self.layer(role)?.0)
