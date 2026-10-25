@@ -189,7 +189,9 @@ impl Unit {
         // end-cap past the outer cuts on every side).
         b.rect(diff, e);
         let ei = enc(emit_imp, "diff");
-        b.rect(req(process, emit_imp), Rect { x: e.x - ei, y: e.y - ei, w: e.w + 2 * ei, h: e.h + 2 * ei });
+        if let Some(imp) = process.layer(emit_imp) {
+            b.rect(imp, Rect { x: e.x - ei, y: e.y - ei, w: e.w + 2 * ei, h: e.h + 2 * ei });
+        }
         let inset = r("diff_encloses_licon", 0).max(enc("diff", "licon")).max(cap("diff", "licon"));
         let pitch = ct + process.space("licon").unwrap_or(ct);
         let fit = |len: i32| ((len - 2 * inset - ct) / pitch + 1).max(1);

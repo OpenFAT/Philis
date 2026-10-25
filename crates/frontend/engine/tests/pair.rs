@@ -1,5 +1,5 @@
 //! M0's gate (ROADMAP): `pair` through the recipe spine is DRC 0, ERC 0 and
-//! LVS MATCH, in process, on sky130 and asap7. PEX is not part of the gate:
+//! LVS MATCH, in process, on sky130 and asap7, and on ihp_sg13g2. PEX is not part of the gate:
 //! asap7's front-end layers have no sourced resistance, so PEX refuses there
 //! (ROADMAP, known gaps).
 
@@ -35,6 +35,11 @@ fn resized_fails(deck: &str, spice: &str, from: &str, to: &str) {
     assert!(s.report.hard_violations.iter().any(|v| v.rule.starts_with("lvs/")), "{deck}: a resized schematic still matches");
 }
 
+/// IHP names its thin-oxide nfet `sg13_lv_nmos`; the sizes are legal there.
+fn on_ihp(spice: &str) -> String {
+    spice.replace("nfet_01v8", "sg13_lv_nmos")
+}
+
 #[test]
 fn pair_signs_off_on_sky130() {
     signs_off("sky130", PAIR);
@@ -53,4 +58,35 @@ fn a_resized_schematic_fails_lvs_on_sky130() {
 #[test]
 fn a_resized_schematic_fails_lvs_on_asap7() {
     resized_fails("asap7", &on_asap7(PAIR), "W=270n", "W=540n");
+}
+
+#[test]
+fn pair_signs_off_on_ihp_sg13g2() {
+    signs_off("ihp_sg13g2", &on_ihp(PAIR));
+}
+
+#[test]
+fn a_resized_schematic_fails_lvs_on_ihp_sg13g2() {
+    resized_fails("ihp_sg13g2", &on_ihp(PAIR), "W=2u", "W=4u");
+}
+
+/// IHP's drawn nSD (7/0) is the rhigh implant: a gate under it is no MOS to
+/// the foundry LVS (`mos_exclude`), nor to GPurify's deck with Philis's
+/// override. The matched pair with nSD drawn over every device fails LVS.
+#[test]
+fn nsd_over_the_gates_fails_lvs_on_ihp_sg13g2() {
+    let pdk = verify::Pdk::builtin("ihp_sg13g2").expect("a built-in deck");
+    let spice = on_ihp(PAIR);
+    let mut out = engine::run(&spice, &pdk, verify::SignoffEngine::Gpurify).unwrap_or_else(|r| panic!("{r}"));
+    let lvs = |s: &verify::Signoff| s.report.hard_violations.iter().any(|v| v.rule.starts_with("lvs/"));
+    assert!(!lvs(&out.signoff), "the unmodified pair already mismatches: {:?}", findings(&out.signoff));
+    let nsd = pdk.layers.iter().find(|(n, _)| n == "nsd").map(|&(_, l)| l).expect("the deck draws nsd");
+    for m in &mut out.placed {
+        assert!(m.shapes.iter().all(|s| s.layer != nsd), "Philis draws no nSD on an IHP nfet");
+        let bbox = m.bbox;
+        m.shapes.push(analog::base::Shape { layer: nsd, rect: bbox });
+    }
+    let netlist = engine::parse(&spice, &pdk).expect("parses");
+    let s = engine::signoff(&netlist, &out.placed, &out.routes, &pdk, verify::SignoffEngine::Gpurify).expect("signs off");
+    assert!(lvs(&s), "nSD over the gates still matches: {:?}", findings(&s));
 }

@@ -1284,8 +1284,10 @@ fn scalar_rules(deck: &Deck, strings: &StrTable) -> Vec<(String, i32)> {
 }
 
 /// Layer roles every cell generator resolves unconditionally (`cells::req`).
+/// `nsdm` is not one: a deck without it dopes n+ wherever no p+ is drawn
+/// (IHP SG13G2, whose drawn nSD is the rhigh implant and unmakes a MOS).
 const REQUIRED_ROLES: &[&str] = &[
-    "diff", "poly", "li", "licon", "mcon", "met1", "nwell", "nsdm", "psdm", "tap",
+    "diff", "poly", "li", "licon", "mcon", "met1", "nwell", "psdm", "tap",
 ];
 
 /// A device construction from the sidecar's `cell.<kind>s` table: which

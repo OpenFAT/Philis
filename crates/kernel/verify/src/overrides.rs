@@ -32,7 +32,8 @@ pub fn deck_text(name: &str) -> Result<String, String> {
     match name {
         "sky130" => sky130(&mut d),
         "asap7" => asap7(&mut d),
-        _ => {} // gf180mcu, ihp_sg13g2: no edits.
+        "ihp_sg13g2" => ihp_sg13g2(&mut d),
+        _ => {} // gf180mcu: no edits.
     }
     stricter_margins(name, &mut d);
     let deck = d.finish().map_err(|e| format!("{name}: deck overrides rejected: {e}"))?;
@@ -152,6 +153,17 @@ fn asap7(d: &mut DeckBuilder<'_>) {
             d.device(DeviceKind::Mos, marker, &name, &[gate_c, sd, sd], DeviceValue::default());
         }
     }
+}
+
+fn ihp_sg13g2(d: &mut DeckBuilder<'_>) {
+    // The foundry LVS drops any gate under drawn nSD (7/0, the rhigh
+    // implant) from MOS extraction (libs.tech/klayout/tech/lvs/rule_decks/
+    // mos_derivations.lvs:26, `mos_exclude = pwell_block.join(nsd_drw)…`);
+    // GPurify's `mos_exc` lacked it, so it extracted a MOS KLayout does not.
+    let [esd, diode, pwb, trans, salblock, extblock, nsd] =
+        ["recog_esd", "recog_diode", "pwell_block", "trans", "salblock", "extblock", "nsd"].map(|n| d.get(n));
+    let exc = e(esd).or(diode).group().or(pwb).group().or(trans).group().or(salblock).group().or(extblock).group().or(nsd);
+    d.replace_layer("mos_exc", exc);
 }
 
 /// Rules raised past the foundry minimum to a Philis margin, by owner

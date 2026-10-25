@@ -250,7 +250,8 @@ pub(crate) fn tap_ring(b: &mut Builder, process: &dyn Process, implant: &str, we
         .enclosure(implant, "tap")
         .unwrap_or(0)
         .max((process.width(implant).unwrap_or(0) - ring_width + 1) / 2);
-    let implant = req(process, implant);
+    // No `nsdm` role: n+ is the deck's default doping (IHP).
+    let implant = process.layer(implant);
     let tap = req(process, "tap");
     let li = req(process, "li");
     let licon = req(process, "licon");
@@ -267,7 +268,9 @@ pub(crate) fn tap_ring(b: &mut Builder, process: &dyn Process, implant: &str, we
             continue;
         }
         let band = Rect { x: bx, y: by, w: bw, h: bh };
-        b.rect(implant, Rect { x: bx - imp_enc, y: by - imp_enc, w: bw + 2 * imp_enc, h: bh + 2 * imp_enc });
+        if let Some(implant) = implant {
+            b.rect(implant, Rect { x: bx - imp_enc, y: by - imp_enc, w: bw + 2 * imp_enc, h: bh + 2 * imp_enc });
+        }
         b.rect(li, band);
         b.rect(tap, band);
         // `rows` lines of cuts along the band, centred across it.
@@ -421,15 +424,15 @@ fn well_shape(t: GuardRingType) -> WellShape {
 
 /// Whether this deck can draw a `t` ring as named. `Tap`: always. `Hcgr`: only
 /// with a retrograde/isolated p-well the deck declares (`retrograde_pwell`;
-/// sky130 false). `Tub`: with `dnwell`, `nwell`, `nsdm` and the deck's
+/// sky130 false). `Tub`: with `dnwell`, `nwell` and the deck's
 /// hole-to-deep-well enclosure.
 #[must_use]
 pub fn drawable(t: GuardRingType, p: &dyn Process) -> bool {
     match t {
         GuardRingType::Tap { .. } => true,
-        GuardRingType::Ecgr => p.layer("nwell").is_some() && p.layer("nsdm").is_some(),
+        GuardRingType::Ecgr => p.layer("nwell").is_some(),
         GuardRingType::Hcgr => p.rule("retrograde_pwell", 0) != 0,
-        GuardRingType::Tub { .. } => ["dnwell", "nwell", "nsdm"].iter().all(|l| p.layer(l).is_some()) && p.enclosure("dnwell", "nwell").is_some(),
+        GuardRingType::Tub { .. } => ["dnwell", "nwell"].iter().all(|l| p.layer(l).is_some()) && p.enclosure("dnwell", "nwell").is_some(),
     }
 }
 

@@ -52,7 +52,8 @@ impl Cell for Diode {
         let up = |v: i32| snap_cut(v + lat - 1, lat);
 
         let (diff, tap, li, licon) = (req(process, "diff"), req(process, "tap"), req(process, "li"), req(process, "licon"));
-        let (nsdm, psdm) = (req(process, "nsdm"), req(process, "psdm"));
+        // No `nsdm` role: n+ is the deck's default doping (IHP), nothing to draw.
+        let (nsdm, psdm) = (process.layer("nsdm"), Some(req(process, "psdm")));
         let ct = dim(process, "contact");
         let diff_enc = r("diff_encloses_licon", 0).max(process.enclosure("diff", "licon").unwrap_or(0));
         let li_enc = process.enclosure("li", "licon").unwrap_or(0).max(process.endcap("li", "licon").unwrap_or(0));
@@ -100,7 +101,9 @@ impl Cell for Diode {
 
             let k = Rect { x: kx, y: oy, w, h: l };
             b.rect(diff, k);
-            b.rect(k_imp, Rect { x: k.x - imp, y: k.y - imp, w: w + 2 * imp, h: l + 2 * imp });
+            if let Some(imp_l) = k_imp {
+                b.rect(imp_l, Rect { x: k.x - imp, y: k.y - imp, w: w + 2 * imp, h: l + 2 * imp });
+            }
             let (x0, y0) = (snap_cut(kx + (w - (nx - 1) * pitch - ct) / 2, lat), snap_cut(oy + (l - (ny - 1) * pitch - ct) / 2, lat));
             for i in 0..nx {
                 for j in 0..ny {
@@ -113,7 +116,9 @@ impl Cell for Diode {
 
             let a = Rect { x: ax, y: oy, w: tap_side, h: tap_h };
             b.rect(tap, a);
-            b.rect(a_imp, Rect { x: a.x - imp, y: a.y - imp, w: a.w + 2 * imp, h: a.h + 2 * imp });
+            if let Some(imp_l) = a_imp {
+                b.rect(imp_l, Rect { x: a.x - imp, y: a.y - imp, w: a.w + 2 * imp, h: a.h + 2 * imp });
+            }
             let ay0 = snap_cut(oy + (tap_h - (ny_tap - 1) * pitch - ct) / 2, lat);
             for j in 0..ny_tap {
                 b.rect(licon, Rect { x: ax + ax_cut, y: ay0 + j * pitch, w: ct, h: ct });
