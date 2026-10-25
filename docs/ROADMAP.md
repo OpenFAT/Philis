@@ -26,6 +26,24 @@ From Q17, growing by owner decision, never shrinking:
 Also carried from 1.0 as milestone gates: `tt_ota`, `ota_constrained`, `quad`,
 `dac4_mim`, `res_m2`, `rdiv`. `tq_chain` stays a free-form case.
 
+## M0 status (2026-10-25)
+
+Gate met. Each item and where it lives:
+
+- **pair:** DRC 0, ERC 0, LVS MATCH on sky130 and asap7, in process, with a
+  resized-schematic negative control (`engine/tests/pair.rs`).
+- **Conformance:** the harness writes `availability.toml`, where MosAdjacent
+  holds on both proof PDKs (`engine/tests/conformance.rs`).
+- **Parser decision (Q37):** recorded in DECISIONS.
+- **GPurify:** pinned at 687c8bc; the `# PHILIS:` edits are DeckBuilder
+  overrides (`verify/src/overrides.rs`).
+- **CI:** four tiers (`ci/run.sh`, `.github/workflows/ci.yml`); the
+  dependency DAG is enforced (`engine/tests/deps.rs`).
+- **PDK input:** the decks only, with no sidecar JSON (Q59 addendum).
+
+Left open in M0 scope: the remaining Q59 dedup of verify's re-derivations,
+and typed fields for the `pdk_data` tables.
+
 ## Known gaps (kept current)
 
 - Found by the GPurify re-pin to `687c8bc` (M0). Fixed: the asap7 FinFET
