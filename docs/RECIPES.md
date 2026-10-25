@@ -232,12 +232,55 @@ them inside the macro), **v2** for parallel wires and ratio-proportional leads.
 
 ### 2.5 Bipolar and diode arrays
 
-Pending the die-level reader: this section is appended when the Hastings
-chapter 9 to 11 cards arrive. 1.0 draws **BJT-Array** (unit emitters on a
-grid, `centro_assign` Balanced, 1:8 as the 3×3 with the unit centred, shared
-PNP collector band, NPN isolation per unit) and **DIODE-Array** (the same
-grid rule, cathode plates with anode taps). Both **v1** on sky130 for the
-acceptance fixture `bgr_core`.
+**BJT-Array** [BJT-02, BJT-03, BJT-05 to BJT-11]. Identical unit emitters,
+same drawn size, shape and concentric contact; the ratio is the unit count and
+nothing else. Slots are dealt in 180° pairs about the grid centre so every
+member's first moment sits on the centre by construction; the one odd member
+takes the centre slot. Templates by ratio: 2:1:2 for 4:1; eight-around-one 3×3
+for 8:1, where the quadratic residue falls near tenfold against a row; two rows
+about an axis through the single emitter for multiples of 4:1; the
+cross-coupled 2×2 quad for equal pairs, terminal order CBE and collector
+contacts outside so emitters and base contacts share one centroid; a ratioed
+quad as two stacked pairs on one axis; the ABA row along the isotherms as the
+fallback. Even ratios 4:1 to 16:1 only, 8:1 preferred; more than eight to ten
+units is impractical. Claims: per-member centroid on the grid centre,
+base-contact centroid offset within one grid for MOD and above, unit identity.
+Params: ratio vector, grid, axis orientation, dummy policy. **v1**, 1.0 `bjt`
+(`centro_assign` Balanced; the 1:8 case already passes; NPN isolation is per
+unit and should become per array).
+
+Environment recipes applied by BJT-Array at its class: unit emitter sized from
+k_A and the class, octagon or square with a concentric contact, laterals at the
+minimum emitter [BJT-04]; merged-base spacing with neutral base at least twice
+the base junction depth and the base enlarged 1 to 2 µm [BJT-13]; unit
+construction by device kind, the CMOS substrate PNP with few emitter contacts
+and a silicide block, the vertical NPN with sinker and CBE order, the lateral
+PNP with split collectors [BJT-14 to BJT-16]; a field plate on every lateral
+[BJT-17]; the thermal classes, 250 µm or more from a device above 250 mW and
+100 to 250 µm from one above 50 mW, on the opposite die side [BJT-18]; die
+location near the centre or on an axis, 250 µm inside the edges, never a
+corner, with thermal beating stress when they conflict [BJT-19]; NBL shadow
+compensation, off on STI decks [BJT-20]; the operating-point preconditions,
+equal V_CE, current density below high-level injection, a β floor, reported as
+diagnostics before layout because layout cannot fix them [BJT-21]. Emitter
+degeneration is the circuit-level alternative that moves the matching burden to
+a resistor array; it never applies to PTAT pairs [BJT-12].
+
+**BJT-Power** [BJT-22 to BJT-27]. Interdigitated, wide-emitter narrow-contact
+or cruciform by the safe-operating-area role, finger ballast of two to three
+thermal voltages, base debias under 2 to 4 mV, sectioning with the sense device
+as two halves on the axis. **v2**.
+
+**BJT-Guard** [BJT-28, BJT-29]. Base ballast against current hogging; a
+deep-N+ and NBL ring around any saturating member or power diode. **v2**, on
+decks with buried layers.
+
+**DIODE-Array** [DIO-01 to DIO-03]. The diode-connected NPN is the precision
+diode; a class table refuses PN, Zener and Schottky cross-matching and caps
+buried Zeners at MIN; arrays use the BJT templates with identical
+area-defining geometry, merged junctions 1 to 2 µm beyond the unconnected rule,
+PSD in N-well as thin strips between well contacts. **v1**, 1.0 `diode`.
+Zener, Schottky and power-diode constructions [DIO-04 to DIO-06] **v2**.
 
 ## 3. Floorplan recipes
 
@@ -292,6 +335,64 @@ injector first, one shared thin ring around a differential pair, dual rings
 when two pins exist, deep n-well around the smaller group last. **v1** for
 taps and tap rings (1.0 `post_cell::guard_rings` by role), **v2** for the
 per-pair budget, **research** for the two-port macromodel.
+
+**FLOOR-Wells** [GRD-15, GRD-16, GRD-17, GRD-21]. Before any well or tank is
+shared, the nine-clause merge predicate: same bulk net; no member injects
+minority carriers unless every other member tolerates it; worst debias I·R
+below the forward-bias trigger of about 300 mV at 150 °C; no noisy with
+sensitive; matched devices share no resistive region in their critical path;
+the well voltage at or above every enclosed P region; a resistor sharing a tie
+with a current-drawing transistor keeps I·R_tie under 0.3 V; pin-connected and
+noisy resistors never share with sensitive ones; every well-tie contact fully
+enclosed by N+. Rejected pairs keep twice the well spacing. Output devices,
+forward-biased backgates, saturating laterals and Zeners get their own region.
+The well key is the bulk net; same-backgate PMOS share one well. Wells on
+different nets take voltage-dependent spacing with recognition markers rather
+than blanket high-voltage spacing. **v1** for the clauses the netlist answers
+(bulk, injector, noisy and sensitive, matched sharing), **v2** for the debias
+clauses that need the operating point.
+
+**FLOOR-Isolation, by carrier** [GRD-01 to GRD-14, GRD-18 to GRD-20]. The
+Hastings side of the isolation decision procedure above. Injectors: every
+diffusion on a pin that is neither a supply nor substrate ground, through
+series resistance below about 50 kΩ; forward-biased backgates; Schottkys;
+saturating bipolars. Noisy: clocks, charge pumps, large swing times slew. For
+every injector: a minimum-width tap ring around the injector, not the victim;
+its ground returned separately from the victim's ground, joined only at a star
+point or pad; an N-type blocking ring outside it when a sensitive block is
+near. Minority rings by carrier: an electron injector gets an ECGR, in CMOS an
+NMoat ring at least as wide as the epi thickness or a supply-tied N-well ring,
+continuously strapped, open toward a die edge, or an isolated tub where the
+deck has a deep N-well; a hole injector gets an HCGR only on a retrograde well
+and otherwise an HBGR of closed deep-N+ over NBL where buried layers exist.
+Supply-tied wells between injector and victim count as free collectors. Ring
+capacity: I·R under 0.3 V at the 100 mA latch-up test current, straps sized
+for it, no merging with isolation ties above a few mA. Taps by substrate type:
+scatter and fill on epi over P+, large contacts within half the die thickness
+on bulk P−, annular at half the layer thickness inside wells; every active
+point within the deck's tie distance; butted taps where source equals bulk. Two
+ERCs ride along: every isolation junction reverse-biased at every corner, and
+every PNPN path's loop gain below one. 1.0 draws tap, ECGR, HCGR and tub rings
+by role but labels majority taps as minority rings; the carrier taxonomy fixes
+the naming. **v1** for taps, tap rings and the rings the deck can build;
+**v2** for the ERCs that need the operating point.
+
+**FLOOR-DieContext** [PDK-10, BJT-18, BJT-19, FLR-03 to FLR-05]. An optional
+input table the block-level floorplan reads when present: die outline and
+block origin, die thickness, package and bump map, θ, ambient grade, external
+heaters, pin classes and pad order. With it the row stack applies the stress
+zones (250 µm inside the edges, never a corner, on a die axis for MOD and
+above), the thermal half-plane rules and pad adjacency. Without it those rules
+report unknown and the block's own axis stands in. The table is defined in v1;
+the chip-level recipes that fill it are Q60.
+
+**FLOOR-Periphery** [FLR-01 to FLR-04, FLR-14, FLR-18, FLR-19, ESD-01 to
+ESD-14]. Chip assembly: area estimation with packing factors, the build order
+from seal ring to final verification, scribe and seal and ground ring, corner
+exclusion, pads and probe pads, ESD network by pin type behind one ECGR band,
+single-level crossing techniques, fill blocks, hierarchy and naming for LVS.
+Out of the block-level scope of v1 (Q60); the report's 23-step floorplan
+checklist is the specification when it enters.
 
 **Compaction** (Q24, Q25) [P-10, P-11, P-12, P-26]. The post-processing
 baseline is the constraint-graph compaction the retargeting literature uses:
@@ -358,6 +459,29 @@ branches return to the source point. **v2**.
 **ROUTE-AntennaRepair**. 1.0's per-stage antenna check with jumpers and diode
 insertion, unchanged. **v1**.
 
+**ROUTE-Power** [FLR-07, FLR-15, FLR-16]. Supply, output and bias trunks
+routed first from the channel edges inward with no jogs, widths quantised to
+integer track multiples so partial runs can be swapped for lattice wires, both
+leads extended across each other at layer changes with the overlap filled with
+vias, at least two cuts at every layer change and n = max(2, ⌈I/I_cut⌉), 135°
+bends instead of 90°, via arrays on straight runs as a row perpendicular to the
+current with the leading-row cuts counted. EM holds at every point, resistance
+only on average. **v1** with ROUTE-EmWidth.
+
+**ROUTE-Coupling** [FLR-10, FLR-11, FLR-12, FLR-13]. Every net classified
+(power, noisy, sensitive, static digital, high voltage, high current) with a
+policy per class: no jumpers or substrate contacts on sensitive grounds, poly
+only for static digital, name suffixes `_n`, `_s`, `_hv` as hints that may add
+sensitivity and never remove it. Per victim and aggressor pair the budget is
+C_max = ΔV_allow / (R_node · slew); noisy never above, below on an adjacent
+layer, or beside sensitive; an unavoidable crossing at right angles with a
+plate on an intermediate layer tied to the victim's own low-impedance
+reference, extended 2 to 3 µm past the crossing; a quiet line between parallel
+runs; slew limiting of static control lines as the last resort and a diagnostic
+to the designer. 1.0's `CouplingBudget` and `CrosstalkExclusion` keep the
+scoring; the recipe adds adjacent-layer overlap and the per-pair slew term.
+**v1**.
+
 **ROUTE-Array** [PAT-22 to PAT-26, R-15]. The capacitor-array branch, trunk and
 bridge routing and the unit-array column routing of §2.4. **v1** inside the
 cap tile.
@@ -387,6 +511,17 @@ constraints refuse instead of stepping (Q13).
 | Differential routing | ROUTE-MirrorPair → ROUTE-Crossover → ROUTE-ExactMatched → length-only match |
 | Coupling | spacing by run length → ROUTE-Shield → reroute |
 | EM width | per-segment three-type width → DC equivalent only → class width |
+| BJT ratioed | 3×3 eight-around-one (8:1) → 2:1:2 (4:1) → two rows about the unit (multiples of 4:1) → ABA row along isotherms → adjacent (MIN) |
+| BJT equal pair | cross-coupled quad with CBE → AB side by side (MIN, one-unit fixed devices) |
+| Diode | cross-coupled pairs → interdigitated rows → single |
+| Electron injector | isolated tub → ECGR, NMoat ≥ epi thickness or supply-tied N-well ring → spacing plus tap rings (P− substrate) |
+| Hole injector | HBGR, closed deep-N+ over NBL → HCGR on a retrograde well → N+ tie plus spacing |
+| Ring return | dedicated pin → separate bondwire → on-die star point |
+| Taps by substrate | epi on P+: scatter and fill; bulk P−: large contacts within half the die thickness; wells: annular at half the layer thickness |
+| High-voltage spacing | deck per-voltage rules → depletion formula with 50 % margin → blanket HV spacing |
+| Crossings on one layer | rearrange terminals → cross over non-sensitive resistors → stretch the whole matched group → merged tunnel → tunnel → move pads |
+| Parasitic channel | reroute → higher metal → field plate → channel stop |
+| Thermal against stress | thermal wins: far side on the axis, 125 to 250 µm from the far edge |
 
 ## 6. What the PDK must carry
 
@@ -429,6 +564,35 @@ capacitance per area and per length, Blech products for via-above and
 via-below, σ_crit, reservoir credit, low-k flag, self-healing γ, self-heating
 limit, crowding factors per via pattern.
 
+**Die-level and reliability** (PDK-01 to PDK-12 of the die report): substrate
+type, epi thickness and resistivity, wafer orientation, die thickness; well
+depth and outdiffusion, retrograde flag, well sheet resistance, tie resistance
+with and without deep-N+, tie distance; NBL, deep-N+, PBL, deep N-well and DTI
+availability with doping ratios and the NBL shadow; per BJT model the
+construction, fixed-geometry flag, k_A, β at corners and its plateau,
+high-level-injection onset, V_A, V_EBO, V_CEO, V_BE temperature coefficient,
+piezojunction coefficients, base junction depth, sheet resistances, maximum
+emitter stripe; interconnect thickness excluding barriers, sheet resistance
+min, mean and max, J_max with T_ref, Ea and n, Blech product, current per cut,
+via direction factor, stackability and asymmetric enclosure, exact cut size,
+array spacing, wide-metal spacing and slot rule, thick-metal flag, ρ and heat
+capacity for adiabatic sizing, ILD thickness and plate and fringe capacitance
+per layer pair; gate-oxide thickness per flavour with its marker, E_max per
+thickness and duration, device ratings V_GS max and V_DS blocking and
+operating, thick-field thresholds per conductor and backgate, the ILD voltage
+table, HV recognition layers, a depletion-width table, linewidth control and
+alignment tolerances; antenna limits per layer with sidewall mode, latent merge
+distance, diode layers and avalanche voltage; silicide type and block layer,
+resistor recipes with tolerance, field-oxide thickness, MOS-capacitor density
+and bias, the RW ballast product; the rule classes a deck must express, from
+voltage-conditional and region-conditional spacing to stacking, slotting and
+corner exclusion; die and package context from the user; qualification
+targets, HBM and CDM levels, the latch-up test current, the life target; and
+the derivation fallbacks when a rule is missing: minimum feature, linewidth
+control at a tenth of it, alignment at a fifth, outdiffusion at 0.8 of the
+junction depth, dilution below twice the junction depth, depletion widths with
+a 50 % margin, every derived value flagged as derived.
+
 What no source gives and the engine must own as a deck key with provenance:
 the narrow-channel minimum finger width, the σ inflation for V_SB ≠ 0 beyond
 one point, the halo tilt angle, a quadratic gradient coefficient, a measured
@@ -460,7 +624,17 @@ by the recipe (Q2). The rules are 1.0's, kept.
 | ring resistance, ring net quiet | ring checks (1.0 `ring_ohm`; ring-net rule new) | ring macro and nets |
 | unit identity, integer ratio, value | LVS and the drawn cards; resistor value model | `Macro::drawn` |
 
-Claims no 1.0 rule scores yet, to add with the recipe that promises them: PSE
+Claims no 1.0 rule scores yet, to add with the recipe that promises them:
+ring closure with NBL and N-well enclosing the deep-N+ outer edge; strap
+continuity and I·R under 0.3 V at the test current; the ring's tie net quiet
+and dedicated; the merge predicate's residual per shared region; every
+isolation junction reverse-biased at every corner; every PNPN loop gain below
+one; every injector ringed by carrier; base-contact centroid offset for BJT
+arrays; emitter reverse bias under the class fraction of V_EBO; hot-carrier
+and NBTI screens on matched sets at their operating points; the six-condition
+parasitic-channel pass; oxide field per plate pair; pairwise high-voltage
+spacing by net voltage difference; via pairs at every layer change; no 90°
+inside corner on flagged nets; finger current skew on power devices; and PSE
 (poly spacing) equality, metal coverage similarity within a halo, dummy
 geometric equivalence to active gates, per-aggressor coupling difference for a
 pair, ring useful-frequency check, Blech and via-array geometry.
@@ -487,6 +661,10 @@ From the device-block inventory (`codebase-cells` report):
 - `Bjt`, `Diode`: unit grids by `centro_assign`; NPN needs `dnwell`; no sky130
   BJT recogniser.
 - `post_cell`: guard rings by role, well bridges, implant bridges, tap rings.
+  Majority tap rings are named as minority rings; the carrier taxonomy of
+  GRD-11 renames them. `tie_max_dist_nm` reaches `taps_in_reach` but not the
+  placer. `bjt_max_emitter_stripe` is in the sky130 sidecar and no generator
+  reads it. NPN isolation is drawn per unit instead of per array.
 - Portability blockers to remove in the embedding: the sky130 role vocabulary
   resolved by literal layer name, the `li` assumption, policy tiers that are
   not deck data, recipes only on sky130 for MIM and BJT, rect-only geometry.
@@ -513,7 +691,10 @@ MOS-Chain, ENV-* at class, on sky130 and asap7. M2: FLOOR-RowStack,
 FLOOR-GlueRow, ROUTE-MirrorPair, ROUTE-Crossover, ROUTE-Star, ROUTE-Spacing,
 ROUTE-Shield, ROUTE-Keepout, ROUTE-EmWidth DC, ROUTE-AntennaRepair. M3:
 RES-Array, CAP-Array, CAP-Chessboard, CAP-Spiral, CAP-BlockChessboard,
-CAP-SplitDac, BJT-Array, DIODE-Array, FLOOR-Array, ROUTE-Array. Everything
+CAP-SplitDac, BJT-Array, DIODE-Array, FLOOR-Array, ROUTE-Array, FLOOR-Wells
+and FLOOR-Isolation by carrier where the deck can build the ring. M2 also
+carries ROUTE-Power and ROUTE-Coupling. Chip assembly, ESD and the die context
+producer are Q60. Everything
 marked v2 follows the acceptance set; research items follow their spikes.
 
 ## Sources
@@ -521,7 +702,8 @@ marked v2 follows the acceptance set; research items follow their spikes.
 The research reports this catalog condenses, each with full technique cards
 and every source item id: `hastings-mos` (MOS-01 to MOS-35), `hastings-passives`
 (RES, CAP, IND, MAT), `matching` (PAT-01 to PAT-28), `noise-em` (SUBN-01 to
-SUBN-29, EMR-01 to EMR-24), `surveys` (P-01 to P-31, R-01 to R-19),
+SUBN-29, EMR-01 to EMR-24), `hastings-die` (BJT, DIO, ESD, GRD, FLR, REL and
+PDK cards), `surveys` (P-01 to P-31, R-01 to R-19),
 `codebase-constraints` (1.0's rule and intent inventory, the 97 templates, the
 84 requirement families), `codebase-cells` (the device blocks). They are
 copied into `docs/ref/research/` so the item ids resolve.

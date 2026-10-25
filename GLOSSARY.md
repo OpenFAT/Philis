@@ -124,6 +124,32 @@ The repeated geometric element a matched set is built from: a finger, a unit
 capacitor, a resistor segment, an emitter.
 _Avoid_: finger (for non-MOS), segment (for non-R)
 
+**Injector**:
+A device or diffusion that can push minority carriers into the substrate or a
+well: a pin diffusion, a forward-biased backgate, a Schottky, a saturating
+bipolar.
+_Avoid_: aggressor (that word is for noise), noisy device
+
+**Victim**:
+A device or net whose function degrades under substrate noise or coupling, so
+it owns a budget.
+_Avoid_: sensitive device (as a noun), receiver
+
+**Tap ring**:
+A majority-carrier contact ring around a device, tied to that device's bulk,
+pinning the local potential.
+_Avoid_: guard ring (when it collects no minority carriers)
+
+**Guard ring**:
+A minority-carrier ring of the opposite type to its surroundings, named by what
+it does: electron-collecting, hole-collecting, hole-blocking, or a tub.
+_Avoid_: tap ring, isolation ring
+
+**Die context**:
+The optional input describing where a block sits: die outline, thickness,
+package, heaters, pin classes and pad order.
+_Avoid_: interface file, chip info
+
 **Sidecar**:
 The user's ALIGN-style JSON constraint file, keyed by instance and net names;
 it adds, confirms, rejects and steers.

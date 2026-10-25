@@ -720,3 +720,15 @@ behind and its `Checker` does not compile), reads the shipped decks through
 `gpurify::pdks::*`, holds a `CompiledDeck`, and deletes every rule
 re-derivation in 1.0's `pdk.rs` that a typed query now answers (the inventory's
 §4.6 table). Recommendation: yes to the three-way split and the re-pin.
+
+### Q60 Chip assembly is a later milestone; the die-context table is defined now — open
+
+The die-level Hastings cards (`docs/ref/research/hastings-die.md`) cover chip
+assembly: area estimation, seal and scribe, corner exclusion, pads, the ESD
+network by pin type, periphery ECGR, single-level crossings, fill, hierarchy,
+and a 23-step floorplan checklist. Philis 2.0's acceptance set is block level.
+Proposal: chip assembly, ESD devices and the periphery are a milestone after
+M7 with the checklist as its specification; the die-context input table
+(outline, origin, thickness, package and bumps, θ, heaters, pin classes, pad
+order) is defined in v1 so the block floorplan's stress, thermal and pad rules
+read it when present and report unknown when absent. Recommendation: yes.
