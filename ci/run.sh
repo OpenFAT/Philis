@@ -23,7 +23,10 @@ case "${1:-}" in
     n=$(cargo fmt --check "${pkgs[@]}" -- -l 2>/dev/null | grep -c '\.rs$')
     echo "cargo fmt --check: $n unformatted files (report only, not gating)"
     step cargo clippy "${pkgs[@]}" --all-targets
-    step cargo test "${pkgs[@]}" --lib --no-fail-fast
+    # substrate3's lib tests draw and DRC every device variant (~160 s): merge.
+    fast=()
+    for c in "${crates[@]}"; do [ "$c" != substrate3 ] && fast+=(-p "$c"); done
+    step cargo test "${fast[@]}" --lib --no-fail-fast
     ;;
   merge)
     # Every lib, unit and integration test: engine's pair, conformance and deps included.

@@ -103,7 +103,7 @@ Substrate2 members); every step runs and the tier fails if any did:
 
 | tier | today |
 |---|---|
-| local | `cargo fmt --check` (reports a count, not gating yet), `cargo clippy --all-targets`, `cargo test --lib --no-fail-fast` |
+| local | `cargo fmt --check` (reports a count, not gating yet), `cargo clippy --all-targets`, `cargo test --lib --no-fail-fast` on every crate but substrate3 (its lib tests DRC every device variant, ~160 s, and run at merge) |
 | merge | `cargo test --no-fail-fast`: every lib and integration test, `engine`'s `pair`, `conformance` and `deps` included |
 | nightly | merge, then `cargo test --no-fail-fast -- --ignored` (verify's field solves) |
 | release | nightly with `--release` |
@@ -111,8 +111,8 @@ Substrate2 members); every step runs and the tier fails if any did:
 `.github/workflows/ci.yml` runs `nix develop --command ci/run.sh merge` on push
 and PR and `nightly` on a daily schedule. Outside the dev shell set `PROTOC`
 (the script defaults to a nix store path). Not wired yet: fuzz replay, foundry
-cross-check, perf trend; `local` exceeds its 10 s budget (substrate3's lib tests
-run DRC).
+cross-check, perf trend. `local` runs in ~10.5 s once built (placement's
+lib tests ~4 s, cargo start-up the rest).
 
 Main always passes. A flaky test is fixed or quarantined the same day, and a
 quarantined test on a core crate blocks release. When the acceptance set
