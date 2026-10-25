@@ -53,8 +53,11 @@ and typed fields for the `pdk_data` tables.
   - asap7 PEX refuses: LISD (and SD, GATE_C, the SDT and V0 cuts) have no
     sourced resistance; GPurify refuses unknown parasitics rather than
     reading 0. `pdks::asap7` and `pdks::flavoured_models_extract_as_themselves`
-    fail on this alone. Fix: a sourced number (the ASAP7 Calibre RCX deck from
-    asap.asu.edu), or the front end leaves PEX's conductors.
+    fail on this alone. Searched and unsourced (docs/ref/research/asap7-mol-resistance.md):
+    the MEJ paper, DRM, design-flows paper, Vashishtha's dissertation, BSIM-CMG
+    cards, the encrypted asap7sc7p5t QRC tech, ORFS. Unblock: the owner
+    registers for the ASAP7 Calibre PEX deck (asap.asu.edu; its MIPT carries
+    the resistivities).
   - sky130 x.25 allows the `pnp` marker only inside the foundry's named
     cells; Philis emits flat geometry, so `cells::bjt::every_variant_is_drc_and_erc_clean`
     fails. Fix: the PNP as a subcell named after the open PDK's device, with
