@@ -530,6 +530,25 @@ by construction. Which parser fills it is a fact to establish in M0 by running
 both over the fixture corpus; 1.0's dialect handling is ported into the fork's
 parser where it falls short.
 
+**M0 corpus run (2026-10-25), outcome: the fork's parser fills SCIR.**
+`substrate3/examples/parser_corpus.rs` against 1.0's `library::parse` over
+1241 netlists: the 18 in `benchmarks/fixtures` and `field`, and 1223 `.sp`
+and `.cir` files in the ALIGN and MAGICAL submodules.
+
+| corpus | fork OK | 1.0 OK | both OK | device counts differ |
+|---|---|---|---|---|
+| fixtures and field (18) | 18 | 18 | 18 | 0 |
+| competition (1223) | 60 | 68 | 32 | 0 |
+
+Neither parser dominates the competition files, and most of those are ALIGN
+templates whose parameters a testbench sets (1.0: "undefined parameter",
+fork: `.PARAM`). The fork fails only on directives it does not know
+(`.param`/`.PARAM` 1059, `.option` 14, `.model` 11, `.GLOBAL` 9, `.TEMP` 8,
+`.title` 4, `.END` 3) and on `S`, `E`, `G` cards; 1.0 fails where a
+parameter is undefined or several top-level sub-circuits exist. So the port
+is 1.0's directive handling and `.param` evaluation into the fork's parser,
+first where an acceptance fixture needs it.
+
 ### Q38 How code moves — accepted
 
 Plain copy from Philis 1.0 with a commit message citing the 1.0 commit, versus
