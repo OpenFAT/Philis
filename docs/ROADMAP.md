@@ -65,21 +65,12 @@ and typed fields for the `pdk_data` tables.
   - verify's two field-solve tests take ~110 s in release: nightly tier
     (`#[ignore]`).
 
-- Carried failures from Philis 1.0 (`5b4fe98`), both diagnosed as design
-  calls, not router bugs (each a user decision):
-  - `routing::dr::tests::foreign_nets_route_around_a_matched_cell`: a cost
-    tie. Crossing the matched cell's soft blockage costs 27 (11 nodes ×
-    `KEEPOUT_COST` 2.0 + 2 jogs × 2.5, the jog forced by net 1's pin on that
-    row since RTE-28); going around costs 28 (4 vias × 4 + 12 rows). The
-    search is exact (threshold ≈ 2.09). Fix: raise `KEEPOUT_COST` to ≥ 2.2
-    (retunes every route), or decide foreign nets may cross a small matched
-    cell and change the test.
-  - `routing::dr::tests::a_shielded_victim_gets_both_side_tracks`: 0.95 is
-    unreachable in this fixture. Net 2's pins sit on the victim's upper side
-    track, so its end jogs and pads can never be shielded on both sides; even
-    a fully covered trunk bounds coverage at 0.768 (measured 0.727, since
-    `Shield::coverage` also counts via pads, overlaps included). Fix: move
-    net 2's pins off the side track, or redefine the 0.95.
+- Carried failures from Philis 1.0 (`5b4fe98`), fixed by owner decision:
+  `foreign_nets_route_around_a_matched_cell` (`KEEPOUT_COST` 2.0 → 4.0, the
+  lattice via cost: crossing a soft blockage of ≥ 6 nodes now always loses
+  to the four-via detour) and `a_shielded_victim_gets_both_side_tracks`
+  (fixture pins off the victim's side tracks; `Shield::coverage` counts the
+  union of the victim's runs, not via pads: 1.0).
   The annotator's `twelve_thousand_devices` budget is asserted in release
   only (`4896cb5`, 349 ms); `cap_array::extracted_bit_ratios_follow_the_weights`
   passes since `59a9fe8`.
