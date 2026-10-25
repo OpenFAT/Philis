@@ -139,7 +139,7 @@ magic 8.3.629, netgen 1.5.320:
 | sky130 | clean, match | clean, match | clean, match |
 | gf180mcu | M2.1 ×2, match | M2.1 ×2, match | M2.1 ×2, CO.7 ×10, CO.3 ×1, match |
 | ihp_sg13g2 | M1.b, M1.e, M1.f, match | M1.b ×1, **mismatch** | M1.b ×19, CntB.b ×10, CntB.h1 ×13, match |
-| asap7 | clean, match | DRC only: ACTIVE.S.2A ×2 | refused (`foundry/no-deck`) |
+| asap7 | clean, match | DRC only: clean | refused (`foundry/no-deck`) |
 
 What the differences say, open:
 
@@ -149,9 +149,10 @@ What the differences say, open:
   with nSD stripped the same layout matches. GPurify's IHP deck has no such
   exclusion: a GPurify deck gap and a device-drawing defect.
 - ihp_sg13g2 M1.b: all three see metal1 spacing; magic counts more.
-- asap7 ACTIVE.S.2A (92 nm between the active regions of different
-  transistors): GPurify's asap7 deck has no such rule; to be decided against
-  the ASAP7 DRM.
+- asap7 ACTIVE.S.2A (92 nm horizontal between the source/drain actives of
+  different transistors): fixed. The FinFET generator breaks separate
+  actives three gate pitches apart (two field gates), and GPurify's asap7
+  deck now carries the rule as the lydrc reads it (`overrides.rs`).
 - magic's gf180mcu CO.7/CO.3 and IHP CntB rows: KLayout ran the same rules
   and passed them; magic's contact model, not confirmed defects.
 - sky130's KLayout LVS names the NMOS bulk globally (`lvs_sub`), so it

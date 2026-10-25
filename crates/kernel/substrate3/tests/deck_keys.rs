@@ -60,6 +60,9 @@ impl Process for Recording<'_> {
     fn area(&self, role: &str) -> Option<i64> {
         self.0.area(role)
     }
+    fn horizontal_space(&self, role: &str) -> Option<i32> {
+        self.0.horizontal_space(role)
+    }
     fn space_between(&self, a: &str, b: &str) -> Option<i32> {
         self.0.space_between(a, b)
     }

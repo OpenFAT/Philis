@@ -124,7 +124,7 @@ fn a_narrowed_metal_fails_drc_on_ihp_sg13g2_under_magic() { narrowed_fails_drc("
 #[test]
 fn asap7_is_refused_by_the_foundry_engines() {
     let p = verify::Pdk::builtin("asap7").unwrap();
-    let spice = PAIR.replace("nfet_01v8", "nmos_rvt").replace("L=0.5u", "L=20n").replace("W=2u", "W=270n");
+    let spice = asap7_pair();
     for engine in [Klayout, Magic] {
         let r = engine::run(&spice, &p, engine).err().unwrap_or_else(|| panic!("{engine:?} signed asap7 off"));
         assert_eq!(r.code, "foundry/no-deck", "{engine:?}: {r}");
@@ -141,15 +141,30 @@ fn an_unnamed_pdk_is_refused_by_the_foundry_engines() {
     }
 }
 
+/// `pair` on asap7's RVT nfet, at the deck's one gate length.
+fn asap7_pair() -> String {
+    PAIR.replace("nfet_01v8", "nmos_rvt").replace("L=0.5u", "L=20n").replace("W=2u", "W=270n")
+}
+
 /// asap7's one foundry door: its open KLayout DRC deck (OpenROAD-flow-scripts)
-/// through the DRC-only tier. `pair` is not clean there yet (ACTIVE.S.2A,
-/// TESTING.md "Foundry engines"), so the control is relative: a narrowed
-/// metal adds a finding.
+/// through the DRC-only tier. `pair` is clean there: its two FinFET actives
+/// side by side keep ACTIVE.S.2A's 92 nm.
+#[test]
+#[ignore = "needs klayout/magic/netgen: nightly"]
+fn pair_is_drc_clean_on_asap7_under_klayout() {
+    let p = verify::Pdk::builtin("asap7").unwrap();
+    let out = engine::run(&asap7_pair(), &p, Gpurify).unwrap();
+    let found = verify::foundry::drc(Klayout, &engine::geometry(&out.placed, &out.routes), &[], &p).unwrap();
+    assert!(found.is_empty(), "asap7 KLayout DRC: {found:?}");
+}
+
+/// The control is relative (the deck's findings before and after): a
+/// narrowed metal adds a finding.
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
 fn a_narrowed_metal_fails_drc_on_asap7_under_klayout() {
     let p = verify::Pdk::builtin("asap7").unwrap();
-    let spice = PAIR.replace("nfet_01v8", "nmos_rvt").replace("L=0.5u", "L=20n").replace("W=2u", "W=270n");
+    let spice = asap7_pair();
     let mut out = engine::run(&spice, &p, Gpurify).unwrap();
     // DRC reads no labels.
     let before = verify::foundry::drc(Klayout, &engine::geometry(&out.placed, &out.routes), &[], &p).unwrap();

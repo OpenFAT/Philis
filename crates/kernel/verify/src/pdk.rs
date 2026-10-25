@@ -1087,6 +1087,28 @@ impl Pdk {
         }
     }
 
+    /// Widest `facing_space` on vertical edges of drawn layer `l`, nm: a
+    /// horizontal spacing ([`Process::horizontal_space`]).
+    fn horizontal_spacing(&self, l: u16) -> Option<i32> {
+        use gdsverify::ingest::deck::DerivedOp as Op;
+        // Whether edge layer `x` keeps vertical edges only.
+        fn vertical(p: &Pdk, x: GvLayerId) -> bool {
+            match p.deck.layers.op(x) {
+                Some(Op::Oriented(v)) => v,
+                Some(_) => p.deck.layers.operands(x).first().is_some_and(|&o| vertical(p, o)),
+                None => false,
+            }
+        }
+        let limit = self.strings.get("limit")?;
+        self.rules_on("edge_facing_space", &[l])
+            .filter(|s| self.deck.rules.layers_of(s).first().is_some_and(|&x| vertical(self, x)))
+            .filter_map(|s| match self.deck.rules.param(s, limit) {
+                Some(ParamValue::Length(d)) => Some(d.raw() as i32),
+                _ => None,
+            })
+            .max()
+    }
+
     /// Widest `min_spacing` of a layer sized from drawn layer `l`, seen on
     /// `l`: the limit plus the growth on both sides.
     fn sized_spacing(&self, l: u16) -> Option<i32> {
@@ -1254,6 +1276,9 @@ impl Process for Pdk {
     fn extension(&self, outer: &str, inner: &str) -> Option<i32> {
         let l = [analog::base::Process::layer(self, outer)?.0, analog::base::Process::layer(self, inner)?.0];
         self.widest_on("min_extension", "limit", &l).map(|v| v as i32)
+    }
+    fn horizontal_space(&self, role: &str) -> Option<i32> {
+        self.horizontal_spacing(analog::base::Process::layer(self, role)?.0)
     }
     fn space_between(&self, a: &str, b: &str) -> Option<i32> {
         let (la, lb) = (analog::base::Process::layer(self, a)?.0, analog::base::Process::layer(self, b)?.0);
@@ -1521,6 +1546,9 @@ impl Process for Overlay<'_> {
     }
     fn area(&self, role: &str) -> Option<i64> {
         self.pdk.min_area(self.layer(role)?.0)
+    }
+    fn horizontal_space(&self, role: &str) -> Option<i32> {
+        self.pdk.horizontal_spacing(self.layer(role)?.0)
     }
     fn space_between(&self, a: &str, b: &str) -> Option<i32> {
         let (la, lb) = (self.layer(a)?.0, self.layer(b)?.0);

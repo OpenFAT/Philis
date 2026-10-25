@@ -46,6 +46,7 @@ struct Rules {
     lig_area: i64,
     lig_channel: i32,
     act_s: i32,
+    act_s_h: i32,
     sel_enc: i32,
     sel_past_gate: i32,
     sel_w: i32,
@@ -81,6 +82,7 @@ impl Rules {
             lig_area: p.area("lig").unwrap_or(0),
             lig_channel: p.space_between("lig", "poly").unwrap_or(0).max(p.space_between("lig", "diff").unwrap_or(0)),
             act_s: s("diff"),
+            act_s_h: p.horizontal_space("diff").unwrap_or(0).max(s("diff")),
             sel_enc: p.enclosure("nsdm", "diff").unwrap_or(0).max(p.enclosure("psdm", "diff").unwrap_or(0)),
             sel_past_gate: ext("nsdm", "poly").max(ext("psdm", "poly")),
             sel_w: w("nsdm").max(w("psdm")),
@@ -244,12 +246,14 @@ impl Cell for FinFet {
                 b.rect(m1, Rect { x: g0 - r.v0_in_m1, y: strap_top - off - r.m1_w, w: g1 - g0 + 2 * r.v0_in_m1, h: r.m1_w });
                 b.pin(pin(k, "G", Rect { x: g0, y: gv0_y - off, w: r.v0, h: r.v0 }, m1));
             }
-            // The next active on the same gate lattice, an active spacing
-            // clear; field gates fill every slot between, so the pitch holds
-            // across the break. Each slot clears both actives by the deck's
+            // The next active on the same gate lattice, the deck's horizontal
+            // active spacing clear (ASAP7 ACTIVE.S.2A, 92 nm between
+            // different transistors: three pitches less the two ends' 70);
+            // field gates fill every slot between, so the pitch holds across
+            // the break. Each slot clears both actives by the deck's
             // gate-to-field spacing when the extension leaves room for it.
             debug_assert!(r.act_past_gate + r.gate_field <= gap, "a field gate cannot fit beside a diffusion end");
-            let next = a.x + ((a.w + r.act_s + r.gate_p - 1) / r.gate_p) * r.gate_p;
+            let next = a.x + ((a.w + r.act_s_h + r.gate_p - 1) / r.gate_p) * r.gate_p;
             if acts.len() < rows.len() {
                 let mut g = gx(n) + r.gate_p;
                 while g < next + r.act_past_gate {
@@ -383,6 +387,24 @@ mod tests {
             ys.dedup();
             assert!(ys.windows(2).all(|w| w[1] - w[0] == 27), "{ys:?}");
         }
+    }
+
+    /// ASAP7 ACTIVE.S.2A: separate members' actives sit 92 nm apart side
+    /// by side (three gate pitches less the ends' 70), the field gates in the
+    /// break 9 nm off each (GATE.ACTIVE.S.4).
+    #[test]
+    fn separate_actives_keep_the_horizontal_active_spacing() {
+        let pdk = deck();
+        let (g, c) = group(DeviceKind::Nmos, &[2, 3], 1680);
+        let m = FinFet { shared: false }.draw(&g, &c, &pdk);
+        let mut acts: Vec<Rect> = on(&m, &pdk, "diff").into_iter().filter(|a| a.y == 0).collect();
+        acts.sort_by_key(|a| a.x);
+        assert_eq!(acts.len(), 2);
+        let (l, rt) = (acts[0].x + acts[0].w, acts[1].x);
+        assert_eq!(rt - l, 92);
+        let field: Vec<i32> = on(&m, &pdk, "poly").iter().map(|p| p.x).filter(|&x| l < x && x < rt).collect();
+        assert_eq!(field.len(), 2, "{field:?}");
+        assert!(field.iter().all(|&x| x - l >= 9 && rt - (x + 20) >= 9), "{field:?}");
     }
 
     #[test]
