@@ -3,6 +3,10 @@ resolver = "2"
 members = [
   "crates/kernel/analog",
   "crates/kernel/verify",
+  "crates/frontend/annotator",
+  "crates/frontend/visualizer",
+  "crates/backend/placement",
+  "crates/backend/routing",
 ]
 
 # Pinned external engines. GPurify is the PDK input (Q55); the pin moves to its

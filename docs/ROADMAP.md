@@ -28,6 +28,13 @@ Also carried from 1.0 as milestone gates: `tt_ota`, `ota_constrained`, `quad`,
 
 ## Known gaps (kept current)
 
+- Carried failures from Philis 1.0 (`5b4fe98`), failing identically there:
+  `routing::dr::tests::a_shielded_victim_gets_both_side_tracks`,
+  `routing::dr::tests::foreign_nets_route_around_a_matched_cell`, and the
+  annotator's `twelve_thousand_devices` wall-time budget (2 s, a debug-build
+  timing assertion; Q53 makes performance a tracked number, so it moves to the
+  benchmark tier). Each is fixed in its own commit, never inside a move.
+
 - Compaction is research (M6); until its verdict, the hot path's area is the
   atoll-snapped area.
 - `Confidence` does not exist until M4; before it, the hot path runs on

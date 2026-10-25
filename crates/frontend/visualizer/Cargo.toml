@@ -1,0 +1,17 @@
+[package]
+name = "visualizer"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "visualizer"
+path = "src/main.rs"
+
+[dependencies]
+analog = { path = "../../kernel/analog" }
+wgpu = "24"
+winit = "0.30"
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "0.4"
+earcutr = "0.4"
