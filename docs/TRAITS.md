@@ -71,9 +71,23 @@ Status after scoring: met, violated, unknown (inputs missing, as 1.0's
 ## Capability traits (Q10)
 
 A handful, shared by every recipe. Implemented per PDK; the rule values come
-from GPurify's deck tables through `kernel/verify` (Q55), generated into the
-typed PDK by `build.rs` (Q26); the analog-only numbers follow Q57; the geometry
-constructors are hand-written per PDK.
+from GPurify's `CompiledDeck` typed queries through `kernel/verify` (Q55),
+generated into the typed PDK by `build.rs` (Q26); the analog-only numbers
+follow Q59 (deck statement where one exists, `AnalogNumbers` sidecar until a
+statement lands, `kernel/analog` tables for policy); the geometry constructors
+are hand-written per PDK.
+
+| capability method | GPurify source today | until then |
+|---|---|---|
+| `InterconnectModel::sheet_r`, `cap_per_um` | `pex` rows: `sheet`, `area_cap`, `fringe_cap`, `tc1`/`tc2` with `temperature` | decks must state `temperature` |
+| `InterconnectModel::em_idc`, `via_idc` | `em_current_density`, `electromigration` tables; `em_limit(layer)` | `em_derating` sidecar for T_ref, Ea, n |
+| `MatchablePrimitive::unit`, min sizes | `lvs range "model" w l` | `min_finger_width`, `sd_width` sidecar |
+| `Lde::wpe_reach`, `lod_reach` | `lvs lde "model" od .. max .. well .. scref ..` | `lod_kvth0_*` sidecar; class clearances are policy tables |
+| tap reach, latch-up | `tap_distance`, `missing_tie`, `conditional_tie`, `latchup_victim` | sky130 `LU.*` rows as `DeckBuilder` overrides |
+| `GuardRing::ring` | `guard_ring`, `guard_ring_bias` check a ring; construction from `min_width` and `cut_spacing` of the ring layers | `min_guard_ring_width`, `guard_licon_pitch` sidecar |
+| `ArrayablePrimitive` caps | `device capacitor ... area_cap fringe_cap` | `c_dw_nm`, `cap_density_ff_um2` sidecar |
+| matching coefficients | none | sidecar; a `mismatch` statement is a GPurify issue |
+| layer roles | none; mos recognisers imply gate and diffusion | `cell.layers` sidecar |
 
 ```rust
 pub trait PhilisPdk: layout::schema::Schema + schematic::schema::Schema + Sized {

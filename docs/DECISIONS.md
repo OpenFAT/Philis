@@ -684,3 +684,39 @@ struct and by the enum through an exhaustive match, and a `Kind` discriminant
 enum for tables that store only the tag. `dyn Trait` only for sets that live
 outside the workspace. Recommendation: yes, and `API.md` applies it crate by
 crate with usage code first.
+
+### Q59 Where the analog-only PDK numbers live, by kind — open (proposed from the GPurify inventory)
+
+The inventory (`docs/ref/research/gpurify-api.md`) resolves Q57's condition:
+GPurify's deck text admits no unknown statement, keyword, unit or parameter;
+its extension mechanism is Rust (`DeckBuilder`, `CustomRule`), and the design
+intent file is `deny_unknown_fields`. So branch (b) is impossible and branches
+(a) and (c) both apply, by the kind of number:
+
+1. **Process facts GPurify's language already carries but the shipped decks do
+   not state**: `temperature` with `tc1`/`tc2`, `device ... sheet`,
+   `area_cap`, `fringe_cap`, `lvs range` for minimum device sizes, `lvs lde`
+   for LOD and WPE layers and reach, `electromigration` with Black parameters,
+   the sky130 `LU.*` tap-distance rules, `pex_substrate`. These go into the
+   decks upstream, in GPurify, and Philis reads them through `CompiledDeck`'s
+   typed queries. The `# PHILIS:` edits in 1.0's vendored decks are expressed
+   as `DeckBuilder::from_deck` overrides until each is upstreamed.
+2. **Process facts with no GPurify statement**: matching coefficients (A_VT,
+   A_β, A_R, S_VT gradient, BJT k_A), LOD `KVTH0`, V_T and V_BE temperature
+   coefficients, the resistor head and bias value model, capacitor plate bias,
+   guard-ring construction, routing-stack order, layer roles. These need new
+   statements and new dimensions (mV·µm, %·µm, µV/µm) upstream; the owner owns
+   GPurify, so that is a GPurify issue per family. Until a statement lands,
+   1.0's JSON sidecar carries them, read by `kernel/verify` as `AnalogNumbers`
+   with the registry that refuses unknown keys, and a sidecar value never
+   shadows a deck value.
+3. **Policy, not process**: the per-class tables from Hastings (dummy reach,
+   moat extension, WPE clearance, gate extension, resistor width and length
+   floors, dummy spans), identical across 1.0's four sidecars. These are
+   `kernel/analog` class tables with provenance comments, not PDK input at all.
+
+Also from the inventory: Philis re-pins GPurify at head (1.0 is 733 commits
+behind and its `Checker` does not compile), reads the shipped decks through
+`gpurify::pdks::*`, holds a `CompiledDeck`, and deletes every rule
+re-derivation in 1.0's `pdk.rs` that a typed query now answers (the inventory's
+§4.6 table). Recommendation: yes to the three-way split and the re-pin.

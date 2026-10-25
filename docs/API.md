@@ -161,21 +161,51 @@ sizing}` as free functions over slices; `intent` row types.
 - Flow control: pure functions; nothing calls back.
 - Discontinuity: a rule that needs the thermal field reads a derived table (`rise_at_point`), computed by the caller before scoring, so a new field kind is a new table, not a callback. Named risk: a rule over a state neither `Layout` nor `Routes` (a 3-D stack) would need a third `On`.
 
-### kernel/verify (over GPurify, Q55)
+### kernel/verify (over GPurify, Q55, Q59)
 
-Surface, to be fixed by the GPurify inventory (Q57): `Pdk::load(deck_text) ->
-Pdk` as the proof the deck parsed; `pdk.rules()` as GPurify's own tables,
-re-exported, not re-derived; `pdk.analog()` for the numbers GPurify's deck does
-not carry; `signoff(shapes, labels, reference, &pdk) -> Signoff`;
-`drc`, `erc`, `lvs`, `pex` as the fine tier taking a `GeometryStore` the
-caller built. Everything in memory; no file paths cross the boundary.
+GPurify's own types are the surface; `verify` adds only the Philis-side
+numbers and the signoff spine. Facts from the GPurify inventory
+(`docs/ref/research/gpurify-api.md`): the deck is text with 26 keywords and no
+unknown statement survives parsing; the extension mechanism is Rust
+(`DeckBuilder` states or overrides a compiled deck, `CustomRule` adds a check);
+`CompiledDeck` holds a closed `drc::Rule` enum with one variant per kind and
+typed getters (`min_width`, `required_spacing`, `enclosure`, `density`,
+`antenna`, `em_limit`, `fet_limits`); every check runs in memory on a
+`GeometryStore`; results are SoA `Violations` plus a `RuleRun` coverage row per
+rule and a `Summary` whose `passed()` is true only when every selected stage
+ran. Philis 1.0 is 733 commits behind GPurify's head and its `Checker` no
+longer compiles against it.
 
-- Granularity: `signoff` is `drc + erc + lvs + pex + coverage`; each is callable alone on the same store.
-- Redundancy: the store builds from Philis shapes, from Substrate's `layir` cells, or from GDS bytes; three doors, one engine.
-- Coupling: the one place `dyn` may appear, wrapping GPurify's engine once; nothing above `verify` sees it.
-- Retention: the `GeometryStore` is the caller's; `verify` does not cache layouts between runs.
-- Flow control: the caller runs each check when it wants, including between recipe steps for in-loop DRC.
-- Discontinuity: a rule kind GPurify cannot express is a coverage row, never a pass (1.0's rule), and the request for it goes upstream to GPurify rather than into a Philis parser. *Section completed after the inventory.*
+```rust
+// Load: the proof the deck parsed. Shipped decks come from GPurify itself.
+let mut strings = StrTable::default();
+let deck: CompiledDeck = gpurify::pdks::sky130(Grid::new(1000)?, &mut strings)?;
+let deck = DeckBuilder::from_deck(&deck, &mut strings)   // Philis's edits, until upstreamed (Q59)
+    .rule("LU.2", tap_distance(lu_well, lu_tap).le(um(15)))
+    .device(bjt("pnp", ..))
+    .finish()?;
+let pdk = Pdk { deck, analog: AnalogNumbers::load(sidecar_json)? };  // the rows GPurify has no statement for
+
+// Rule values: GPurify's typed queries, never re-derived (1.0's pdk.rs re-derivations are deleted).
+let w  = pdk.deck.min_width(poly);
+let s  = pdk.deck.required_spacing(met1, &SpacingQuery { width_a, width_b, run_length, end_of_line: None });
+let e  = pdk.deck.enclosure(licon, li);
+let em = pdk.deck.em_limit(met1);
+for (id, rule) in pdk.deck.drc_on(diff) { match rule { Rule::MaxDistanceToTap { .. } => .., _ => .. } }
+
+// Signoff: build the store from tiles and routes, extract, run, read coverage.
+let (store, prov) = verify::store(&tiles, &routes, &labels, &pdk)?;   // shapes → GeometryStore + labels
+let extracted = extract_layout(&store, &pdk.deck, &prov)?;
+let (out, summary) = run_checks(&loaded(&pdk, store, prov, Some(reference), intent), &extracted, &opts);
+let drc_only = pdk.deck.drc.run_with_nets(&store, Some(&extracted.nets), &mut viols, &mut runs);  // fine tier
+```
+
+- Granularity: `verify::signoff` is store, extract, `run_checks`; each is callable alone, and DRC alone runs on a store between recipe steps.
+- Redundancy: the store builds from Philis tiles and routes, from the fork's `layir` cells, or from GDS bytes; three doors onto one engine. Rule values come by typed getter or by `match` on the `Rule` enum (Q54 holds across the boundary because GPurify's own kinds are a closed enum).
+- Coupling: no file paths cross the boundary; the deck is a value; `AnalogNumbers` is the only Philis-owned PDK input and it never shadows a deck value.
+- Retention: `CompiledDeck` is `Clone`; nothing is re-parsed per session (1.0's `Checker::new` re-parsed the deck text).
+- Flow control: no callbacks; a `CustomRule` is the one `fn` pointer GPurify offers, used only if a Philis check must run inside GPurify's accounting.
+- Discontinuity: a rule kind GPurify cannot express is a coverage row, never a pass, and the request for it goes upstream to GPurify's grammar rather than into a Philis parser. A number no GPurify statement carries lives in `AnalogNumbers` until a statement exists (Q59).
 
 ### kernel/substrate3
 

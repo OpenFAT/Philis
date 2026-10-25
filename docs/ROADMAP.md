@@ -8,7 +8,7 @@ Q52 of `DECISIONS.md`, accepted. Performance is tracked, not gated (Q53).
 
 | milestone | slice | gate |
 |---|---|---|
-| M0 skeleton | workspace, the moved crates (`analog`, `verify`, `substrate3` fork with `cells` as device blocks, `annotator`, `placement`, `routing`, `visualizer`), CI with the four tiers wired, `pair` through the hot path with one set recipe (Adjacent) and a trivial floorplan | `pair` DRC 0, ERC 0, LVS MATCH on sky130 and asap7 in-process; the conformance harness runs and writes the availability matrix; the parser decision (Q37) made from the fixture-corpus run |
+| M0 skeleton | workspace, the moved crates (`analog`, `verify`, `substrate3` fork with `cells` as device blocks, `annotator`, `placement`, `routing`, `visualizer`), GPurify re-pinned at head with `verify` on `CompiledDeck` and the `# PHILIS:` deck edits as `DeckBuilder` overrides (Q59), CI with the four tiers wired, `pair` through the hot path with one set recipe (Adjacent) and a trivial floorplan | `pair` DRC 0, ERC 0, LVS MATCH on sky130 and asap7 in-process; the conformance harness runs and writes the availability matrix; the parser decision (Q37) made from the fixture-corpus run |
 | M1 set recipes | MOS pair and mirror recipes: Adjacent, Interdigitated, Cc1d with edge dummies and split gates, two-row Cc2d; ladders; claims scored; bounded candidate pick against a width target | `pair`, `mirror_ratio`, `quad` clean on both PDKs; seeded-violation tests for MatchedSet, Symmetry, CentroidGroup, Environment; conformance matrix complete for M1 recipes |
 | M2 floorplan and routing | symmetric row stack floorplan recipe; glue row; targets top-down; routing recipes mirror pair and star common node routed first, `dr` negotiates the rest; refusal diagnostics | `ota`, `tt_ota`, `ota_constrained` clean on both PDKs; `ota` wall recorded against the 10 s target; differential lead C and path R equal at signoff |
 | M3 arrays | capacitor and resistor common-centroid recipes with dummy rings; BJT ratio arrays; array floorplan family | `dac4`, `dac4_mim`, `res_m2`, `rdiv`, `bgr_core` clean on both PDKs |
@@ -33,6 +33,6 @@ Also carried from 1.0 as milestone gates: `tt_ota`, `ota_constrained`, `quad`,
 - `Confidence` does not exist until M4; before it, the hot path runs on
   Pattern-origin constraints with the conservative recipe tier only.
 - SCIR is the netlist IR (Q37); which parser fills it is decided by the M0 corpus run.
-- Where the analog-only PDK numbers live (Q57) waits on the GPurify inventory.
+- The analog-only PDK numbers split three ways (Q59); each family in the second group is a GPurify issue until its statement lands.
 - PEX-level claims are signoff-only (Q29); in-loop extraction returns when a
   fixture shows the estimate lying.

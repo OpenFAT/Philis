@@ -390,9 +390,14 @@ constraints refuse instead of stepping (Q13).
 
 ## 6. What the PDK must carry
 
-The capability data the recipes read, grouped for `TRAITS.md` and Q57. 1.0
-keeps most of these in a JSON sidecar beside the GPurify deck; the GPurify
-inventory decides where they live in 2.0.
+The capability data the recipes read, grouped for `TRAITS.md`. Where each
+number lives is Q59: in the GPurify deck when its language has a statement
+(sheet and capacitance in `pex`, EM limits, `lvs range`, `lvs lde`, tap rules);
+in the `AnalogNumbers` sidecar until a GPurify statement exists (matching
+coefficients, `KVTH0`, temperature coefficients, resistor and capacitor value
+models, ring construction, roles); in `kernel/analog` class tables when the
+number is Hastings policy rather than process (the per-class reaches, floors
+and halos below).
 
 **Device blocks and matching** (MOS, MAT, PAT cards): c_Vt and c_k per polarity
 (A_Vt, A_β), S_D distance coefficient per L, k_A and k_R for resistors and
