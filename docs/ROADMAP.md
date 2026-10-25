@@ -28,20 +28,32 @@ Also carried from 1.0 as milestone gates: `tt_ota`, `ota_constrained`, `quad`,
 
 ## Known gaps (kept current)
 
-- Found by the GPurify re-pin to `687c8bc` (M0): the asap7 FinFET device block
-  violates rules the deck gained since 1.0's pin (FIN.S.1,
-  NSELECT/PSELECT.ACTIVE.EN.1, LIG.GATE.AUX.1, LVT.ACTIVE.EN.1, V0.M1.AUX.3,
-  V1.M2.AUX.2) and LVS reports `lvs.terminal_net` on nmos_rvt and nmos_lvt;
-  `substrate3` tests `pdks::asap7` and `pdks::flavoured_models_extract_as_themselves`
-  fail. M0's `pair` on asap7 depends on fixing the generator.
+- Found by the GPurify re-pin to `687c8bc` (M0). Fixed: the asap7 FinFET
+  block (`6ca7be3`), end-caps on `adjacent` enclosures (`59a9fe8`), the
+  high_po npc (`83e34ed`), sky130 lvtn.10 and soft_connection (`2f3ad69`).
+  Open, each a user decision:
+  - asap7 PEX refuses: LISD (and SD, GATE_C, the SDT and V0 cuts) have no
+    sourced resistance; GPurify refuses unknown parasitics rather than
+    reading 0. `pdks::asap7` and `pdks::flavoured_models_extract_as_themselves`
+    fail on this alone. Fix: a sourced number (the ASAP7 Calibre RCX deck from
+    asap.asu.edu), or the front end leaves PEX's conductors.
+  - sky130 x.25 allows the `pnp` marker only inside the foundry's named
+    cells; Philis emits flat geometry, so `cells::bjt::every_variant_is_drc_and_erc_clean`
+    fails. Fix: the PNP as a subcell named after the open PDK's device, with
+    those names added to x.25 (the DRM lists the pre-rename s8 names).
+  - Upstream GPurify: `noncoincident_enclosure` scores an unhosted inner 0,
+    and `soft_connection` keeps global layers in its hard connectivity, both
+    against its own docs. The deck works around each (`PHILIS:` lines).
+  - verify's two field-solve tests take ~110 s in release: nightly tier
+    (`#[ignore]`).
 
 - Carried failures from Philis 1.0 (`5b4fe98`), failing identically there:
   `routing::dr::tests::a_shielded_victim_gets_both_side_tracks`,
   `routing::dr::tests::foreign_nets_route_around_a_matched_cell`, and the
   annotator's `twelve_thousand_devices` wall-time budget (2 s, a debug-build
   timing assertion; Q53 makes performance a tracked number, so it moves to the
-  benchmark tier), and `substrate3::cells::cap_array::tests::extracted_bit_ratios_follow_the_weights`
-  (listed failing in 1.0's plan-09). Each is fixed in its own commit, never
+  benchmark tier). (`cap_array::extracted_bit_ratios_follow_the_weights`, listed failing in
+  1.0's plan-09, passes since `59a9fe8`.) Each is fixed in its own commit, never
   inside a move.
 
 - Compaction is research (M6); until its verdict, the hot path's area is the

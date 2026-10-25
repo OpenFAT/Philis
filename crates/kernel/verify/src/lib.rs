@@ -633,6 +633,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "nightly: a full field solve, ~110 s in release (GPurify 687c8bc solves inductance too)"]
     fn field_solve_changes_only_selected_nets() {
         let pdk = sky130();
         let (shapes, pins) = three_lines(&pdk);
@@ -661,6 +662,7 @@ mod tests {
     // names no extracted net there, so it leaves the field solve rather than
     // refusing it.
     #[test]
+    #[ignore = "nightly: a full field solve, ~110 s in release (GPurify 687c8bc solves inductance too)"]
     fn a_label_short_drops_its_label_from_the_field_solve() {
         let pdk = sky130();
         let pins = [pin(&pdk, "A", 500, 500), pin(&pdk, "B", 1500, 500)];
