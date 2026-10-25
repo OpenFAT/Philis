@@ -145,3 +145,15 @@ fn resized_schematic_fails_lvs() {
     let hard: Vec<_> = s.report.hard_violations.iter().map(|v| v.rule.clone()).collect();
     assert!(hard.iter().any(|r| r.starts_with("lvs")), "LVS missed a 1.2 µm vs 1.0 µm NMOS: {hard:?}");
 }
+
+/// The same block through `signoff::run_by` under the foundry decks: the
+/// differential oracle on a Substrate block (pmos, nwell, ntap included).
+#[test]
+#[ignore = "needs klayout/magic/netgen: nightly"]
+fn inverter_signs_off_clean_on_sky130_under_the_foundry_engines() {
+    let ctx = Context::builder().install(Sky130::open("/nonexistent")).build();
+    for engine in [verify::SignoffEngine::Klayout, verify::SignoffEngine::Magic] {
+        let r = substrate3::signoff::run_by(&ctx, Inverter { nw: 1_200, pw: 2_400 }, engine).unwrap_or_else(|e| panic!("{engine:?}: {e}"));
+        assert!(r.is_clean(), "{engine:?} not clean: {:#?}", r.failures());
+    }
+}

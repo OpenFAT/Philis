@@ -57,7 +57,7 @@ fn one_call(kind: engine::RecipeKind, spice: &str, pdk: &verify::Pdk) -> Result<
     let members: Vec<_> = (0..netlist.flat.devices.len()).map(|i| analog::base::DeviceId(i as u16)).collect();
     let mut calls = engine::RecipeCalls::default();
     calls.push(kind, &members, None);
-    engine::run_calls(&netlist, &problem, &cfg, calls, pdk)
+    engine::run_calls(&netlist, &problem, &cfg, calls, pdk, verify::SignoffEngine::Gpurify)
 }
 
 #[test]

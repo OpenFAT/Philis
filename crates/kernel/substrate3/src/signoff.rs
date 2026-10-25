@@ -53,6 +53,8 @@ pub enum Error {
     Netlist(String),
     /// Substrate failed to generate or export the block.
     Substrate(String),
+    /// The chosen foundry engine refused ([`verify::SignoffEngine`]).
+    Engine(verify::Refused),
 }
 
 impl std::fmt::Display for Error {
@@ -64,6 +66,7 @@ impl std::fmt::Display for Error {
             Self::Primitive(p) => write!(f, "unsupported primitive: {p}"),
             Self::Netlist(s) => write!(f, "netlist: {s}"),
             Self::Substrate(s) => write!(f, "substrate: {s}"),
+            Self::Engine(r) => write!(f, "{r}"),
         }
     }
 }
@@ -150,10 +153,23 @@ where
     P: PhilisPdk,
     B: Layout<Schema = P> + Schematic<Schema = P> + Clone,
 {
+    run_by(ctx, block, verify::SignoffEngine::Gpurify)
+}
+
+/// [`run`] signed off by `engine` (GPurify, or the foundry's KLayout or
+/// magic/netgen decks).
+///
+/// # Errors
+/// As [`run`], or the engine's [`Error::Engine`] refusal.
+pub fn run_by<P, B>(ctx: &Context, block: B, engine: verify::SignoffEngine) -> Result<Report, Error>
+where
+    P: PhilisPdk,
+    B: Layout<Schema = P> + Schematic<Schema = P> + Clone,
+{
     let sub = |e: substrate::error::Error| Error::Substrate(e.to_string());
     let layout = ctx.export_layir(block.clone()).map_err(sub)?;
     let netlist = P::export_spice(ctx, block).map_err(sub)?;
-    Ok(check(&layout.layir, P::gds, &netlist, P::deck())?.into())
+    Ok(check_by(&layout.layir, P::gds, &netlist, P::deck(), engine)?.into())
 }
 
 /// DRC and ERC of a layout-only block (a tile). With no schematic there is
@@ -199,12 +215,26 @@ pub fn check<L: Clone>(
     schematic: &scir::Library<Spice>,
     pdk: &Pdk,
 ) -> Result<Signoff, Error> {
+    check_by(layout, gds, schematic, pdk, verify::SignoffEngine::Gpurify)
+}
+
+/// [`check`] signed off by `engine`.
+///
+/// # Errors
+/// As [`check`], or the engine's [`Error::Engine`] refusal.
+pub fn check_by<L: Clone>(
+    layout: &layir::Library<L>,
+    gds: impl Fn(&L) -> GdsLayer,
+    schematic: &scir::Library<Spice>,
+    pdk: &Pdk,
+    engine: verify::SignoffEngine,
+) -> Result<Signoff, Error> {
     let (shapes, pins, unmapped) = geometry(layout, &gds, pdk)?;
     let mut reference = reference(schematic, pdk)?;
     // The external ports are the schematic's; every label must name a net.
     reference.external_ports = Some(reference.ports.clone());
     reference.ports = pins.iter().map(|p| p.name.clone()).collect();
-    let mut s = verify::signoff_checked(&shapes, &pins, &reference, &Intent::default(), pdk);
+    let mut s = verify::foundry::signoff(engine, &shapes, &pins, &reference, &Intent::default(), pdk).map_err(Error::Engine)?;
     for (l, n) in unmapped {
         s.coverage.skipped_rules.push(("layout.unmapped_layer".into(), format!("GDS {l}: {n} shapes not checked")));
     }
