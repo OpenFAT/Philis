@@ -1,4 +1,4 @@
-# vendored from GPurify 687c8bc8bf9468095a4104a05075cf44e762532b pdks/sky130.deck; Philis edits are marked "# PHILIS:"
+# vendored from GPurify 11b557802a65c043eb5ab898b529f30c19b819c9 pdks/sky130.deck; Philis edits are marked "# PHILIS:"
 # SkyWater SKY130 (sky130A, 5-metal Al back end)
 #
 # Sources. Every number below comes from one of these; the tag after a rule
@@ -301,8 +301,6 @@ rule lvtn.9 space(lvtn, hvtp) >= 380nm
 # (exclude coincident edges)", as [S11] Include/lvtn.drc.pvl lines 40-44
 # selects the wells; an lvtn off every such well is not measured.
 layer nwell_novar = nwell.outside(var_channel)
-# PHILIS: GPurify measures an inner no host covers as 0 (a violation), so
-# the lvtn off every such well (an LVT nfet) is selected out here.
 rule lvtn.10 enclosure(lvtn.interacting(nwell_novar), nwell_novar, noncoincident) >= 380nm
 rule lvtn.12 space(lvtn, nwell_ce) >= 380nm
 rule lvtn.13 area(lvtn) >= 0.265um2
@@ -619,10 +617,7 @@ rule nwell.4 floating_well(nwell, ntap_licon)
 # n-tap shares a net with p-type nodes by design (a mirror's base, a
 # diode-connected substrate PNP at VSS).
 rule supply_short supply_short(ntap, ptap, pmos_well)
-# PHILIS: psub is soft too. GPurify keeps a global layer in the hard
-# connectivity (its docs say it drops it), so a supply tied to the substrate
-# through ptap read as two pieces, its source strap and the substrate.
-rule soft_connection soft_connection(ntap, ptap, nwell, pwell_iso, psub)
+rule soft_connection soft_connection(ntap, ptap, nwell, pwell_iso)
 rule floating_gate floating_gate(; labels_are_ports: false)
 rule tie_high_low warning tie_high_low()
 rule ir_drop ir_drop()

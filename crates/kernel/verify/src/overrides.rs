@@ -53,12 +53,6 @@ fn sky130(d: &mut DeckBuilder<'_>) {
     // npn marker (VOL/klayout/lvs/sky130.lvs:744).
     let npn = d.layer("npn", (82, 20));
 
-    // GPurify measures an inner no host covers as 0 (a violation), so the
-    // lvtn off every such well (an LVT nfet) is selected out here.
-    let (lvtn, novar) = (d.get("lvtn"), d.get("nwell_novar"));
-    let w = d.length(380.0);
-    d.replace("lvtn.10", rules::noncoincident_enclosure(e(lvtn).interacting(novar), novar, w));
-
     // Antenna sidewall = the pex thickness of met3/met4/met5 in this deck, and
     // VOL/magic/sky130A.tech:4890 'height allm3 2.7861 0.845'.
     let (gate, diode, exempt) = (d.get("gate"), d.get("antenna_diode"), d.get("pantenna_short"));
@@ -68,12 +62,6 @@ fn sky130(d: &mut DeckBuilder<'_>) {
         let row = rules::antenna_electrical(gate, &[metal], 400.0, Some(sidewall), 1.0, Some(diode), 400.0, 2200.0, 0.0, 0.0, &[], &[], Some(exempt));
         d.replace(id, row);
     }
-
-    // psub is soft too. GPurify keeps a global layer in the hard
-    // connectivity (its docs say it drops it), so a supply tied to the
-    // substrate through ptap read as two pieces, its strap and the substrate.
-    let soft: Vec<LayerRef> = ["ntap", "ptap", "nwell", "pwell_iso", "psub"].map(|n| d.get(n)).into();
-    d.replace("soft_connection", rules::soft_connection(&soft));
 
     // Latch-up, VOL/magic/sky130A.tech:4163-4170 (LU.2, LU.2.1, LU.3:
     // "< 15.0um"); operands as magic's ptap_missing (*ndiff and-not dnwell),

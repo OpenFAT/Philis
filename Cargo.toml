@@ -51,8 +51,8 @@ exclude = ["crates/kernel/substrate3/upstream/examples", "crates/kernel/substrat
 # `crates/kernel/substrate3/upstream` (Q35), at the rev its README records.
 [workspace.dependencies]
 fearless_simd = "1.0.0"
-gdsverify = { package = "gpurify", git = "https://github.com/UW-ASIC/GPurify", rev = "687c8bc8bf9468095a4104a05075cf44e762532b" }
-gdsverify-geom = { package = "gpurify-geom", git = "https://github.com/UW-ASIC/GPurify", rev = "687c8bc8bf9468095a4104a05075cf44e762532b" }
+gdsverify = { package = "gpurify", git = "https://github.com/UW-ASIC/GPurify", rev = "11b557802a65c043eb5ab898b529f30c19b819c9" }
+gdsverify-geom = { package = "gpurify-geom", git = "https://github.com/UW-ASIC/GPurify", rev = "11b557802a65c043eb5ab898b529f30c19b819c9" }
 substrate = { path = "crates/kernel/substrate3/upstream/substrate" }
 sky130 = { path = "crates/kernel/substrate3/upstream/pdks/sky130" }
 layir = { path = "crates/kernel/substrate3/upstream/libs/layir" }
@@ -86,3 +86,4 @@ proc-macro-crate = "3"
 itertools = "0.14"
 clap = "4"
 anyhow = "1"
+

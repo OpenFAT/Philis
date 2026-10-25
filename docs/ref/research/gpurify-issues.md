@@ -1,5 +1,7 @@
 # GPurify upstream issues behind Philis's deck overrides
 
+**Fixed upstream in GPurify `11b5578` (branch `philis-fixes`), with regression tests in `tests/supply_and_enclosure_regressions.rs`; Philis pins it and its two workarounds are gone.**
+
 Two behaviours of GPurify that contradict GPurify's own text, each worked
 around in `crates/kernel/verify/src/overrides.rs`. Read on 2026-10-25.
 

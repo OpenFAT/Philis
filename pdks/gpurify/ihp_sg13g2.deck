@@ -1,4 +1,4 @@
-# vendored from GPurify 687c8bc8bf9468095a4104a05075cf44e762532b pdks/ihp_sg13g2.deck; Philis edits are marked "# PHILIS:"
+# vendored from GPurify 11b557802a65c043eb5ab898b529f30c19b819c9 pdks/ihp_sg13g2.deck; Philis edits are marked "# PHILIS:"
 # IHP SG13G2 (IHP-Open-PDK, 130 nm SiGe BiCMOS, 1.2 V / 3.3 V CMOS, 5 thin + 2 thick Al metals)
 #
 # Sources, all from https://github.com/IHP-GmbH/IHP-Open-PDK (branch main):

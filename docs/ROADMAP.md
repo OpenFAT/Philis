@@ -66,12 +66,9 @@ and typed fields for the `pdk_data` tables.
     (`pnp_cells_only`). The engine draws no BJT yet; when it does, it must
     pick the recipe overlay and carry `Macro::cells` into signoff
     (`ExtractOptions::cells`).
-  - Upstream GPurify: lvtn.10 is a deck bug (its rule measures what its
-    comment exempts) and `soft_connection` a code bug (global layers stay in
-    its hard connectivity). Workarounds in `overrides.rs`; repro tests in
-    `verify/tests/gpurify_upstream.rs` flip when upstream fixes them; draft
-    issues and patches in `docs/ref/research/gpurify-issues.md`, not filed
-    (owner's call).
+  - Fixed upstream in GPurify `11b5578`: sky130 lvtn.10 (the deck measured
+    what its note exempts) and `soft_connection` (it kept global layers in
+    its hard connectivity); Philis's two workarounds are removed.
   - Fixed by the foundry cross-check (KLayout, magic): gf180mcu M2.1 (dr
     pin-access jogs below metal2's width), ihp_sg13g2 (nSD over nfet gates;
     GPurify's IHP deck gained the gate exclusion; dr blocked cell metal by

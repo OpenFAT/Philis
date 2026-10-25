@@ -1517,7 +1517,7 @@ dependencies = [
 [[package]]
 name = "gpurify"
 version = "0.1.0"
-source = "git+https://github.com/UW-ASIC/GPurify?rev=687c8bc8bf9468095a4104a05075cf44e762532b#687c8bc8bf9468095a4104a05075cf44e762532b"
+source = "git+https://github.com/UW-ASIC/GPurify?rev=11b557802a65c043eb5ab898b529f30c19b819c9#11b557802a65c043eb5ab898b529f30c19b819c9"
 dependencies = [
  "gpurify-check",
  "gpurify-extract",
@@ -1531,7 +1531,7 @@ dependencies = [
 [[package]]
 name = "gpurify-check"
 version = "0.1.0"
-source = "git+https://github.com/UW-ASIC/GPurify?rev=687c8bc8bf9468095a4104a05075cf44e762532b#687c8bc8bf9468095a4104a05075cf44e762532b"
+source = "git+https://github.com/UW-ASIC/GPurify?rev=11b557802a65c043eb5ab898b529f30c19b819c9#11b557802a65c043eb5ab898b529f30c19b819c9"
 dependencies = [
  "fearless_simd",
  "gpurify-geom",
@@ -1542,7 +1542,7 @@ dependencies = [
 [[package]]
 name = "gpurify-extract"
 version = "0.1.0"
-source = "git+https://github.com/UW-ASIC/GPurify?rev=687c8bc8bf9468095a4104a05075cf44e762532b#687c8bc8bf9468095a4104a05075cf44e762532b"
+source = "git+https://github.com/UW-ASIC/GPurify?rev=11b557802a65c043eb5ab898b529f30c19b819c9#11b557802a65c043eb5ab898b529f30c19b819c9"
 dependencies = [
  "fearless_simd",
  "gpurify-check",
@@ -1555,7 +1555,7 @@ dependencies = [
 [[package]]
 name = "gpurify-geom"
 version = "0.1.0"
-source = "git+https://github.com/UW-ASIC/GPurify?rev=687c8bc8bf9468095a4104a05075cf44e762532b#687c8bc8bf9468095a4104a05075cf44e762532b"
+source = "git+https://github.com/UW-ASIC/GPurify?rev=11b557802a65c043eb5ab898b529f30c19b819c9#11b557802a65c043eb5ab898b529f30c19b819c9"
 dependencies = [
  "fearless_simd",
  "thiserror 1.0.69",
@@ -1564,7 +1564,7 @@ dependencies = [
 [[package]]
 name = "gpurify-ingest"
 version = "0.1.0"
-source = "git+https://github.com/UW-ASIC/GPurify?rev=687c8bc8bf9468095a4104a05075cf44e762532b#687c8bc8bf9468095a4104a05075cf44e762532b"
+source = "git+https://github.com/UW-ASIC/GPurify?rev=11b557802a65c043eb5ab898b529f30c19b819c9#11b557802a65c043eb5ab898b529f30c19b819c9"
 dependencies = [
  "flate2",
  "gpurify-geom",
