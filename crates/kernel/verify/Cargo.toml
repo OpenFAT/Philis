@@ -1,0 +1,10 @@
+[package]
+name = "verify"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+analog = { path = "../analog" }
+gdsverify = { workspace = true }
+# Re-reads the sidecar's Philis-only `cell` section (Q59: AnalogNumbers).
+serde_json = { workspace = true }
