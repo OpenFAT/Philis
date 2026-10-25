@@ -1475,6 +1475,9 @@ impl Process for Overlay<'_> {
     fn grid(&self) -> i32 {
         self.pdk.grid()
     }
+    fn model(&self) -> Option<&str> {
+        Some(&self.recipe.model).filter(|m| !m.is_empty()).map(String::as_str)
+    }
     /// A resistor role is the recipe's device body ([`Pdk::device_sheet_ohm`]),
     /// not the layer it is drawn on.
     fn sheet_ohm(&self, role: &str) -> Option<f32> {

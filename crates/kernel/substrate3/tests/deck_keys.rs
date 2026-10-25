@@ -146,7 +146,8 @@ fn generators_read_exactly_the_required_keys() {
     // contact enclosures and spacings max them with the deck's enclosure,
     // endcap or spacing), so an absent key leaves the deck's number, not
     // Philis's; or they are a flag whose absence is the conservative choice
-    // (`npn_isolation` 0 = no isolated NPN offered); or a resistor recipe's
+    // (`npn_isolation` 0 = no isolated NPN offered; `pnp_cells_only` 0 = the
+    // deck lets a PNP of any size stand outside a named cell); or a resistor recipe's
     // own slot, whose absence (0) is the deck's square `contact`.
     let raise_deck = [
         "contact",
@@ -172,7 +173,7 @@ fn generators_read_exactly_the_required_keys() {
     // "dummy_max_l_nm": absent = dummies at the active L, the pre-cap drawing.
     // "res_sheet_mohm": a resistor recipe's slot; absent = no model, so only
     // unsegmented resistors (the value never changes silently).
-    let flags = ["npn_isolation", "res_contact_w", "res_contact_h", "dummy_max_l_nm", "res_sheet_mohm", "bjt_emitter_w", "bjt_emitter_l"];
+    let flags = ["npn_isolation", "pnp_cells_only", "res_contact_w", "res_contact_h", "dummy_max_l_nm", "res_sheet_mohm", "bjt_emitter_w", "bjt_emitter_l"];
     let optional_read: Vec<_> = KEYS
         .iter()
         .filter(|k| !k.required && recorded.contains(k.name) && !raise_deck.contains(&k.name) && !flags.contains(&k.name))

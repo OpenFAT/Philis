@@ -4,7 +4,7 @@
 //!
 //! `required` is the set generators read through `Process::rule` with a
 //! compiled default, less keys whose reader only raises a deck-derived value
-//! and the `npn_isolation` flag (kernel/cells/tests/deck_keys.rs checks both
+//! and the `npn_isolation` and `pnp_cells_only` flags (kernel/cells/tests/deck_keys.rs checks both
 //! directions against a recording run; `max_finger_width`, read by the
 //! library's cellgen, by name), so a shipped deck never silently builds to a
 //! number compiled into Philis. `sourced` keys are measurements of the process
@@ -103,6 +103,8 @@ pub const KEYS: &[Key] = &[
     k("npn_isolation", Count, false, false, "kernel/cells/src/bjt.rs"),
     k("npn_isolation_note", Text, false, false, "documentation"),
     k("plate_spacing", Nm, true, false, "kernel/cells/src/capacitor.rs, cap_array.rs"),
+    k("pnp_cells_only", Count, false, false, "kernel/substrate3/src/cells/bjt.rs"),
+    k("pnp_cells_only_note", Text, false, false, "documentation"),
     k("polycon_to_diff_spacing", Nm, false, false, "kernel/cells/src/mosfet.rs"),
     k("polycon_to_pdiff_spacing", Nm, false, false, "kernel/cells/src/mosfet.rs"),
     k("res_head", Nm, true, false, "kernel/cells/src/resistor.rs"),

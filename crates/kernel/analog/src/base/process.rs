@@ -99,6 +99,12 @@ pub trait Process {
         None
     }
 
+    /// The device model this view draws (a recipe's); `None` for the bare
+    /// process, which draws whatever the netlist sizes.
+    fn model(&self) -> Option<&str> {
+        None
+    }
+
 }
 
 /// Hastings §13.3 matching class (PDF p.712): what a matched set's

@@ -235,6 +235,8 @@ pub(crate) fn cell() -> serde_json::Value {
         "note": "Per schematic model, the construction GPurify's sky130.deck recognises: capm (terminals met4, met3) for cap_mim_m3_1. mom_m1m2 is the deck-unrecognised met1/met2 plate stack (no model), the default for a model no recipe names."
     },
     "npn_isolation": 1,
+    "pnp_cells_only": 1,
+    "pnp_cells_only_note": "x.25: the pnp marker only inside the foundry's PNP cells. A PNP is drawn only as a fixed-geometry recipe (bjts.recipes pnp_*), as a cell named after its open-PDK model; any other emitter size is no foundry cell, and is refused.",
     "waivers": {
         "multiple_drivers": "Analog: a node driven by two drains (a differential pair's output and its load, a mirror's input) is the circuit, not a fault. The rule counts distinct gate nets driving a net (a digital fan-in check)."
     }

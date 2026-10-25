@@ -14,12 +14,13 @@ pub struct Builder {
     dummies: Vec<analog::base::Dummy>,
     drawn: Vec<analog::base::Drawn>,
     keepouts: Vec<analog::base::Keepout>,
+    cells: Vec<analog::base::NamedCell>,
 }
 
 impl Builder {
     #[must_use]
     pub fn new(grid: i32) -> Self {
-        Self { grid, shapes: Vec::new(), pins: Vec::new(), units: Vec::new(), dummies: Vec::new(), drawn: Vec::new(), keepouts: Vec::new() }
+        Self { grid, shapes: Vec::new(), pins: Vec::new(), units: Vec::new(), dummies: Vec::new(), drawn: Vec::new(), keepouts: Vec::new(), cells: Vec::new() }
     }
 
     /// Draw `r` on `layer`, snapped to grid. Width/height clamp up to one grid
@@ -27,6 +28,14 @@ impl Builder {
     pub fn rect(&mut self, layer: LayerId, r: Rect) {
         let rect = self.snap(r);
         self.shapes.push(Shape { layer, rect });
+    }
+
+    /// The shapes `draw` adds are drawn inside a cell named `name`
+    /// ([`Macro::cells`]).
+    pub fn in_cell(&mut self, name: &str, draw: impl FnOnce(&mut Self)) {
+        let start = self.shapes.len() as u32;
+        draw(self);
+        self.cells.push(analog::base::NamedCell { name: name.into(), shapes: start..self.shapes.len() as u32 });
     }
 
     /// Register a pin, snapped like [`Builder::rect`].
@@ -134,8 +143,25 @@ impl Builder {
     pub fn finish(mut self) -> Macro {
         // Exact duplicates (rings sharing a band draw its cuts twice) are one
         // shape; a checker would read two coincident cuts as zero spacing.
+        // The first copy stays, in the cell it was drawn in.
+        let mut tag = vec![0usize; self.shapes.len()];
+        for (k, c) in self.cells.iter().enumerate() {
+            tag[c.shapes.start as usize..c.shapes.end as usize].fill(k + 1);
+        }
         let mut seen = std::collections::HashSet::new();
-        self.shapes.retain(|s| seen.insert((s.layer.0, s.rect.x, s.rect.y, s.rect.w, s.rect.h)));
+        let keep: Vec<bool> = self.shapes.iter().map(|s| seen.insert((s.layer.0, s.rect.x, s.rect.y, s.rect.w, s.rect.h))).collect();
+        let mut kept = keep.iter();
+        self.shapes.retain(|_| *kept.next().unwrap());
+        let mut kept = keep.iter();
+        tag.retain(|_| *kept.next().unwrap());
+        let mut cells: Vec<analog::base::NamedCell> = Vec::new();
+        for (i, &t) in tag.iter().enumerate().filter(|(_, t)| **t != 0) {
+            let (name, i) = (&self.cells[t - 1].name, i as u32);
+            match cells.last_mut() {
+                Some(c) if c.name == *name && c.shapes.end == i => c.shapes.end += 1,
+                _ => cells.push(analog::base::NamedCell { name: name.clone(), shapes: i..i + 1 }),
+            }
+        }
         let tight = bbox_of(&self.shapes);
         let step = 2 * self.grid.max(1);
         let ext = 2 * step;
@@ -147,7 +173,7 @@ impl Builder {
             w: (tight.x + tight.w - x + ext - 1) / ext * ext,
             h: (tight.y + tight.h - y + ext - 1) / ext * ext,
         };
-        Macro { shapes: self.shapes, pins: self.pins, bbox, units: self.units, dummies: self.dummies, drawn: self.drawn, keepouts: self.keepouts, ..Default::default() }
+        Macro { shapes: self.shapes, pins: self.pins, bbox, units: self.units, dummies: self.dummies, drawn: self.drawn, keepouts: self.keepouts, cells, ..Default::default() }
     }
 }
 
