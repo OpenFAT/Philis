@@ -721,7 +721,7 @@ behind and its `Checker` does not compile), reads the shipped decks through
 re-derivation in 1.0's `pdk.rs` that a typed query now answers (the inventory's
 §4.6 table). Recommendation: yes to the three-way split and the re-pin.
 
-### Q60 Chip assembly is a later milestone; the die-context table is defined now — open
+### Q60 Chip assembly is a later milestone; the die-context table is defined now — accepted (2026-10-25). The design tree is closed; M0 begins.
 
 The die-level Hastings cards (`docs/ref/research/hastings-die.md`) cover chip
 assembly: area estimation, seal and scribe, corner exclusion, pads, the ESD
