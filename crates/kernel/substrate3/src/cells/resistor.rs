@@ -136,7 +136,7 @@ fn series_counts(group: &DeviceGroup, c: &Constraints) -> Option<Vec<u16>> {
 /// long body). `None` without a `ResModel`.
 fn unit_len(s: &Sizing, series: &[u16], process: &dyn Process) -> Option<i32> {
     let m = ResModel::of(process)?;
-    let body_w = s.unit_w.max(process.rule("res_min_width", 0));
+    let body_w = body_width(s.unit_w, process)?;
     let k_min = f64::from(*series.iter().min()?);
     let target = m.ohm(s.unit_w, (k_min as i32).saturating_mul(s.unit_l)) / k_min;
     let lu = m.seg_len(body_w, target, 1, 0, cut_lattice(process), i32::MAX)?;
@@ -148,6 +148,21 @@ fn unit_len(s: &Sizing, series: &[u16], process: &dyn Process) -> Option<i32> {
             (f64::from(k) * m.ohm(body_w, lu) - want).abs() <= tol * want / 1e6
         })
         .then_some(lu)
+}
+
+/// Every role a resistor cell draws: a deck discrete-width rule on a layer
+/// built from them binds its body ([`Process::allowed_widths`]).
+pub const DRAWN_ROLES: &[&str] = &["poly", "rpoly", "rpoly_b", "li", "licon", "mcon", "met1", "rpm", "npc", "res_implant", "res_block"];
+
+/// The body width drawn for netlist width `w`, nm. Under a deck width list
+/// (sky130 rpm.1b) `w` must be one of the listed widths to within half a
+/// grid step, and that width is drawn; otherwise `None`, the recipe refuses.
+/// Without a list, `w` raised to `res_min_width`.
+fn body_width(w: i32, process: &dyn Process) -> Option<i32> {
+    match process.allowed_widths(DRAWN_ROLES) {
+        Some(allowed) => allowed.into_iter().find(|&a| 2 * (w - a).abs() < process.grid().max(1)),
+        None => Some(w.max(process.rule("res_min_width", 0))),
+    }
 }
 
 /// Whether some string's consecutive segments sit more than one column apart (a met1 jumper).
@@ -172,6 +187,10 @@ impl Cell for Resistor {
             return vec![];
         }
         let s = group_sizing(group, constraints, process);
+        // A body width the deck does not allow is refused, never resized.
+        if body_width(s.unit_w, process).is_none() {
+            return vec![];
+        }
         let tracks = jumper_tracks(process, head_len(process)).len();
         // Unequal lengths (EXT-15): exact per-member blocks always; a common-centroid array of series units, one met1
         // track per member (heads grown to fit, [`head_for`]), where one unit length keeps every member's value.
@@ -232,7 +251,7 @@ impl Cell for Resistor {
             .max(process.space_between("res_block", "licon").unwrap_or(0));
         let seg_gap = seg_gap(process);
         let n_segments = i32::from(self.segments.max(1));
-        let body_w = s.unit_w.max(r("res_min_width", 0));
+        let body_w = body_width(s.unit_w, process).expect("enumerate refuses a body width the deck forbids");
         // Per member, (segments, segment length). Each segment's length keeps
         // the string at the schematic device's model value (heads included);
         // without a model only n = 1 is offered, which draws the written L.
@@ -575,7 +594,7 @@ fn feasible_segments(w_nm: i32, l_nm: i32, process: &dyn Process) -> Vec<u16> {
     let Some(model) = ResModel::of(process) else { return vec![1] };
     let lat = cut_lattice(process);
     let target = model.ohm(w_nm, l_nm);
-    let body_w = w_nm.max(process.rule("res_min_width", 0));
+    let Some(body_w) = body_width(w_nm, process) else { return vec![] };
     let seg_gap = seg_gap(process);
     let head = head_len(process);
     // n = 1 never changes the value: kept even below the minimum segment.
@@ -803,6 +822,33 @@ mod tests {
             let ohms = string_ohms(&m, n, &model);
             assert_eq!(ohms.len(), 1, "n={n}");
             assert!(ohms.values().all(|&r| within(r)), "n={n}: {ohms:?}");
+        }
+    }
+
+    /// sky130 rpm.1b: a high_po body is one of the deck's five widths, or
+    /// the recipe refuses; the netlist width is never resized. generic_po
+    /// (no rpm, no psdm) is not a precision body and keeps any width.
+    #[test]
+    fn a_precision_body_takes_only_a_deck_width() {
+        let Some(pdk) = crate::cells::testkit::pdk() else { return };
+        let (op, gp) = (high_po(&pdk), generic_po(&pdk));
+        assert_eq!(op.allowed_widths(DRAWN_ROLES), Some(vec![350, 690, 1410, 2850, 5730]));
+        assert_eq!(gp.allowed_widths(DRAWN_ROLES), None);
+        let count = |w: i32, p: &dyn Process| {
+            let (g, c) = crate::cells::testkit::group_of(analog::base::DeviceKind::Resistor, 1, 1, w, 10_000);
+            Resistor::enumerate(&g, &c, p).len()
+        };
+        for w in [500, 700, 1000] {
+            assert_eq!(count(w, &op), 0, "high_po at {w} nm");
+        }
+        assert!(count(500, &gp) > 0, "generic_po at 500 nm");
+        for w in [350, 690, 1410] {
+            let (g, c) = crate::cells::testkit::group_of(analog::base::DeviceKind::Resistor, 1, 1, w, 10_000);
+            let vs = Resistor::enumerate(&g, &c, &op);
+            assert!(!vs.is_empty(), "high_po at {w} nm");
+            for v in vs {
+                assert!(v.draw(&g, &c, &op).drawn.iter().all(|d| d.w == w), "high_po at {w} nm drew another width");
+            }
         }
     }
 
