@@ -66,9 +66,21 @@ and typed fields for the `pdk_data` tables.
     (`pnp_cells_only`). The engine draws no BJT yet; when it does, it must
     pick the recipe overlay and carry `Macro::cells` into signoff
     (`ExtractOptions::cells`).
-  - Upstream GPurify: `noncoincident_enclosure` scores an unhosted inner 0,
-    and `soft_connection` keeps global layers in its hard connectivity, both
-    against its own docs. The deck works around each (`PHILIS:` lines).
+  - Upstream GPurify: lvtn.10 is a deck bug (its rule measures what its
+    comment exempts) and `soft_connection` a code bug (global layers stay in
+    its hard connectivity). Workarounds in `overrides.rs`; repro tests in
+    `verify/tests/gpurify_upstream.rs` flip when upstream fixes them; draft
+    issues and patches in `docs/ref/research/gpurify-issues.md`, not filed
+    (owner's call).
+  - Fixed by the foundry cross-check (KLayout, magic): gf180mcu M2.1 (dr
+    pin-access jogs below metal2's width), ihp_sg13g2 (nSD over nfet gates;
+    GPurify's IHP deck gained the gate exclusion; dr blocked cell metal by
+    half a wire, not half the via pad), asap7 ACTIVE.S.2A (92 nm between
+    separate actives; GPurify's asap7 deck gained the rule), sky130 rpm.1b
+    (a high_po body only at a deck-listed width; others refused).
+  - Licence check, owner's call: `pdks/klayout/sky130/sky130A_mr.drc` is
+    GPLv3 (run as data by KLayout, notice kept); everything else vendored is
+    Apache-2.0 or BSD-2-Clause.
   - verify's two field-solve tests take ~110 s in release: nightly tier
     (`#[ignore]`).
 
