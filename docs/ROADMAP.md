@@ -47,14 +47,24 @@ Also carried from 1.0 as milestone gates: `tt_ota`, `ota_constrained`, `quad`,
   - verify's two field-solve tests take ~110 s in release: nightly tier
     (`#[ignore]`).
 
-- Carried failures from Philis 1.0 (`5b4fe98`), failing identically there:
-  `routing::dr::tests::a_shielded_victim_gets_both_side_tracks`,
-  `routing::dr::tests::foreign_nets_route_around_a_matched_cell`, and the
-  annotator's `twelve_thousand_devices` wall-time budget (2 s, a debug-build
-  timing assertion; Q53 makes performance a tracked number, so it moves to the
-  benchmark tier). (`cap_array::extracted_bit_ratios_follow_the_weights`, listed failing in
-  1.0's plan-09, passes since `59a9fe8`.) Each is fixed in its own commit, never
-  inside a move.
+- Carried failures from Philis 1.0 (`5b4fe98`), both diagnosed as design
+  calls, not router bugs (each a user decision):
+  - `routing::dr::tests::foreign_nets_route_around_a_matched_cell`: a cost
+    tie. Crossing the matched cell's soft blockage costs 27 (11 nodes ×
+    `KEEPOUT_COST` 2.0 + 2 jogs × 2.5, the jog forced by net 1's pin on that
+    row since RTE-28); going around costs 28 (4 vias × 4 + 12 rows). The
+    search is exact (threshold ≈ 2.09). Fix: raise `KEEPOUT_COST` to ≥ 2.2
+    (retunes every route), or decide foreign nets may cross a small matched
+    cell and change the test.
+  - `routing::dr::tests::a_shielded_victim_gets_both_side_tracks`: 0.95 is
+    unreachable in this fixture. Net 2's pins sit on the victim's upper side
+    track, so its end jogs and pads can never be shielded on both sides; even
+    a fully covered trunk bounds coverage at 0.768 (measured 0.727, since
+    `Shield::coverage` also counts via pads, overlaps included). Fix: move
+    net 2's pins off the side track, or redefine the 0.95.
+  The annotator's `twelve_thousand_devices` budget is asserted in release
+  only (`4896cb5`, 349 ms); `cap_array::extracted_bit_ratios_follow_the_weights`
+  passes since `59a9fe8`.
 
 - Compaction is research (M6); until its verdict, the hot path's area is the
   atoll-snapped area.
