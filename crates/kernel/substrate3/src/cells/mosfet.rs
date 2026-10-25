@@ -782,18 +782,20 @@ impl Mosfet {
         let tap_w = tap_x1 - tap_x0;
         b.rect(req(process, "tap"), Rect { x: tap_x0, y: tap_y0, w: tap_w, h: tap_h });
         let (tap_role, chan_role) = if is_pmos { ("nsdm", "psdm") } else { ("psdm", "nsdm") };
-        let imp = req(process, tap_role);
         // Implant past what it types, the deck's: the tap strip, and the
-        // channel (its diffusion and the gates on it).
+        // channel (its diffusion and the gates on it). A deck with no `nsdm`
+        // role dopes n+ wherever no p+ is drawn (IHP), so neither is drawn there.
         let imp_enc = enc(tap_role, "tap").max(enc(tap_role, "diff"));
         let chan_enc = enc(chan_role, "diff").max(enc(chan_role, "poly"));
-        b.rect(imp, Rect {
-            x: tap_x0 - imp_enc,
-            y: tap_y0 - imp_enc,
-            w: tap_w + 2 * imp_enc,
-            h: tap_h + 2 * imp_enc,
-        });
-        // Channel implant of the device's own polarity: the only thing that
+        if let Some(imp) = process.layer(tap_role) {
+            b.rect(imp, Rect {
+                x: tap_x0 - imp_enc,
+                y: tap_y0 - imp_enc,
+                w: tap_w + 2 * imp_enc,
+                h: tap_h + 2 * imp_enc,
+            });
+        }
+        // Channel implant of the device's own polarity: with the well, what
         // tells the extractor NMOS from PMOS.
         if let Some(chan_imp) = process.layer(chan_role) {
             b.rect(chan_imp, Rect {

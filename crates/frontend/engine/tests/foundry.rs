@@ -121,10 +121,20 @@ fn a_narrowed_metal_fails_drc_on_gf180mcu_under_klayout() { narrowed_fails_drc("
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
 fn a_narrowed_metal_fails_drc_on_gf180mcu_under_magic() { narrowed_fails_drc("gf180mcu", Magic) }
-// ihp_sg13g2: `pair` is not clean there under any engine yet (TESTING.md,
-// "Foundry engines"), so only the controls that hold run: each engine still
-// sees a narrowed metal, and LVS still sees a resized schematic wherever the
-// unmodified pair matches.
+
+// ihp_sg13g2: clean and matched under both foundry engines, and both
+// negative controls caught.
+#[test]
+#[ignore = "needs klayout/magic/netgen: nightly"]
+fn pair_signs_off_on_ihp_sg13g2_under_klayout() { signs_off("ihp_sg13g2", Klayout, &[]) }
+// magic's ContBar rules on square cuts: pdks/magic/ihp_sg13g2/PROVENANCE.md.
+#[test]
+#[ignore = "needs klayout/magic/netgen: nightly"]
+fn pair_signs_off_on_ihp_sg13g2_under_magic() { signs_off("ihp_sg13g2", Magic, &["(CntB.b)", "(CntB.h1)"]) }
+#[test]
+#[ignore = "needs klayout/magic/netgen: nightly"]
+fn a_resized_schematic_fails_lvs_on_ihp_sg13g2_under_klayout() { resized_fails_lvs("ihp_sg13g2", Klayout) }
+
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
 fn a_resized_schematic_fails_lvs_on_ihp_sg13g2_under_magic() { resized_fails_lvs("ihp_sg13g2", Magic) }

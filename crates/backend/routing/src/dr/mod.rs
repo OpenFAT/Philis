@@ -567,22 +567,25 @@ impl DetailedRoute {
             }
         }
         // Ring and cell metal on a lattice layer, grown by the spacing a wire
-        // needs from it plus half a wire: a node inside is a short or spacing
+        // needs from it plus half the node's via pad: a node inside is a short or spacing
         // error for any trunk but the metal's own net's (it may merge with its
-        // strap). Pin stitch nodes, reserved above, stay their pins'.
+        // strap). A pin's stitch node, reserved above, is closed too when the
+        // metal is another net's: its via pad there would be a spacing error.
         let min_space = cfg.pitch - cfg.wire_width;
         let pre: Vec<bool> = reserved.iter().map(|&o| o == NONE).collect();
         for &(owner, s) in &foreign_metal {
             let Some(l) = layers.iter().position(|&l| l == s.layer).filter(|&l| (l as u32) < n_layers) else { continue };
             let own = owner.map(|n| ci_of[n as usize]).filter(|&c| c != usize::MAX).map_or(BLOCKED, |c| c as u32);
-            let g = cfg.space(s.layer, s.rect.w.min(s.rect.h), cfg.wire(l), min_space) + cfg.wire(l) / 2;
+            let (w, (hx, hy)) = (cfg.wire(l), cfg.layers.get(l).map_or((0, 0), |s| if s.horizontal { (s.pad_along, s.pad_across) } else { (s.pad_across, s.pad_along) }));
+            let g = cfg.space(s.layer, s.rect.w.min(s.rect.h), w, min_space);
+            let (gx, gy) = (g + hx.max(w) / 2, g + hy.max(w) / 2);
             let r = shift(s.rect);
-            let (x0, y0, x1, y1) = (r.x - g, r.y - g, r.x + r.w + g, r.y + r.h + g);
+            let (x0, y0, x1, y1) = (r.x - gx, r.y - gy, r.x + r.w + gx, r.y + r.h + gy);
             for iy in grid.bin_y(y0)..=grid.bin_y(y1) {
                 for ix in grid.bin_x(x0)..=grid.bin_x(x1) {
                     let n = grid.node(ix, iy, l as u32);
                     let (px, py, _) = grid.pos(n);
-                    if pre[n as usize] && x0 < px && px < x1 && y0 < py && py < y1 {
+                    if x0 < px && px < x1 && y0 < py && py < y1 {
                         let o = &mut reserved[n as usize];
                         *o = if *o == NONE || *o == own { own } else { BLOCKED };
                     }
@@ -4569,8 +4572,10 @@ mod tests {
     /// Step 3: on an exact pair the leader's fillers are mirrored onto its
     /// image. Net 0 has two pins 100 nm apart (a sliver its fill closes);
     /// without an obstacle both nets fill it and stay images. A foreign
-    /// shape within spacing of the image's filler site only: the filler is
-    /// dropped from both, so the pair stays shape-for-shape mirrored.
+    /// shape within spacing of the image's filler site only: the fillers that
+    /// face it (two, since the ring also closes the nodes beside it to the
+    /// image's landing) are dropped from both, each counted once, so the pair
+    /// stays shape-for-shape mirrored.
     #[test]
     fn fill_on_a_pair_is_mirrored() {
         use analog::routing::Differential;
@@ -4600,7 +4605,7 @@ mod tests {
         let ring = Macro { shapes: vec![Shape { layer: LAYERS[0], rect: Rect { x: site.x, y: site.y - 60 - 50, w: 100, h: 50 } }], bbox: Rect { x: site.x, y: site.y - 110, w: 100, h: 50 }, ..Default::default() };
         let (routes, _, stats) = run(&[ring]);
         assert_eq!(stats.pairs_exact.len(), 1, "{:?}", stats.pairs_fallback);
-        assert_eq!(stats.pair_fillers_dropped, 1, "one filler faces the ring, counted once");
+        assert_eq!(stats.pair_fillers_dropped, 2, "two fillers face the ring, each counted once");
         assert!(imaged(&routes), "{:?}\n{:?}", routes.wires[0], routes.wires[1]);
     }
 

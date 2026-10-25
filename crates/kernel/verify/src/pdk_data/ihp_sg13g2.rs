@@ -39,6 +39,10 @@ pub(crate) fn cell() -> serde_json::Value {
         "n": null
     },
     "em_derating_source": "pdks/gpurify/ihp_sg13g2.deck:601 [PS] §2.15 \"11 years at 105 C\"; Ea and n not stated",
+    // No `nsdm` role: SG13G2 dopes n+ wherever pSD is not drawn (deck
+    // `nact = (activ not psd) not nsd_block`). Drawn nSD (7/0) is the rhigh
+    // implant (Rhi.c), and the foundry LVS drops any gate under it from MOS
+    // extraction (KLayout `mos_derivations.lvs` `mos_exclude`).
     "layers": {
         "diff": "activ",
         "poly": "gatpoly",
@@ -48,7 +52,6 @@ pub(crate) fn cell() -> serde_json::Value {
         "mcon": "via1",
         "met1": "metal2",
         "nwell": "nwell",
-        "nsdm": "nsd",
         "psdm": "psd",
         "tap": "activ",
         "routing_metals": [

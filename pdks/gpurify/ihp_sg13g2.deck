@@ -108,7 +108,9 @@ layer nbl_pre   = (nwell.sized(-1500nm).sized(1500nm)).sized(1000nm) or nbulay
 layer nbl       = nbl_pre not nbulay_block
 
 # MOS gates ([LVS] general_derivations / mos_derivations).
-layer mos_exc   = ((((recog_esd or recog_diode) or pwell_block) or trans) or salblock) or extblock
+# PHILIS: drawn nSD (the rhigh implant) unmakes a MOS, as in the foundry LVS
+# (mos_derivations.lvs:26 mos_exclude); crate::overrides::ihp_sg13g2.
+layer mos_exc   = (((((recog_esd or recog_diode) or pwell_block) or trans) or salblock) or extblock) or nsd
 layer gate_dev  = (gate not res_mk) not mos_exc
 layer ngate     = (gate_dev not psd) not nsd_block
 layer pgate     = (gate_dev and psd) and nwell
