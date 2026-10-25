@@ -376,7 +376,7 @@ impl Cell for Resistor {
         let u = crate::cells::builder::unitization(group, constraints);
         let dummies = n_dev > 1 || u.is_some_and(|u| u.dummy_required);
         let class = u.and_then(|u| u.class).unwrap_or(MatchClass::Moderate);
-        let env = resistor_env(class, process);
+        let env = resistor_env(class);
         let k_dum = i32::from(env.min_dummies).max((env.dummy_span_nm + seg_pitch - 1) / seg_pitch);
         // Minimal takes a minimum-width dummy; its inner edge stays a gap from
         // the end body.

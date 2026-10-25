@@ -70,9 +70,9 @@ fn dummies_per_end(process: &dyn Process) -> u8 {
 /// that wants dummies or matched routing, at its class, `Moderate` when unset
 /// (C16). `None` = a singleton, a series stack or a plain parallel group:
 /// today's unmatched row.
-fn row_env(u: Option<&analog::cell::Unitization>, process: &dyn Process) -> Option<MosEnv> {
+fn row_env(u: Option<&analog::cell::Unitization>) -> Option<MosEnv> {
     u.filter(|u| u.devices.len() > 1 && u.series_parallel != analog::cell::SeriesParallel::Series && (u.route_matching_required || u.dummy_required))
-        .map(|u| mos_env(u.class.unwrap_or(MatchClass::Moderate), process))
+        .map(|u| mos_env(u.class.unwrap_or(MatchClass::Moderate)))
 }
 
 /// Whether a finger's own distributed poly resistance, `R□·W/(3·L)`, exceeds
@@ -352,7 +352,7 @@ impl Mosfet {
         let licon = process.layer("licon").unwrap_or(poly);
         let u = unitization(group, constraints);
         // A matched set's class environment ([`row_env`]); all zeros unmatched.
-        let env = row_env(u, process);
+        let env = row_env(u);
         let e = env.unwrap_or_default();
         let exc = e.gate_strap == GateStrap::MetalIsolated;
         let is_pmos = u.is_some_and(|u| u.device_type == DeviceKind::Pmos);
@@ -1401,7 +1401,7 @@ mod tests {
     /// Every variant's macro at `class`, with its env.
     fn class_macros(kind: DeviceKind, class: MatchClass, pdk: &verify::Pdk) -> (MosEnv, Vec<(Mosfet, Macro)>) {
         let (g, c) = class_pair(kind, class);
-        (mos_env(class, pdk), Mosfet::enumerate(&g, &c, pdk).into_iter().map(|v| (v.clone(), v.draw(&g, &c, pdk))).collect())
+        (mos_env(class), Mosfet::enumerate(&g, &c, pdk).into_iter().map(|v| (v.clone(), v.draw(&g, &c, pdk))).collect())
     }
 
     /// CELL-12 (rule 12): the diffusion runs `moat_nm` past the outermost
@@ -1409,7 +1409,7 @@ mod tests {
     #[test]
     fn class_scales_the_moat_and_dummies() {
         let Some(pdk) = crate::cells::testkit::pdk() else { return };
-        assert_eq!(CLASSES.map(|c| mos_env(c, &pdk).moat_nm), [3000, 5000, 10000]);
+        assert_eq!(CLASSES.map(|c| mos_env(c).moat_nm), [3000, 5000, 10000]);
         let (diff, poly) = (pdk.layer("diff").unwrap(), pdk.layer("poly").unwrap());
         for kind in [DeviceKind::Nmos, DeviceKind::Pmos] {
             for class in CLASSES {
@@ -1493,14 +1493,14 @@ mod tests {
         c.unitization[0].dummy_required = true;
         let plain: Vec<Rect> = Mosfet::enumerate(&g, &c, &pdk).iter().map(|v| v.draw(&g, &c, &pdk).bbox).collect();
         c.unitization[0].class = Some(MatchClass::Moderate);
-        assert!(row_env(Some(&c.unitization[0]), &pdk).is_none());
+        assert!(row_env(Some(&c.unitization[0])).is_none());
         let classed: Vec<Rect> = Mosfet::enumerate(&g, &c, &pdk).iter().map(|v| v.draw(&g, &c, &pdk).bbox).collect();
         assert_eq!(plain, classed);
         let (_, mut c) = testkit::group_of(DeviceKind::Nmos, 2, 2, 1680, 150);
-        assert!(row_env(Some(&c.unitization[0]), &pdk).is_none(), "a plain parallel group");
+        assert!(row_env(Some(&c.unitization[0])).is_none(), "a plain parallel group");
         c.unitization[0].dummy_required = true;
         c.unitization[0].route_matching_required = true;
-        assert_eq!(row_env(Some(&c.unitization[0]), &pdk), Some(mos_env(MatchClass::Moderate, &pdk)));
+        assert_eq!(row_env(Some(&c.unitization[0])), Some(mos_env(MatchClass::Moderate)));
     }
 
     /// CELL-12 (rule 22): an EXC pair contacts every gate on its own poly
@@ -1549,20 +1549,12 @@ mod tests {
     }
 
     /// CELL-12 (Hastings §13.2.2): a MOD pair's gate bars sit ≥ 1 µm off the
-    /// diffusion. Also on a deck with no extra gate overhang, where only the
-    /// `PolyBarFar` floor (not `poly_ext + gate_ext_extra_nm`) holds the gate
-    /// bars off; there the dummy skirt sits at `poly_ext` (rule 21 only), so
-    /// only bars holding a gate pad cut (inside the channel span) are checked.
+    /// diffusion. The gate overhang is class policy now (`mos_env`), the same
+    /// on every deck.
     #[test]
     fn moderate_bar_sits_a_micron_off() {
         let Some(base) = crate::cells::testkit::pdk() else { return };
-        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
-        let json = std::fs::read_to_string(root.join("pdks/sky130.json")).unwrap();
-        let key = "\"gate_ext_extra_nm\": [0, 1000, 1000]";
-        assert!(json.contains(key), "sky130.json spells {key}");
-        let flat = verify::Pdk::from_json(&json.replace(key, "\"gate_ext_extra_nm\": [0, 0, 0]")).unwrap();
-        assert_eq!(mos_env(MatchClass::Moderate, &flat).gate_ext_extra_nm, 0);
-        for (pdk, every_bar) in [(base, true), (flat, false)] {
+        for (pdk, every_bar) in [(base, true)] {
             let (diff, poly, licon) = (pdk.layer("diff").unwrap(), pdk.layer("poly").unwrap(), pdk.layer("licon").unwrap());
             let (_, ms) = class_macros(DeviceKind::Nmos, MatchClass::Moderate, &pdk);
             let mut bars = 0;

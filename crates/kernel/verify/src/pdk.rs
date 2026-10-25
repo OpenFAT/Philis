@@ -8,7 +8,7 @@
 use gdsverify::ingest::deck::{Deck, ParamValue, RuleSpec};
 use gdsverify::ingest::StrTable;
 use gdsverify::geom::Grid;
-use analog::base::{LayerId, MatchClass, Process};
+use analog::base::{LayerId, Process};
 
 /// The database grid every length in this crate is expressed against:
 /// 1000 dbu/µm, so **1 dbu = 1 nm**.
@@ -1294,10 +1294,6 @@ impl Process for Pdk {
         let one = |x, y| self.widest_on("min_spacing_diff", "limit", &[x, y]);
         one(la, lb).max(one(lb, la)).map(|v| v as i32)
     }
-    /// The sidecar's `[MIN, MOD, EXC]` array `key`, read from `cell` as is.
-    fn tier(&self, key: &str, c: MatchClass) -> Option<i32> {
-        self.cell.get(key)?.as_array()?.get(c as usize)?.as_i64().map(|v| v as i32)
-    }
 }
 
 /// Pull every rule's scalar length parameter (nm) out of the deck into
@@ -1569,9 +1565,6 @@ impl Process for Overlay<'_> {
     fn eol_space(&self, role: &str) -> Option<i32> {
         self.pdk.widest_on("eol_spacing", "limit", &[self.layer(role)?.0]).map(|v| v as i32)
     }
-    fn tier(&self, key: &str, c: MatchClass) -> Option<i32> {
-        self.pdk.tier(key, c)
-    }
 }
 
 /// The widest single feature a cell generator draws, nm (a cap plate or a
@@ -1765,21 +1758,6 @@ mod tests {
         assert!((c12 - 147.6).abs() < 0.1 && (c23 - 88.5).abs() < 0.1, "{c12} {c23}");
     }
 
-    /// The sidecar's tier arrays reach `Process::tier` by class index; a
-    /// removed key reads `None` (the class env reports it missing).
-    #[test]
-    fn sky130_tiers_are_read() {
-        let p = load("sky130");
-        assert_eq!(p.tier("wpe_clearance_nm", MatchClass::Exceptional), Some(5000));
-        assert_eq!(p.tier("lod_moat_ext_nm", MatchClass::Minimal), Some(3000));
-        assert_eq!(p.tier("lod_moat_ext_nm", MatchClass::Exceptional), Some(10000));
-        let p = sky130_with(|c| {
-            c.remove("dummy_reach_nm");
-            c.remove("dummy_reach_nm_source");
-        })
-        .unwrap();
-        assert_eq!(p.tier("dummy_reach_nm", MatchClass::Moderate), None);
-    }
 
     fn sky130_with(edit: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>)) -> Result<Pdk, String> {
         let text = crate::decks::SIDECARS[0].1;
@@ -1788,22 +1766,6 @@ mod tests {
         Pdk::from_json(&v.to_string())
     }
 
-    /// A `Tier` key is exactly MIN/MOD/EXC, each non-negative or `null`.
-    #[test]
-    fn tier_arrays_are_validated() {
-        for bad in [serde_json::json!([2000, 3000]), serde_json::json!([2000, -1, 5000])] {
-            let err = sky130_with(|c| {
-                c.insert("wpe_clearance_nm".into(), bad.clone());
-            })
-            .err()
-            .unwrap_or_else(|| panic!("{bad} must not load"));
-            assert!(err.contains("cell.wpe_clearance_nm"), "{err}");
-        }
-        sky130_with(|c| {
-            c.insert("wpe_clearance_nm".into(), serde_json::json!([2000, 3000, null]));
-        })
-        .expect("an unstated tier is null");
-    }
 
     #[test]
     fn cap_density_is_sourced() {

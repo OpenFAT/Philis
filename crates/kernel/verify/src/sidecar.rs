@@ -27,9 +27,6 @@ pub enum Kind {
     Bool,
     /// Any number.
     Real,
-    /// Array of exactly 3 (MIN, MOD, EXC; index = `MatchClass as usize`), each a
-    /// non-negative integer or `null` (the process does not state that tier).
-    Tier,
     Text,
     /// Array of strings.
     List,
@@ -57,7 +54,7 @@ const fn k(name: &'static str, kind: Kind, required: bool, sourced: bool, reader
     Key { name, kind, required, sourced, reader }
 }
 
-use Kind::{Bool, Count, Layers, List, Nm, Real, Table, Text, Tier};
+use Kind::{Bool, Count, Layers, List, Nm, Real, Table, Text};
 
 /// Every key, alphabetical. `<name>_source` of a registered key is implied.
 pub const KEYS: &[Key] = &[
@@ -82,7 +79,6 @@ pub const KEYS: &[Key] = &[
     k("dti", Nm, false, false, "unread"),
     k("dummy_gates_per_end", Count, true, false, "kernel/cells/src/mosfet.rs (dummy gates each end of a matched row)"),
     k("dummy_max_l_nm", Nm, false, true, "kernel/cells/src/mosfet.rs (dummy gate length cap)"),
-    k("dummy_reach_nm", Tier, false, true, "kernel/analog/src/matching/class.rs"),
     k("em_current_density_source", Text, false, false, "provenance of the deck's EM rules"),
     k("em_derating", Table, false, true, "backend/verify/src/pdk.rs em_limit (when the deck rule states no Black parameters)"),
     k("em_front_row_cuts", Bool, false, true, "frontend/library/src/lib.rs em_rules; backend/dr DetailedCfg (REL-12)"),
@@ -90,7 +86,6 @@ pub const KEYS: &[Key] = &[
     k("erc_rules_note", Text, false, false, "documentation"),
     k("finfet_note", Text, false, false, "documentation"),
     k("gate_cap_af_um2", Count, false, true, "frontend/library/src/lib.rs annotation"),
-    k("gate_ext_extra_nm", Tier, false, true, "kernel/analog/src/matching/class.rs"),
     k("guard_licon_pitch", Nm, true, false, "kernel/cells/src/mosfet.rs, post_cell.rs"),
     k("inapplicable_rules", List, false, false, "backend/verify/src/pdk.rs"),
     k("inapplicable_rules_note", Text, false, false, "documentation"),
@@ -103,7 +98,6 @@ pub const KEYS: &[Key] = &[
     k("linewidth_control_nm", Table, false, false, "unread"),
     k("lod_kvth0_n_mv_um", Real, false, true, "frontend/library/src/lib.rs annotation"),
     k("lod_kvth0_p_mv_um", Real, false, true, "frontend/library/src/lib.rs annotation"),
-    k("lod_moat_ext_nm", Tier, false, true, "kernel/cells/src/mosfet.rs; frontend/library/src/lib.rs; kernel/analog/src/matching/class.rs"),
     k("m1_enc", Nm, false, false, "kernel/cells/src/builder.rs dim (raises the deck's)"),
     k("max_finger_width", Nm, true, false, "frontend/library/src/cellgen.rs folds (0 = no limit)"),
     k("metal_family", Text, false, true, "kernel/analog/src/routing/em.rs metal_family (REL-17 ESD width; \"al\" | \"cu\")"),
@@ -121,9 +115,7 @@ pub const KEYS: &[Key] = &[
     k("polycon_to_diff_spacing", Nm, false, false, "kernel/cells/src/mosfet.rs"),
     k("polycon_to_pdiff_spacing", Nm, false, false, "kernel/cells/src/mosfet.rs"),
     k("res_corner_squares", Real, false, false, "unread"),
-    k("res_dummy_span_nm", Tier, false, true, "kernel/analog/src/matching/class.rs"),
     k("res_head", Nm, true, false, "kernel/cells/src/resistor.rs"),
-    k("res_length_floor_x", Tier, false, true, "kernel/analog/src/matching/class.rs"),
     k("res_min_segment", Nm, true, false, "kernel/cells/src/resistor.rs"),
     k("res_min_width", Nm, true, false, "kernel/cells/src/resistor.rs"),
     k("res_seg_gap", Nm, true, false, "kernel/cells/src/resistor.rs"),
@@ -131,7 +123,6 @@ pub const KEYS: &[Key] = &[
     k("res_serpentine_aspect", Real, false, false, "unread"),
     k("res_tox_nm", Real, false, true, "kernel/cells/src/resistor.rs self_heating_min_width_nm (CELL-23; else pex height_nm of the body layer)"),
     k("res_value_tol_ppm", Count, true, false, "kernel/cells/src/resistor.rs"),
-    k("res_width_floor_permille", Tier, false, true, "kernel/analog/src/matching/class.rs"),
     k("resistors", Table, false, false, "backend/verify/src/pdk.rs recipe"),
     k("retrograde_pwell", Bool, false, true, "kernel/cells/src/post_cell.rs drawable"),
     k("sd_width", Nm, true, false, "kernel/cells/src/mosfet.rs"),
@@ -149,7 +140,6 @@ pub const KEYS: &[Key] = &[
     k("waivers", Table, false, false, "backend/verify/src/checker.rs"),
     k("well_enclosure", Nm, false, false, "tests only (frontend/library/tests/ota_cross_pdk.rs)"),
     k("well_spacing", Nm, false, false, "unread"),
-    k("wpe_clearance_nm", Tier, false, true, "kernel/cells/src/mosfet.rs; frontend/library/src/lib.rs; kernel/analog/src/matching/class.rs"),
 ];
 
 /// The registry row for `name`.
@@ -181,7 +171,6 @@ pub fn validate(cell: &Value) -> Vec<String> {
             Count => v.is_u64(),
             Bool => v.is_boolean(),
             Real => v.is_number(),
-            Tier => v.as_array().is_some_and(|a| a.len() == 3 && a.iter().all(|e| e.is_null() || e.is_u64())),
             Text => v.is_string(),
             List => v.as_array().is_some_and(|a| a.iter().all(Value::is_string)),
             Table | Layers => v.is_object(),

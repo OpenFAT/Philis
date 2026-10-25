@@ -5,7 +5,7 @@
 pub use crate::matching::mismatch::MatchKind;
 pub use crate::base::MatchClass;
 
-use crate::base::{DeviceKind, Process};
+use crate::base::DeviceKind;
 
 /// The device family a class limit is tabulated for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -57,16 +57,37 @@ pub struct MosEnv {
     pub gate_strap: GateStrap,
 }
 
-/// `c`'s MOS environment from `p`'s tiers; a missing tier reads 0 (and
-/// [`missing_tiers`] names it).
+/// Hastings' MOS tiers, `[MIN, MOD, EXC]`, nm; class policy, the same on
+/// every process (Q59).
+/// - dummy reach, §13.3 rule 12 (H13-47): MIN dummies optional, MOD one full
+///   dummy for L < ~3 µm, EXC the outer dummy edge ≥ 10 µm from the gates.
+/// - LOD moat, §13.2.2 (H13-29) "two or three microns" at MIN; §13.3 rule 12
+///   MOD STI ≥ 5 µm, EXC ≥ 10 µm.
+/// - well edge to the matched gates, §13.3 rule 19 (H13-53): EXC the lower
+///   bound of 5–10 µm.
+/// - gate poly past the rule, §13.3 rule 21 (H13-54): 1–2 µm at MOD and EXC,
+///   the lower end taken.
+const DUMMY_REACH_NM: [i32; 3] = [0, 3000, 10000];
+const LOD_MOAT_EXT_NM: [i32; 3] = [3000, 5000, 10000];
+const WPE_CLEARANCE_NM: [i32; 3] = [2000, 3000, 5000];
+const GATE_EXT_EXTRA_NM: [i32; 3] = [0, 1000, 1000];
+
+/// Hastings §8's resistor tiers, `[MIN, MOD, EXC]` (H08-13, H08-41): dummies
+/// spanning ≥ 10 µm at EXC; width floors 150/200/400 % of the minimum; length
+/// floors 3×/5×/10× the minimum.
+const RES_DUMMY_SPAN_NM: [i32; 3] = [0, 0, 10000];
+const RES_WIDTH_FLOOR_PERMILLE: [i32; 3] = [1500, 2000, 4000];
+const RES_LENGTH_FLOOR_X: [i32; 3] = [3, 5, 10];
+
+/// `c`'s MOS environment.
 #[must_use]
-pub fn mos_env(c: MatchClass, p: &dyn Process) -> MosEnv {
-    let t = |k| p.tier(k, c).unwrap_or(0);
+pub fn mos_env(c: MatchClass) -> MosEnv {
+    let i = c as usize;
     MosEnv {
-        dummy_reach_nm: t("dummy_reach_nm"),
-        moat_nm: t("lod_moat_ext_nm"),
-        wpe_nm: t("wpe_clearance_nm"),
-        gate_ext_extra_nm: t("gate_ext_extra_nm"),
+        dummy_reach_nm: DUMMY_REACH_NM[i],
+        moat_nm: LOD_MOAT_EXT_NM[i],
+        wpe_nm: WPE_CLEARANCE_NM[i],
+        gate_ext_extra_nm: GATE_EXT_EXTRA_NM[i],
         gate_strap: match c {
             MatchClass::Minimal => GateStrap::PolyBar,
             MatchClass::Moderate => GateStrap::PolyBarFar,
@@ -89,33 +110,16 @@ pub struct PassiveEnv {
     pub length_floor_x: i32,
 }
 
-/// `c`'s resistor environment from `p`'s tiers; a missing tier reads 0.
+/// `c`'s resistor environment.
 #[must_use]
-pub fn resistor_env(c: MatchClass, p: &dyn Process) -> PassiveEnv {
-    let t = |k| p.tier(k, c).unwrap_or(0);
+pub fn resistor_env(c: MatchClass) -> PassiveEnv {
+    let i = c as usize;
     PassiveEnv {
         min_dummies: 1,
-        dummy_span_nm: t("res_dummy_span_nm"),
-        width_floor_permille: t("res_width_floor_permille"),
-        length_floor_x: t("res_length_floor_x"),
+        dummy_span_nm: RES_DUMMY_SPAN_NM[i],
+        width_floor_permille: RES_WIDTH_FLOOR_PERMILLE[i],
+        length_floor_x: RES_LENGTH_FLOOR_X[i],
     }
-}
-
-/// Every tier key the environments read, with its `Problem.missing` text.
-const TIERS: [(&str, &str); 7] = [
-    ("dummy_reach_nm", "dummy_reach_nm tier missing"),
-    ("gate_ext_extra_nm", "gate_ext_extra_nm tier missing"),
-    ("lod_moat_ext_nm", "lod_moat_ext_nm tier missing"),
-    ("res_dummy_span_nm", "res_dummy_span_nm tier missing"),
-    ("res_length_floor_x", "res_length_floor_x tier missing"),
-    ("res_width_floor_permille", "res_width_floor_permille tier missing"),
-    ("wpe_clearance_nm", "wpe_clearance_nm tier missing"),
-];
-
-/// `"<key> tier missing"` for each tier key `p` lacks on any class.
-pub fn missing_tiers(p: &dyn Process) -> impl Iterator<Item = &'static str> + '_ {
-    let classes = [MatchClass::Minimal, MatchClass::Moderate, MatchClass::Exceptional];
-    TIERS.iter().filter(move |(k, _)| classes.iter().any(|&c| p.tier(k, c).is_none())).map(|(_, m)| *m)
 }
 
 /// Whether a matched pair's Φ (common-orientation) check is armed: hard at
@@ -161,37 +165,11 @@ mod tests {
     use ClassLimit::{Mv, Pct};
     use MatchClass::{Exceptional as Exc, Minimal as Min, Moderate as Mod};
 
-    /// GAP-01's tier table, less `dummy_reach_nm`.
-    struct NoReach;
-    impl Process for NoReach {
-        fn layer(&self, _: &str) -> Option<crate::base::LayerId> {
-            None
-        }
-        fn rule(&self, _: &str, default: i32) -> i32 {
-            default
-        }
-        fn grid(&self) -> i32 {
-            1
-        }
-        fn tier(&self, key: &str, c: MatchClass) -> Option<i32> {
-            let a = match key {
-                "wpe_clearance_nm" => [2000, 3000, 5000],
-                "lod_moat_ext_nm" => [3000, 5000, 10000],
-                "gate_ext_extra_nm" => [0, 1000, 1000],
-                "res_dummy_span_nm" => [0, 0, 10000],
-                "res_width_floor_permille" => [1500, 2000, 4000],
-                "res_length_floor_x" => [3, 5, 10],
-                _ => return None,
-            };
-            Some(a[c as usize])
-        }
-    }
-
     #[test]
-    fn missing_tier_reads_zero_and_is_reported() {
-        let e = mos_env(Mod, &NoReach);
-        assert_eq!(e, MosEnv { dummy_reach_nm: 0, moat_nm: 5000, wpe_nm: 3000, gate_ext_extra_nm: 1000, gate_strap: GateStrap::PolyBarFar });
-        assert_eq!(missing_tiers(&NoReach).collect::<Vec<_>>(), ["dummy_reach_nm tier missing"]);
+    fn tiers_are_hastings() {
+        assert_eq!(mos_env(Mod), MosEnv { dummy_reach_nm: 3000, moat_nm: 5000, wpe_nm: 3000, gate_ext_extra_nm: 1000, gate_strap: GateStrap::PolyBarFar });
+        assert_eq!(resistor_env(Exc), PassiveEnv { min_dummies: 1, dummy_span_nm: 10000, width_floor_permille: 4000, length_floor_x: 10 });
+        assert_eq!(mos_env(Min).dummy_reach_nm, 0);
     }
 
     #[test]

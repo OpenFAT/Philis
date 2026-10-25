@@ -14,20 +14,6 @@
     "gate_cap_af_um2": 8325,
     "gate_cap_af_um2_source": "UNVERIFIED: no source was recorded with this value.",
     "dummy_max_l_nm": 3000,
-    "wpe_clearance_nm": [2000, 3000, 5000],
-    "wpe_clearance_nm_source": "Hastings §13.3 rule 19 (hastings.txt L42625–42631, H13-53): well edge to matched gates, EXC the lower bound of 5–10 µm; [MIN, MOD, EXC], same on every deck.",
-    "lod_moat_ext_nm": [3000, 5000, 10000],
-    "lod_moat_ext_nm_source": "Hastings §13.2.2 (hastings.txt L41411–41422, H13-29) 'two or three microns will suffice' for less accurate matching (MIN); §13.3 rule 12 (L42532–42553, H13-47) MOD STI ≥ 5 µm, EXC ≥ 10 µm; [MIN, MOD, EXC], same on every deck.",
-    "dummy_reach_nm": [0, 3000, 10000],
-    "dummy_reach_nm_source": "Hastings §13.3 rule 12 (hastings.txt L42532–42553, H13-47): MIN dummies optional, MOD one full dummy for L < ~3 µm, EXC outer dummy poly edge ≥ 10 µm from the active gates; [MIN, MOD, EXC], same on every deck.",
-    "gate_ext_extra_nm": [0, 1000, 1000],
-    "gate_ext_extra_nm_source": "Hastings §13.3 rule 21 (hastings.txt L42638–42647, H13-54): extend gate poly 1–2 µm beyond the rule for MOD/EXC (lower end taken); [MIN, MOD, EXC], same on every deck.",
-    "res_dummy_span_nm": [0, 0, 10000],
-    "res_dummy_span_nm_source": "Hastings §8 resistor dummies (hastings.txt L22312–22347, L25263–25273, H08-13): MIN one minimum-width dummy, MOD one full-width dummy, EXC dummies spanning ≥ 10 µm; [MIN, MOD, EXC], same on every deck.",
-    "res_width_floor_permille": [1500, 2000, 4000],
-    "res_width_floor_permille_source": "Hastings §8 resistor width floors (hastings.txt L25205–25214, H08-41): 150/200/400 % of minimum width; [MIN, MOD, EXC], same on every deck.",
-    "res_length_floor_x": [3, 5, 10],
-    "res_length_floor_x_source": "Hastings §8 resistor length floors (hastings.txt L25274–25281, H08-41): 3×/5×/10× minimum length; [MIN, MOD, EXC], same on every deck.",
     "dummy_max_l_nm_source": "microloading reach 3-5 um, hastings.txt L41097-41104 (H13-26); Philis policy: the lower end",
     "layers": {
       "diff": "diff",
@@ -83,30 +69,102 @@
     "substrate_kind_source": "UNVERIFIED: Philis note at backend/annotator/src/emit.rs NOMINAL_EPI_NM (sky130 is bulk p-substrate, not epi on p+); not stated in docs/ref/.",
     "epi_thickness_nm": null,
     "placement_space": {
-      "diff,diff": [270, "difftap.3 L273"],
-      "diff,tap": [270, "difftap.3 L273"],
-      "tap,tap": [270, "difftap.3 L273"],
-      "diff_out,nwell": [340, "difftap.9 L276 space(ndiff, nwell); any diff outside a well read as n-diff"],
-      "tap_out,nwell": [130, "difftap.11 L278 space(ptap, nwell)"],
-      "poly,diff": [75, "poly.4 L287 space(poly_field, diff)"],
-      "poly,tap": [300, "poly.6 L663 space(gate, tap.interacting(diff)); dominates poly.5 55 L288"],
-      "npc,poly": [90, "npc.4 L316 space(npc, gate)"],
-      "npc,licon": [90, "licon.13 L350 space(npc, licon_dt)"],
-      "nsdm,diff": [130, "nsd.7 L330 space(nsdm, p_lone); any diff"],
-      "nsdm,tap": [130, "nsd.7 L330"],
-      "psdm,diff": [130, "psd.7 L331 space(psdm, n_lone); any diff"],
-      "psdm,tap": [130, "psd.7 L331"],
-      "licon,psdm": [110, "licon.9 L346 space(poly_licon_nrpm, psdm)"],
-      "licon,diff": [190, "licon.14 L351 space(poly_licon, difftap)"],
-      "licon,tap": [190, "licon.14 L351"],
-      "licon,poly": [55, "licon.11 L348 space(licon_dt, gate_nsc)"],
-      "rpm,nsdm": [200, "rpm.6 L301"],
-      "rpm,poly": [480, "poly.9 L291 space(poly_res, poly_plain), rpm encloses the resistor poly; dominates rpm.7 200 L302"],
-      "rpm,diff": [480, "poly.9.difftap L292"],
-      "rpm,tap": [480, "poly.9.difftap L292"],
-      "rpoly,poly": [480, "poly.9 L291 (poly_res = poly and poly_rs)"],
-      "rpoly,diff": [480, "poly.9.difftap L292"],
-      "rpoly,tap": [480, "poly.9.difftap L292"]
+      "diff,diff": [
+        270,
+        "difftap.3 L273"
+      ],
+      "diff,tap": [
+        270,
+        "difftap.3 L273"
+      ],
+      "tap,tap": [
+        270,
+        "difftap.3 L273"
+      ],
+      "diff_out,nwell": [
+        340,
+        "difftap.9 L276 space(ndiff, nwell); any diff outside a well read as n-diff"
+      ],
+      "tap_out,nwell": [
+        130,
+        "difftap.11 L278 space(ptap, nwell)"
+      ],
+      "poly,diff": [
+        75,
+        "poly.4 L287 space(poly_field, diff)"
+      ],
+      "poly,tap": [
+        300,
+        "poly.6 L663 space(gate, tap.interacting(diff)); dominates poly.5 55 L288"
+      ],
+      "npc,poly": [
+        90,
+        "npc.4 L316 space(npc, gate)"
+      ],
+      "npc,licon": [
+        90,
+        "licon.13 L350 space(npc, licon_dt)"
+      ],
+      "nsdm,diff": [
+        130,
+        "nsd.7 L330 space(nsdm, p_lone); any diff"
+      ],
+      "nsdm,tap": [
+        130,
+        "nsd.7 L330"
+      ],
+      "psdm,diff": [
+        130,
+        "psd.7 L331 space(psdm, n_lone); any diff"
+      ],
+      "psdm,tap": [
+        130,
+        "psd.7 L331"
+      ],
+      "licon,psdm": [
+        110,
+        "licon.9 L346 space(poly_licon_nrpm, psdm)"
+      ],
+      "licon,diff": [
+        190,
+        "licon.14 L351 space(poly_licon, difftap)"
+      ],
+      "licon,tap": [
+        190,
+        "licon.14 L351"
+      ],
+      "licon,poly": [
+        55,
+        "licon.11 L348 space(licon_dt, gate_nsc)"
+      ],
+      "rpm,nsdm": [
+        200,
+        "rpm.6 L301"
+      ],
+      "rpm,poly": [
+        480,
+        "poly.9 L291 space(poly_res, poly_plain), rpm encloses the resistor poly; dominates rpm.7 200 L302"
+      ],
+      "rpm,diff": [
+        480,
+        "poly.9.difftap L292"
+      ],
+      "rpm,tap": [
+        480,
+        "poly.9.difftap L292"
+      ],
+      "rpoly,poly": [
+        480,
+        "poly.9 L291 (poly_res = poly and poly_rs)"
+      ],
+      "rpoly,diff": [
+        480,
+        "poly.9.difftap L292"
+      ],
+      "rpoly,tap": [
+        480,
+        "poly.9.difftap L292"
+      ]
     },
     "placement_space_source": "Two-layer spacings on derived layers that space_between on drawn roles cannot see; GPurify 6341f18 pdks/sky130.deck, rule and line per entry (PLC-07).",
     "p_well_depth": 1500,
@@ -146,7 +204,11 @@
     "svt_uv_per_um": 1.63,
     "svt_uv_per_um_source": "PROXY, not sky130 data: Schaper & Linnenbank (Infineon), 'Comparison of distance mismatch and pair matching of CMOS devices', IEEE, 130nm thin-oxide NMOS, Table 1 distance parameter S_D [mV/mm = uV/um] of dVGS: L/W 0.12/1.6 -> 1.63, 0.24/1.6 -> 0.780, 0.24/12.8 -> 0.941, 0.48/1.6 -> 0.582, 0.48/3.2 -> 0.644; Fig. 8: S_D^2 grows with 1/Leff^2. Worst case (shortest L, nearest sky130 Lmin 0.15) taken so the Pelgrom distance limit errs tight for every L. Replace with measured sky130 gradient data when available. Same S used for pfet (paper has NMOS only). Since MAT-16 this is only the fallback for devices without an `l`; devices with one use the S(L) PROXY fit svt_a_uv2_per_um2/svt_b_uv2 (e.g. 0.580 at L = 0.48).",
     "em_current_density_source": "rules EM.met1_mcon, EM.met2_via1 .. EM.met5_via4 (IHP convention: a metal with the cut below it; max_density is the metal's, max_current_per_cut the cut's) from sky130A/libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__nom.tlef (volare fa87f8f4): DCCURRENTDENSITY AVERAGE met1 2.8, met2 2.8, met3 6.8, met4 6.8, met5 10.17 mA/um; mcon 0.36, via 0.29, via2 0.48, via3 0.48, via4 2.49 mA per via; Iavg_max at Tj=90C. Stored as uA/um and uA/cut. li1 has no EM limit in the PDK, so li is not covered.",
-    "em_derating": {"t_ref_k": 363.15, "ea_ev": null, "n": null},
+    "em_derating": {
+      "t_ref_k": 363.15,
+      "ea_ev": null,
+      "n": null
+    },
     "em_derating_source": "Iavg_max at Tj=90C, sky130A/libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__nom.tlef:92,119 (volare fa87f8f4); Ea and n not stated by the PDK",
     "antenna_source": "sky130A/libs.tech/magic/sky130A.tech (volare fa87f8f4), 'model partial', no-diode ratios. rules ANT.licon/mcon/via1..via4 (surface): 'antenna allcont surface 3', 'mcon surface 3', 'v1 surface 3', 'v2 surface 6', 'v3,v4 surface 6' (techlef ANTENNADIFFAREARATIO agrees). Sidewall rules are the deck's ar.li.1, ar.met1.1..ar.met5.1; the same file agrees: 'antenna li sidewall 75', 'antenna m1,m2,m3 sidewall 400', 'antenna m4,m5 sidewall 400', 'height' lines allli 0.10, allm1 0.36, allm2 0.36, allm3 0.845, allm4 0.845, allm5 1.26 um (the deck states met1/met2 350 nm, sc_hd techlef THICKNESS; ar.met3.1 corrected 2000 -> 845 nm by a # PHILIS: edit). 'antenna poly sidewall 50' is not encoded. Diode PWL terms not encoded.",
     "vt_tc_uv_per_k": 765.0,
@@ -161,10 +223,38 @@
     "inapplicable_rules_note": "Deck rules for structures no Philis generator draws (the varactor: poly over tap in nwell): they must not set generator dimensions. The checker still runs every rule.",
     "bjts": {
       "recipes": {
-        "pnp_3p40": { "model": "sky130_fd_pr__pnp_05v5_W3p40L3p40", "aliases": ["pnp_05v5_W3p40L3p40"], "bjt_emitter_w": 3400, "bjt_emitter_l": 3400 },
-        "pnp_0p68": { "model": "sky130_fd_pr__pnp_05v5_W0p68L0p68", "aliases": ["pnp_05v5_W0p68L0p68"], "bjt_emitter_w": 680, "bjt_emitter_l": 680 },
-        "npn_1x1":  { "model": "sky130_fd_pr__npn_05v5_W1p00L1p00", "aliases": ["npn_05v5_W1p00L1p00"], "bjt_emitter_w": 1000, "bjt_emitter_l": 1000 },
-        "npn_1x2":  { "model": "sky130_fd_pr__npn_05v5_W1p00L2p00", "aliases": ["npn_05v5_W1p00L2p00"], "bjt_emitter_w": 1000, "bjt_emitter_l": 2000 }
+        "pnp_3p40": {
+          "model": "sky130_fd_pr__pnp_05v5_W3p40L3p40",
+          "aliases": [
+            "pnp_05v5_W3p40L3p40"
+          ],
+          "bjt_emitter_w": 3400,
+          "bjt_emitter_l": 3400
+        },
+        "pnp_0p68": {
+          "model": "sky130_fd_pr__pnp_05v5_W0p68L0p68",
+          "aliases": [
+            "pnp_05v5_W0p68L0p68"
+          ],
+          "bjt_emitter_w": 680,
+          "bjt_emitter_l": 680
+        },
+        "npn_1x1": {
+          "model": "sky130_fd_pr__npn_05v5_W1p00L1p00",
+          "aliases": [
+            "npn_05v5_W1p00L1p00"
+          ],
+          "bjt_emitter_w": 1000,
+          "bjt_emitter_l": 1000
+        },
+        "npn_1x2": {
+          "model": "sky130_fd_pr__npn_05v5_W1p00L2p00",
+          "aliases": [
+            "npn_05v5_W1p00L2p00"
+          ],
+          "bjt_emitter_w": 1000,
+          "bjt_emitter_l": 2000
+        }
       },
       "note": "sky130 vertical BJTs are fixed-geometry models (VOL/libs.ref/sky130_fd_pr/spice): a drawn emitter of any other size is a different device than the one simulated. No `default`: a model no recipe names keeps today's sizing (the netlist's w/l)."
     },
@@ -215,7 +305,7 @@
           "res_dl_nm": 0,
           "res_dw_nm": 0,
           "res_model_source": "rp1 = 48.2 ohm/sq, VOL/libs.tech/ngspice/r+c/res_typical__cap_typical.spice:21 (volare fa87f8f4). The model's dw = -tol_poly/2 - poly_dw/2 (+0.028 um at typical, sky130_fd_pr__model__r+c.model.spice:134) is not applied: how ngspice applies it to W was not checked (plan-03 section 5).",
-          "k_a_pct_um": 1.70,
+          "k_a_pct_um": 1.7,
           "k_a_pct_um_source": "PROXY, not sky130 data: the installed model carries no mismatch (r+c.mrp1monte.spice:16 sky130_fd_pr__res_generic_po__slope = 0.0; characterize_mismatch.py res gave sigma(dR/R) = 0 at every W/L). Value: DVP Table 1 poly resistor pair constant 1.70 %.um, as plan-02 MAT-10. Replace with measured sky130 data when available.",
           "tc_ppm_per_k": 892,
           "tc_ppm_per_k_source": "tc1r of the installed model: sky130_fd_pr__model__r+c.model.spice:134 tc1r=tc1rsgpu, :28 tc1rsgpu = 8.916e-4 /K."

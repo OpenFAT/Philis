@@ -99,12 +99,6 @@ pub trait Process {
         None
     }
 
-    /// Entry `c as usize` of the 3-element sidecar tier array `key`
-    /// (`[MIN, MOD, EXC]`); `None` when absent or not an integer.
-    fn tier(&self, key: &str, c: MatchClass) -> Option<i32> {
-        let _ = (key, c);
-        None
-    }
 }
 
 /// Hastings §13.3 matching class (PDF p.712): what a matched set's
