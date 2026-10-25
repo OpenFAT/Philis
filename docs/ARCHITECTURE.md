@@ -27,7 +27,7 @@ owner's skeleton of 2026-10-25.
 | `frontend/visualizer` (Q36) | GDS parse, SVG export, viewer, progress probe | analog, `gpurify-geom` only |
 
 Enforced by: Cargo crates (a cycle is a build error) plus `frontend/engine/tests/deps.rs`
-over `cargo tree` for the forbidden edges: the visualizer never links the GPurify
+over `cargo metadata` for the forbidden edges: the visualizer never links the GPurify
 engine; `kernel/analog` never links Substrate.
 
 ## Spines

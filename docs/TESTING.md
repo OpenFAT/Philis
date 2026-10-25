@@ -85,7 +85,7 @@ proves nothing.
   `calls.json`, an SVG per fixture (Q49), and `progress.py` for the gate and
   the progress page.
 - `fuzz/`: `cargo-fuzz` targets and corpus.
-- `frontend/engine/tests/deps.rs`: forbidden dependency edges over `cargo tree`.
+- `frontend/engine/tests/deps.rs`: forbidden dependency edges over `cargo metadata`.
 - `frontend/engine/tests/roundtrip.rs`: the printer round-trip, nightly.
 
 ## Gates (Q42, Q50)
@@ -96,6 +96,23 @@ proves nothing.
 | merge (required) | < 15 min | every unit, property and exhaustive test; conformance on sky130 and asap7; acceptance fixtures through both modes with in-process signoff; fuzz corpus replay; seeded reproducibility; `deps.rs` |
 | nightly | hours | foundry cross-check; gf180mcu and ihp conformance; long fuzz; printer round-trip; high-iteration properties; perf trend |
 | release | unbounded | exit criteria below on the release commit |
+
+One entry point, `ci/run.sh <tier>`, over the Philis crates (`analog verify
+annotator visualizer placement routing substrate3 engine`, never the vendored
+Substrate2 members); every step runs and the tier fails if any did:
+
+| tier | today |
+|---|---|
+| local | `cargo fmt --check` (reports a count, not gating yet), `cargo clippy --all-targets`, `cargo test --lib --no-fail-fast` |
+| merge | `cargo test --no-fail-fast`: every lib and integration test, `engine`'s `pair`, `conformance` and `deps` included |
+| nightly | merge, then `cargo test --no-fail-fast -- --ignored` (verify's field solves) |
+| release | nightly with `--release` |
+
+`.github/workflows/ci.yml` runs `nix develop --command ci/run.sh merge` on push
+and PR and `nightly` on a daily schedule. Outside the dev shell set `PROTOC`
+(the script defaults to a nix store path). Not wired yet: fuzz replay, foundry
+cross-check, perf trend; `local` exceeds its 10 s budget (substrate3's lib tests
+run DRC).
 
 Main always passes. A flaky test is fixed or quarantined the same day, and a
 quarantined test on a core crate blocks release. When the acceptance set
