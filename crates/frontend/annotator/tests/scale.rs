@@ -33,5 +33,8 @@ fn twelve_thousand_devices() {
     let wall = t.elapsed();
     println!("annotate: {} devices in {wall:?}", nl.devices.len());
     assert_eq!(p.groups.iter().map(Vec::len).sum::<usize>(), 12_500, "every device in one group");
-    assert!(wall <= Duration::from_secs(2), "{wall:?} > 2.0 s");
+    // T8's budget is a release number; a debug build checks the result only.
+    if !cfg!(debug_assertions) {
+        assert!(wall <= Duration::from_secs(2), "{wall:?} > 2.0 s");
+    }
 }
