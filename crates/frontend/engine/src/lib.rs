@@ -279,6 +279,7 @@ pub fn build_tiles(calls: &RecipeCalls, problem: &annotator::Problem, flat: &Fla
                 .min_by_key(|m| i64::from(m.bbox.w) * i64::from(m.bbox.h))
                 .ok_or_else(|| refuse("no-recipe", format!("{}: no {:?} variant draws it", names(flat, members), calls.kind[i])))?;
             bind_pins(&mut m, flat, members, ground);
+            join_members(&mut m, pdk);
             Ok(m)
         })
         .collect()
@@ -327,6 +328,91 @@ fn bind_pins(m: &mut Macro, flat: &Flat, members: &[DeviceId], ground: Option<Ne
         let net = if pin.name == "GND" { ground.or_else(|| dev.and_then(|d| terminal(d, "S"))) } else { dev.and_then(|d| terminal(d, term)) };
         if let Some(net) = net {
             pin.net = net;
+        }
+    }
+}
+
+/// Union-find over a macro's shapes: shapes on one layer that touch share an
+/// island. `islands[i]` is shape `i`'s root.
+#[must_use]
+pub fn islands(shapes: &[Shape]) -> Vec<usize> {
+    fn find(p: &mut [usize], mut i: usize) -> usize {
+        while p[i] != i {
+            p[i] = p[p[i]];
+            i = p[i];
+        }
+        i
+    }
+    let mut p: Vec<usize> = (0..shapes.len()).collect();
+    for i in 0..shapes.len() {
+        for j in i + 1..shapes.len() {
+            if shapes[i].layer == shapes[j].layer && touch(shapes[i].rect, shapes[j].rect) {
+                let (a, b) = (find(&mut p, i), find(&mut p, j));
+                p[a] = b;
+            }
+        }
+    }
+    (0..shapes.len()).map(|i| find(&mut p, i)).collect()
+}
+
+fn touch(a: analog::base::Rect, b: analog::base::Rect) -> bool {
+    a.x <= b.x + b.w && b.x <= a.x + a.w && a.y <= b.y + b.h && b.y <= a.y + a.h
+}
+
+/// The island a pin sits on: the first shape on its layer it touches.
+#[must_use]
+pub fn pin_island(p: &analog::base::Pin, shapes: &[Shape], islands: &[usize]) -> Option<usize> {
+    shapes.iter().position(|s| s.layer == p.layer && touch(s.rect, p.at)).map(|i| islands[i])
+}
+
+/// The set recipe draws the joins among its own members (`TRAITS.md`): two
+/// islands of one net on one layer whose shapes face each other across a
+/// straight gap (overlapping on the other axis by the layer's width) get a
+/// bar across it, the layer's width wide, unless the bar comes within the
+/// layer's spacing of a third island. Whatever stays apart goes to the router.
+fn join_members(m: &mut Macro, pdk: &Pdk) {
+    use analog::base::Rect;
+    let pins = m.pins.clone();
+    for (n, a) in pins.iter().enumerate() {
+        for b in &pins[n + 1..] {
+            if a.net != b.net || a.layer != b.layer {
+                continue;
+            }
+            let isl = islands(&m.shapes);
+            let (Some(ia), Some(ib)) = (pin_island(a, &m.shapes, &isl), pin_island(b, &m.shapes, &isl)) else { continue };
+            if ia == ib {
+                continue;
+            }
+            let layer = a.layer;
+            let (w, space) = (pdk.min_width(layer.0).unwrap_or(1).max(1), pdk.min_spacing(layer.0).unwrap_or(0));
+            let of = |i: usize| m.shapes.iter().zip(&isl).filter(move |(s, &k)| s.layer == layer && k == i).map(|(s, _)| s.rect);
+            let near = |bar: Rect, r: Rect| {
+                let dx = (r.x - (bar.x + bar.w)).max(bar.x - (r.x + r.w));
+                let dy = (r.y - (bar.y + bar.h)).max(bar.y - (r.y + r.h));
+                dx.max(dy) < space
+            };
+            let clear = |bar: Rect| m.shapes.iter().zip(&isl).all(|(s, &k)| s.layer != layer || k == ia || k == ib || !near(bar, s.rect));
+            // Every straight bar between a shape of each island, shortest first.
+            let mut bars: Vec<Rect> = Vec::new();
+            for p in of(ia) {
+                for q in of(ib) {
+                    let (lo, hi) = (p.x.max(q.x), (p.x + p.w).min(q.x + q.w));
+                    if hi - lo >= w {
+                        let (y0, y1) = if p.y < q.y { (p.y + p.h, q.y) } else { (q.y + q.h, p.y) };
+                        bars.push(Rect { x: lo, y: y0, w, h: y1 - y0 });
+                    }
+                    let (lo, hi) = (p.y.max(q.y), (p.y + p.h).min(q.y + q.h));
+                    if hi - lo >= w {
+                        let (x0, x1) = if p.x < q.x { (p.x + p.w, q.x) } else { (q.x + q.w, p.x) };
+                        bars.push(Rect { x: x0, y: lo, w: x1 - x0, h: w });
+                    }
+                }
+            }
+            bars.retain(|r| r.w > 0 && r.h > 0);
+            bars.sort_by_key(|r| r.w.max(r.h));
+            if let Some(bar) = bars.into_iter().find(|&r| clear(r)) {
+                m.shapes.push(Shape { layer, rect: bar });
+            }
         }
     }
 }

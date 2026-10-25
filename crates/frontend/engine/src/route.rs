@@ -70,6 +70,7 @@ pub(crate) fn routing_stack(pdk: &Pdk, top: Option<usize>) -> Result<RoutingStac
 ///
 /// ponytail: one die temperature; local self-heating of a conductor (the
 /// electrothermal loop, Lienig ch. 3) is not fed back.
+#[allow(dead_code)] // ponytail: 1.0-tested; M2 wires EM sizing, matched-cell blockages and antenna diodes (ROADMAP)
 pub(crate) fn em_limits(pdk: &Pdk, layers: &[LayerId], cuts: &[Cut], temp_k: Option<f32>) -> Vec<(LayerId, analog::routing::em::Limit)> {
     layers
         .iter()
@@ -126,14 +127,17 @@ pub fn stack(pdk: &Pdk) -> analog::routing::Stack {
 /// Sheet resistance past which a resistor body is protected whatever its
 /// class: Hastings's minimal-matching allowance holds only to 500 Ω/□
 /// (§8.2.3; §6.1 names > 1 kΩ/□ as modulated by leads above).
+#[allow(dead_code)] // ponytail: 1.0-tested; M2 wires EM sizing, matched-cell blockages and antenna diodes (ROADMAP)
 const BODY_SHEET_OHM: f32 = 500.0;
 /// How far aggressor-class nets keep off a cap plate, nm (Hastings §8.2.2:
 /// "≥ 3–4 µm around the shielded area", lower end).
+#[allow(dead_code)] // ponytail: 1.0-tested; M2 wires EM sizing, matched-cell blockages and antenna diodes (ROADMAP)
 const PLATE_AGGRESSOR_NM: i32 = 3_000;
 
 /// The match class of the set a cell drawing `members` belongs to: the
 /// `Unitization` of more than one device holding every member, its class or
 /// `Moderate` when not given (C16); `None` = in no matched set.
+#[allow(dead_code)] // ponytail: 1.0-tested; M2 wires EM sizing, matched-cell blockages and antenna diodes (ROADMAP)
 pub(crate) fn match_class(units: &[analog::cell::Unitization], members: &[analog::base::DeviceId]) -> Option<analog::base::MatchClass> {
     units
         .iter()
@@ -155,6 +159,7 @@ pub(crate) fn match_class(units: &[analog::cell::Unitization], members: &[analog
 /// for foreign nets below the plate's top conductor (the highest routed
 /// metal of the cell over it) and soft above, at Minimal soft; aggressors
 /// keep [`PLATE_AGGRESSOR_NM`] off it on every layer.
+#[allow(dead_code)] // ponytail: 1.0-tested; M2 wires EM sizing, matched-cell blockages and antenna diodes (ROADMAP)
 pub(crate) fn blockages(placed: &[Macro], pdk: &Pdk, class_of: impl Fn(usize) -> Option<analog::base::MatchClass>, layers: &[LayerId]) -> Vec<routing::dr::Blockage> {
     use analog::base::{KeepWhy, MatchClass, Process, Rect};
     let all: u16 = if layers.len() >= 16 { u16::MAX } else { (1u16 << layers.len()) - 1 };
@@ -221,6 +226,7 @@ pub(crate) fn blockages(placed: &[Macro], pdk: &Pdk, class_of: impl Fn(usize) ->
 /// budget from `ir` (`annotator::ir::budgets`: `(net, µA, max drop µV)`)
 /// becomes its `max_drop_mv`, which arms `ir_drop`; a signal net's budget is
 /// not written, as GPurify's grid examines only supply nets.
+#[allow(dead_code)] // ponytail: 1.0-tested; M2 wires EM sizing, matched-cell blockages and antenna diodes (ROADMAP)
 pub(crate) fn intent(
     netlist: &analog::base::Netlist,
     classes: &[analog::metadata::NetClassification],
@@ -263,6 +269,7 @@ pub(crate) fn intent(
 ///
 /// ponytail: one minimum diode per net, at the first free spot within 50 µm;
 /// `clearance` is the placer's cell-to-cell gap.
+#[allow(dead_code)] // ponytail: 1.0-tested; M2 wires EM sizing, matched-cell blockages and antenna diodes (ROADMAP)
 pub(crate) fn antenna_diodes(
     pdk: &Pdk,
     routing: &Requirements<Routes>,
@@ -514,7 +521,7 @@ mod tests {
     /// that is also a routing metal, is an `Err` from `routing_stack`, never a panic.
     #[test]
     fn a_bad_stack_is_an_error_not_a_panic() {
-        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pdks/");
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../pdks/");
         let deck = std::fs::read_to_string(format!("{root}decks/sky130.deck")).unwrap();
         let good = std::fs::read_to_string(format!("{root}sky130.json")).unwrap();
         let sidecar = good.replace(",\n        \"via4\"", "");
@@ -634,6 +641,7 @@ mod tests {
 /// `library::model_table`): a MOS is P-type when its S/D terminal layer, or
 /// its marker, is computed from `psdm`; a BJT is a PNP when its model has a
 /// `pnp` token.
+#[allow(dead_code)] // ponytail: 1.0-tested; M2 wires EM sizing, matched-cell blockages and antenna diodes (ROADMAP)
 pub(crate) fn model_table(pdk: &Pdk) -> Vec<(String, analog::base::DeviceKind)> {
     use analog::base::{DeviceKind as K, Process as _};
     use verify::DeviceKind as D;
@@ -731,10 +739,38 @@ pub fn route(tiles: &[Macro], layout: &analog::base::Layout, problem: &annotator
     d_router.cfg.stack = cfg.process.stack;
     let mut neg = routing::gr::Negotiation::new();
     let placed = analog::base::place_macros(tiles, layout);
-    let pins: Vec<_> = placed.iter().flat_map(|m| m.pins.iter().map(|p| (p.net, p.at, p.layer))).collect();
+    // One pin per net per island a tile already joins (two members' pins on
+    // one strap, one tap rail); a net then whole in its tile has one pin
+    // left and is not routed. `dr` reads the macros' pins as well as `pins`,
+    // so both carry only what is still apart.
+    let mut keep: Vec<Vec<bool>> = Vec::new();
+    for m in &placed {
+        let isl = crate::islands(&m.shapes);
+        let mut seen: Vec<(analog::base::NetId, usize)> = Vec::new();
+        keep.push(
+            m.pins
+                .iter()
+                .map(|p| match crate::pin_island(p, &m.shapes, &isl) {
+                    Some(i) if seen.contains(&(p.net, i)) => false,
+                    Some(i) => {
+                        seen.push((p.net, i));
+                        true
+                    }
+                    None => true,
+                })
+                .collect(),
+        );
+    }
+    let kept = |n: analog::base::NetId| placed.iter().zip(&keep).flat_map(|(m, k)| m.pins.iter().zip(k)).filter(|(p, &k)| k && p.net == n).count();
+    let routed: Vec<Macro> = placed
+        .iter()
+        .zip(&keep)
+        .map(|(m, k)| Macro { pins: m.pins.iter().zip(k).filter(|(p, &k)| k && kept(p.net) > 1).map(|(p, _)| p.clone()).collect(), ..m.clone() })
+        .collect();
+    let pins: Vec<_> = routed.iter().flat_map(|m| m.pins.iter().map(|p| (p.net, p.at, p.layer))).collect();
     let mut best: Option<(analog::base::Routes, analog::base::Report)> = None;
     for _ in 0..EPOCHS {
-        let (routes, report, _) = d_router.route(&pins, &placed, &[], &problem.routing, layers, cuts, &mut neg);
+        let (routes, report, _) = d_router.route(&pins, &routed, &[], &problem.routing, layers, cuts, &mut neg);
         if best.as_ref().is_none_or(|(_, b)| report.lex() < b.lex()) {
             best = Some((routes, report));
         }
