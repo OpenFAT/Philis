@@ -80,6 +80,7 @@ work happens live here; transforms are straight loops over tables.
 | S7 mode | policy: recipe, free-form (Q16) | 1 and 4: one `Mode` enum matched once at the top of `engine::run` | it is one branch | never |
 | S8 output | kind: GDS, Rust, SVG, report | 4: separate transforms, one spine line each | nothing varies inside them | never |
 | S9 routing engine | backend | none: `dr` is the one router (Q23); concrete code | one case | atoll's router gains symmetry |
+| S10 sign-off engine | backend: GPurify, KLayout decks, magic + netgen (owner, 2026-10-25: "the user can pick between them") | 4: closed `verify::SignoffEngine`, one exhaustive match in `verify::foundry::signoff`; each foundry engine is a `fn(&Run) -> Result<Verdict, Refused>` over files in a scratch directory | rung 3 (a table) cannot hold a different tool invocation and report parser per engine; rung 5 buys nothing in cold code that runs a subprocess | a fourth engine (a commercial deck) is a variant; engines loaded at run time would be rung 9 |
 
 Every rung-5 seam here sits in cold code: layout generation runs once per
 circuit, never per element in a hot loop, so the `asm_probe` rule of
@@ -132,7 +133,7 @@ no callbacks, no registries, no hidden state.
 - A new routing recipe: one type in `backend/routing` writing the request
   table, one variant, one claim kind in `kernel/analog` if it promises
   something new.
-- A new PDK: its GPurify deck (`pdks/<pdk>.deck`, Philis edits as `kernel/verify` overrides), one `kernel/verify/src/pdk_data/<pdk>.rs` table (layer roles, routing stack, Philis numbers), the tile
+- A new PDK: its GPurify deck (`pdks/<pdk>.deck`, Philis edits as `kernel/verify` overrides), its foundry decks if open (`pdks/klayout/<pdk>/`, `pdks/magic/<pdk>/` with a `PROVENANCE.md`, one arm each in `verify::foundry::{klayout, magic}`), one `kernel/verify/src/pdk_data/<pdk>.rs` table (layer roles, routing stack, Philis numbers), the tile
   constructors in `substrate3/pdk`, the conformance run that fills its
   availability column.
 - A new constraint kind: one `Rule` in `kernel/analog`, its emitter in

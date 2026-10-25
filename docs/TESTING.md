@@ -33,8 +33,8 @@ with a coded diagnostic.
 |---|---|---|---|
 | geometry violates a claim (asymmetry, centroid off, unequal environment) | `RuleBatch` in `kernel/analog`, computed from drawn geometry independently of the recipe (Q2, Q40) | seeded-violation test per claim kind: clean tile, inject one defect, exactly that claim fails | merge |
 | geometry DRC- or ERC-dirty | GPurify in-process on the real decks (certificate check) | conformance matrix: every recipe × proof PDK × parameter grid (Q28) | merge (sky130, asap7); nightly (gf180mcu, ihp) |
-| GPurify deck gap | foundry KLayout, magic, netgen on the same GDS (differential) | `signoff_xcheck.py` from 1.0 over the acceptance set | nightly |
-| LVS mismatch | netgen and GPurify against the LVS reference built from what was drawn | acceptance fixtures | merge |
+| GPurify deck gap | foundry KLayout, magic, netgen on the same GDS (differential), in process through `verify::SignoffEngine` | `engine/tests/foundry.rs`, `substrate3/tests/sky130_inverter.rs` (`signoff_xcheck.py` from 1.0 kept for its PEX calibration) | nightly |
+| LVS mismatch | GPurify against the LVS reference built from what was drawn (merge); KLayout LVS and netgen against the same reference (nightly) | acceptance fixtures | merge, nightly |
 | claim met in geometry but broken by parasitics (lead C, path R) | extracted network from GPurify PEX (Q29) | acceptance fixtures: differential pairs' lead C and path R equal within tolerance | merge |
 | recipe wrong on an untested PDK | the same conformance test on the second proof PDK (Q14) | conformance matrix | merge |
 | silent degradation or fallback | report rows (`ladder_step`, refusal diagnostics) asserted by the test | every acceptance fixture asserts its expected ladder steps and that no refusal occurred; a fixture with a missing recipe asserts the refusal | merge |
@@ -105,19 +105,64 @@ Substrate2 members); every step runs and the tier fails if any did:
 |---|---|
 | local | `cargo fmt --check` (reports a count, not gating yet), `cargo clippy --all-targets`, `cargo test --lib --no-fail-fast` on every crate but substrate3 (its lib tests DRC every device variant, ~160 s, and run at merge) |
 | merge | `cargo test --no-fail-fast`: every lib and integration test, `engine`'s `pair`, `conformance` and `deps` included |
-| nightly | merge, then `cargo test --no-fail-fast -- --ignored` (verify's field solves) |
+| nightly | merge, then `cargo test --no-fail-fast -- --ignored` (verify's field solves; the foundry engines' runs, which need `klayout`, `magic` and `netgen` on `PATH`: the dev shell has them) |
 | release | nightly with `--release` |
 
 `.github/workflows/ci.yml` runs `nix develop --command ci/run.sh merge` on push
 and PR and `nightly` on a daily schedule. Outside the dev shell set `PROTOC`
-(the script defaults to a nix store path). Not wired yet: fuzz replay, foundry
-cross-check, perf trend. `local` runs in ~10.5 s once built (placement's
+(the script defaults to a nix store path). Not wired yet: fuzz replay, perf trend. `local` runs in ~10.5 s once built (placement's
 lib tests ~4 s, cargo start-up the rest).
 
 Main always passes. A flaky test is fixed or quarantined the same day, and a
 quarantined test on a core crate blocks release. When the acceptance set
 outgrows the merge budget, fixtures rotate to nightly by size and are never
 dropped.
+
+## Foundry engines (the differential oracle in process)
+
+`verify::foundry::signoff(engine, …)` signs the same shapes, labels and
+reference off with GPurify, the foundry's KLayout decks, or magic plus
+netgen (`pdks/klayout/`, `pdks/magic/`, each with its `PROVENANCE.md`), and
+returns the same `Signoff` table: `drc/<rule>` rows, `lvs/mismatch`, and
+`erc`, `pex`, `em_ir` coverage rows the foundry engines do not check. A
+missing tool or deck is a `foundry/…` refusal, never a fallback and never a
+pass; a KLayout deck that exits non-zero without a verdict is refused even if
+it left an empty report (IHP's DRC did, before its rule JSON was vendored).
+The report parsers have unit tests on captured reports; the runs are
+`#[ignore]`d and run nightly.
+
+Results on `pair` (`engine/tests/foundry.rs`), 2026-10-25, KLayout 0.30.8,
+magic 8.3.629, netgen 1.5.320:
+
+| PDK | GPurify | KLayout | magic + netgen |
+|---|---|---|---|
+| sky130 | clean, match | clean, match | clean, match |
+| gf180mcu | M2.1 ×2, match | M2.1 ×2, match | M2.1 ×2, CO.7 ×10, CO.3 ×1, match |
+| ihp_sg13g2 | M1.b, M1.e, M1.f, match | M1.b ×1, **mismatch** | M1.b ×19, CntB.b ×10, CntB.h1 ×13, match |
+| asap7 | clean, match | DRC only: ACTIVE.S.2A ×2 | refused (`foundry/no-deck`) |
+
+What the differences say, open:
+
+- gf180mcu M2.1: all three agree; a routing defect, not a deck gap.
+- ihp_sg13g2 LVS: the IHP deck excludes any gate under nSD (7/0) from MOS
+  extraction (`mos_exclude`), and Philis's IHP nfet draws nSD over its gate;
+  with nSD stripped the same layout matches. GPurify's IHP deck has no such
+  exclusion: a GPurify deck gap and a device-drawing defect.
+- ihp_sg13g2 M1.b: all three see metal1 spacing; magic counts more.
+- asap7 ACTIVE.S.2A (92 nm between the active regions of different
+  transistors): GPurify's asap7 deck has no such rule; to be decided against
+  the ASAP7 DRM.
+- magic's gf180mcu CO.7/CO.3 and IHP CntB rows: KLayout ran the same rules
+  and passed them; magic's contact model, not confirmed defects.
+- sky130's KLayout LVS names the NMOS bulk globally (`lvs_sub`), so it
+  cannot see a missing p-tap; GPurify and magic can.
+
+The negative controls (a schematic twice as wide fails LVS; one routing
+metal at half its minimum width adds a DRC finding against the unmodified
+run) pass under both foundry engines on sky130 and gf180mcu, under magic on
+ihp_sg13g2 (LVS) and both engines (DRC), and under KLayout on asap7 (DRC).
+When a PDK's `pair` signs off clean under an engine, its `pair_signs_off_…`
+test is added beside sky130's.
 
 ## Exit criteria for v1
 

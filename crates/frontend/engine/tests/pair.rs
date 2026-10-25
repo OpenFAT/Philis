@@ -21,7 +21,7 @@ fn findings(s: &verify::Signoff) -> Vec<String> {
 
 fn signs_off(deck: &str, spice: &str) {
     let pdk = verify::Pdk::builtin(deck).expect("a built-in deck");
-    let out = engine::run(spice, &pdk).unwrap_or_else(|r| panic!("{deck}: {r}"));
+    let out = engine::run(spice, &pdk, verify::SignoffEngine::Gpurify).unwrap_or_else(|r| panic!("{deck}: {r}"));
     assert!(findings(&out.signoff).is_empty(), "{deck}: {:?}\n{}", findings(&out.signoff), out.report);
 }
 
@@ -29,9 +29,9 @@ fn signs_off(deck: &str, spice: &str) {
 /// devices are twice as wide fails LVS.
 fn resized_fails(deck: &str, spice: &str, from: &str, to: &str) {
     let pdk = verify::Pdk::builtin(deck).expect("a built-in deck");
-    let out = engine::run(spice, &pdk).unwrap_or_else(|r| panic!("{deck}: {r}"));
+    let out = engine::run(spice, &pdk, verify::SignoffEngine::Gpurify).unwrap_or_else(|r| panic!("{deck}: {r}"));
     let wider = engine::parse(&spice.replace(from, to), &pdk).expect("parses");
-    let s = engine::signoff(&wider, &out.placed, &out.routes, &pdk).expect("signs off");
+    let s = engine::signoff(&wider, &out.placed, &out.routes, &pdk, verify::SignoffEngine::Gpurify).expect("signs off");
     assert!(s.report.hard_violations.iter().any(|v| v.rule.starts_with("lvs/")), "{deck}: a resized schematic still matches");
 }
 

@@ -25,7 +25,7 @@ use verify::{LabeledPin, Pdk};
 /// fallback to another spine.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Refusal {
-    /// `parse`, `no-recipe`, `reference`.
+    /// `parse`, `no-recipe`, `reference`, or a foundry engine's `foundry/…` ([`verify::Refused`]).
     pub code: &'static str,
     pub message: String,
 }
@@ -540,12 +540,15 @@ pub fn geometry(placed: &[Macro], routes: &Routes) -> Vec<Shape> {
     placed.iter().flat_map(|m| m.shapes.iter().copied()).chain(routes.wires.iter().flatten().copied()).collect()
 }
 
-/// DRC, ERC, LVS and PEX of the routed layout against the schematic, in
-/// process. Labels: one per net, on the first pin that sits on drawn metal.
+/// Sign the routed layout off against the schematic with `engine`
+/// ([`verify::SignoffEngine`]: GPurify in process, or the foundry's KLayout
+/// or magic/netgen decks). Labels: one per net, on the first pin that sits
+/// on drawn metal.
 ///
 /// # Errors
-/// The schematic's LVS reference cannot be built.
-pub fn signoff(netlist: &Netlist, placed: &[Macro], routes: &Routes, pdk: &Pdk) -> Result<verify::Signoff, Refusal> {
+/// The schematic's LVS reference cannot be built, or a foundry engine
+/// refused (no tool, no deck for this PDK, no verdict): its code is kept.
+pub fn signoff(netlist: &Netlist, placed: &[Macro], routes: &Routes, pdk: &Pdk, engine: verify::SignoffEngine) -> Result<verify::Signoff, Refusal> {
     let shapes = geometry(placed, routes);
     let names: Vec<String> = netlist.flat.nets.iter().map(|n| n.name.clone()).collect();
     let pins = labeled_pins(placed, &names, pdk, &shapes);
@@ -553,7 +556,7 @@ pub fn signoff(netlist: &Netlist, placed: &[Macro], routes: &Routes, pdk: &Pdk) 
     reference.devices.extend(dummy_cards(placed, &names, &reference.devices));
     reference.external_ports = Some(reference.ports.clone());
     reference.ports = pins.iter().map(|p| p.name.clone()).collect();
-    Ok(verify::signoff_checked(&shapes, &pins, &reference, &verify::Intent::default(), pdk))
+    verify::foundry::signoff(engine, &shapes, &pins, &reference, &verify::Intent::default(), pdk).map_err(|r| Refusal { code: r.code, message: r.message })
 }
 
 /// One label per net (1.0 `labeled_pins`): the first placed pin on a label
@@ -613,16 +616,16 @@ pub fn report(calls: &RecipeCalls, flat: &Flat, signoff: &verify::Signoff) -> St
     s
 }
 
-/// Recipe mode, the whole spine.
+/// Recipe mode, the whole spine, signed off by `engine`.
 ///
 /// # Errors
 /// Any step's [`Refusal`].
-pub fn run(spice: &str, pdk: &Pdk) -> Result<Outcome, Refusal> {
+pub fn run(spice: &str, pdk: &Pdk, engine: verify::SignoffEngine) -> Result<Outcome, Refusal> {
     let netlist = parse(spice, pdk)?;
     let cfg = annotation(pdk);
     let problem = annotator::annotate(&netlist.flat, &cfg);
     let calls = plan_recipes(&problem, &netlist.flat)?;
-    run_calls(&netlist, &problem, &cfg, calls, pdk)
+    run_calls(&netlist, &problem, &cfg, calls, pdk, engine)
 }
 
 /// The spine from a call table on: what [`run`] does after `plan_recipes`,
@@ -630,11 +633,11 @@ pub fn run(spice: &str, pdk: &Pdk) -> Result<Outcome, Refusal> {
 ///
 /// # Errors
 /// Any step's [`Refusal`].
-pub fn run_calls(netlist: &Netlist, problem: &annotator::Problem, cfg: &annotator::AnnotationConfig, calls: RecipeCalls, pdk: &Pdk) -> Result<Outcome, Refusal> {
+pub fn run_calls(netlist: &Netlist, problem: &annotator::Problem, cfg: &annotator::AnnotationConfig, calls: RecipeCalls, pdk: &Pdk, engine: verify::SignoffEngine) -> Result<Outcome, Refusal> {
     let tiles = build_tiles(&calls, problem, &netlist.flat, pdk)?;
     let layout = arrange(&tiles, pdk)?;
     let (placed, routes, route_report) = route::route(&tiles, &layout, problem, cfg, netlist.flat.nets.len(), pdk);
-    let signoff = signoff(netlist, &placed, &routes, pdk)?;
+    let signoff = signoff(netlist, &placed, &routes, pdk, engine)?;
     let report = report(&calls, &netlist.flat, &signoff);
     Ok(Outcome { calls, placed, routes, route_report, signoff, report })
 }
