@@ -33,7 +33,9 @@ Also carried from 1.0 as milestone gates: `tt_ota`, `ota_constrained`, `quad`,
   `routing::dr::tests::foreign_nets_route_around_a_matched_cell`, and the
   annotator's `twelve_thousand_devices` wall-time budget (2 s, a debug-build
   timing assertion; Q53 makes performance a tracked number, so it moves to the
-  benchmark tier). Each is fixed in its own commit, never inside a move.
+  benchmark tier), and `substrate3::cells::cap_array::tests::extracted_bit_ratios_follow_the_weights`
+  (listed failing in 1.0's plan-09). Each is fixed in its own commit, never
+  inside a move.
 
 - Compaction is research (M6); until its verdict, the hot path's area is the
   atoll-snapped area.

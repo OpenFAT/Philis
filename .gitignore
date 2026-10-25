@@ -1,3 +1,5 @@
 /target
+/.pdk
+/.venv
 # textbooks and papers: kept in the working tree, never committed (copyright, 126 MB)
 /docs/ref/*.pdf
