@@ -45,6 +45,13 @@ fn pair_signs_off_on_asap7() {
     signs_off("asap7", &on_asap7(PAIR));
 }
 
+/// gf180mcu is nightly for conformance (TESTING.md), but `pair` is cheap and
+/// in process, so it gates at merge like the proof PDKs.
+#[test]
+fn pair_signs_off_on_gf180mcu() {
+    signs_off("gf180mcu", &PAIR.replace("nfet_01v8", "nfet_03v3"));
+}
+
 #[test]
 fn a_resized_schematic_fails_lvs_on_sky130() {
     resized_fails("sky130", PAIR, "W=2u", "W=4u");

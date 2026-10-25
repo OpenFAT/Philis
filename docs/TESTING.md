@@ -137,13 +137,14 @@ magic 8.3.629, netgen 1.5.320:
 | PDK | GPurify | KLayout | magic + netgen |
 |---|---|---|---|
 | sky130 | clean, match | clean, match | clean, match |
-| gf180mcu | M2.1 ×2, match | M2.1 ×2, match | M2.1 ×2, CO.7 ×10, CO.3 ×1, match |
+| gf180mcu | clean, match | clean, match | CO.7 ×10, CO.3 ×1 (magic's grid), match |
 | ihp_sg13g2 | M1.b, M1.e, M1.f, match | M1.b ×1, **mismatch** | M1.b ×19, CntB.b ×10, CntB.h1 ×13, match |
 | asap7 | clean, match | DRC only: ACTIVE.S.2A ×2 | refused (`foundry/no-deck`) |
 
 What the differences say, open:
 
-- gf180mcu M2.1: all three agree; a routing defect, not a deck gap.
+- gf180mcu M2.1 (fixed): a pin-access jog climbing to metal2 was drawn at
+  metal1's lattice wire (260 nm) under metal2's 280 nm minimum.
 - ihp_sg13g2 LVS: the IHP deck excludes any gate under nSD (7/0) from MOS
   extraction (`mos_exclude`), and Philis's IHP nfet draws nSD over its gate;
   with nSD stripped the same layout matches. GPurify's IHP deck has no such
@@ -152,8 +153,12 @@ What the differences say, open:
 - asap7 ACTIVE.S.2A (92 nm between the active regions of different
   transistors): GPurify's asap7 deck has no such rule; to be decided against
   the ASAP7 DRM.
-- magic's gf180mcu CO.7/CO.3 and IHP CntB rows: KLayout ran the same rules
-  and passed them; magic's contact model, not confirmed defects.
+- magic's gf180mcu CO.7/CO.3: its 5 nm contact growth rounds half up on a
+  10 nm grid, so contacts at the exact minimum fail on their +x/+y edges;
+  shifted 5 nm the same GDS is clean (`pdks/magic/gf180mcu/PROVENANCE.md`).
+  The magic test admits those two rows; KLayout gates them.
+- magic's IHP CntB rows: KLayout ran the same rules and passed them;
+  magic's contact model, not confirmed defects.
 - sky130's KLayout LVS names the NMOS bulk globally (`lvs_sub`), so it
   cannot see a missing p-tap; GPurify and magic can.
 

@@ -698,8 +698,9 @@ impl DetailedRoute {
                 let (blk_a, blk_b) = (blocks_on(a, jog_l), blocks_on(b, jog_l));
                 let metal = layers.get(jog_l as usize);
                 let need = metal.map_or(0, |&m| access_need(cfg, m, ua_a.filter(|_| known_a)).max(access_need(cfg, m, ua_b.filter(|_| known_b))));
-                let full = cfg.wire_width.max(1).max(need);
                 let floor = cfg.min_width.iter().find(|&&(l, _)| Some(&l) == metal).map_or(1, |&(_, w)| w);
+                // The jog metal's own minimum, not layer 0's wire: a jog climbs.
+                let full = cfg.wire_width.max(floor).max(need);
                 let narrow = full.min(ra.w).min(ra.h).max(floor).max(need);
                 let ok_n = |n: u32| {
                     clean_at(&reserved, a, ra, n) && grid.map(map, n).is_some_and(|m| m != n && !claimed[m as usize] && side(n, m) == want_side && clean_at(&reserved, b, rb, m))
@@ -784,8 +785,9 @@ impl DetailedRoute {
                 let blocks = blocks_on(ci, jog_l);
                 // No candidate jog narrower than its EM width.
                 let need = metal.map_or(0, |&m| access_need(cfg, m, ua));
-                let full = cfg.wire_width.max(1).max(need);
                 let floor = cfg.min_width.iter().find(|&&(l, _)| Some(&l) == metal).map_or(1, |&(_, w)| w);
+                // The jog metal's own minimum, not layer 0's wire: a jog climbs.
+                let full = cfg.wire_width.max(floor).max(need);
                 let narrow = full.min(r.w).min(r.h).max(floor).max(need);
                 // A point terminal (1×1 rect) is its own node: nothing to jog to.
                 let point = r.w <= 1 && r.h <= 1;
@@ -2511,8 +2513,9 @@ fn add_pin_access(
         let (px, py) = (a.pin.x + a.pin.w / 2, a.pin.y + a.pin.h / 2);
         // No jog narrower than its EM width: narrow survives only where it meets it.
         let need = access_need(cfg, metal, a.node_ua);
-        let full = cfg.wire_width.max(1).max(need);
         let floor = cfg.min_width.iter().find(|&&(l, _)| l == metal).map_or(1, |&(_, w)| w);
+        // The jog metal's own minimum, not layer 0's wire: a jog climbs.
+        let full = cfg.wire_width.max(floor).max(need);
         let narrow = full.min(a.pin.w).min(a.pin.h).max(floor).max(need);
         let legs_of = |(w, flip): (i32, bool)| jog_legs(nx, ny, px, py, w)[usize::from(flip)];
         let options = [(full, false), (full, true), (narrow, false), (narrow, true)];

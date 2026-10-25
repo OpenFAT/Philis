@@ -26,10 +26,13 @@ fn findings(s: &verify::Signoff) -> Vec<String> {
     s.report.hard_violations.iter().map(|v| format!("{} ({})", v.rule, v.margin)).filter(|r| !r.starts_with("engine/pex")).collect()
 }
 
-fn signs_off(pdk: &str, engine: SignoffEngine) {
+/// Clean but for `known`: rows the engine reports that are its own artifact,
+/// not a layout defect (each documented where it is passed).
+fn signs_off(pdk: &str, engine: SignoffEngine, known: &[&str]) {
     let p = verify::Pdk::builtin(pdk).unwrap();
     let out = engine::run(&pair(pdk), &p, engine).unwrap_or_else(|r| panic!("{pdk} {engine:?}: {r}"));
-    assert!(findings(&out.signoff).is_empty(), "{pdk} {engine:?}: {:?}", findings(&out.signoff));
+    let left: Vec<String> = findings(&out.signoff).into_iter().filter(|r| !known.iter().any(|k| r.contains(k))).collect();
+    assert!(left.is_empty(), "{pdk} {engine:?}: {left:?}");
     if engine != Gpurify {
         // What the foundry engine did not check is listed, never a pass.
         let skipped: Vec<&str> = out.signoff.coverage.skipped_rules.iter().map(|(r, _)| r.as_str()).collect();
@@ -76,10 +79,10 @@ fn narrowed_fails_drc(pdk: &str, engine: SignoffEngine) {
 // both negative controls caught.
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
-fn pair_signs_off_on_sky130_under_klayout() { signs_off("sky130", Klayout) }
+fn pair_signs_off_on_sky130_under_klayout() { signs_off("sky130", Klayout, &[]) }
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
-fn pair_signs_off_on_sky130_under_magic() { signs_off("sky130", Magic) }
+fn pair_signs_off_on_sky130_under_magic() { signs_off("sky130", Magic, &[]) }
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
 fn a_resized_schematic_fails_lvs_on_sky130_under_klayout() { resized_fails_lvs("sky130", Klayout) }
@@ -93,10 +96,19 @@ fn a_narrowed_metal_fails_drc_on_sky130_under_klayout() { narrowed_fails_drc("sk
 #[ignore = "needs klayout/magic/netgen: nightly"]
 fn a_narrowed_metal_fails_drc_on_sky130_under_magic() { narrowed_fails_drc("sky130", Magic) }
 
-// gf180mcu and ihp_sg13g2: `pair` is not clean there under any engine yet
-// (TESTING.md, "Foundry engines"), so only the controls that hold run: each
-// engine still sees a narrowed metal, and LVS still sees a resized
-// schematic wherever the unmodified pair matches.
+// gf180mcu: clean and matched under both foundry engines, both controls caught.
+#[test]
+#[ignore = "needs klayout/magic/netgen: nightly"]
+fn pair_signs_off_on_gf180mcu_under_klayout() { signs_off("gf180mcu", Klayout, &[]) }
+/// magic grows each imported contact by 5 nm (`grow 145 shrink 140`) onto a
+/// 10 nm grid, rounding half up: contacts drawn exactly at CO.7 (150 nm to
+/// the gate) and CO.3 (70 nm poly enclosure) read 5 nm short on their +x/+y
+/// edges only, and the same layout shifted 5 nm is clean
+/// (`pdks/magic/gf180mcu/PROVENANCE.md`). KLayout runs the DRM's CO.3 and
+/// CO.7 above, so it, not this test, gates those two rules.
+#[test]
+#[ignore = "needs klayout/magic/netgen: nightly"]
+fn pair_signs_off_on_gf180mcu_under_magic() { signs_off("gf180mcu", Magic, &["(CO.7 - 2 * CO.6)", "(CO.3)"]) }
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
 fn a_resized_schematic_fails_lvs_on_gf180mcu_under_klayout() { resized_fails_lvs("gf180mcu", Klayout) }
@@ -109,6 +121,10 @@ fn a_narrowed_metal_fails_drc_on_gf180mcu_under_klayout() { narrowed_fails_drc("
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
 fn a_narrowed_metal_fails_drc_on_gf180mcu_under_magic() { narrowed_fails_drc("gf180mcu", Magic) }
+// ihp_sg13g2: `pair` is not clean there under any engine yet (TESTING.md,
+// "Foundry engines"), so only the controls that hold run: each engine still
+// sees a narrowed metal, and LVS still sees a resized schematic wherever the
+// unmodified pair matches.
 #[test]
 #[ignore = "needs klayout/magic/netgen: nightly"]
 fn a_resized_schematic_fails_lvs_on_ihp_sg13g2_under_magic() { resized_fails_lvs("ihp_sg13g2", Magic) }
