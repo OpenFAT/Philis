@@ -70,9 +70,10 @@ Status after scoring: met, violated, unknown (inputs missing, as 1.0's
 
 ## Capability traits (Q10)
 
-A handful, shared by every recipe. Implemented per PDK; the data comes from the
-deck's JSON keys through `build.rs` (Q26), the geometry constructors are
-hand-written per PDK.
+A handful, shared by every recipe. Implemented per PDK; the rule values come
+from GPurify's deck tables through `kernel/verify` (Q55), generated into the
+typed PDK by `build.rs` (Q26); the analog-only numbers follow Q57; the geometry
+constructors are hand-written per PDK.
 
 ```rust
 pub trait PhilisPdk: layout::schema::Schema + schematic::schema::Schema + Sized {
@@ -184,4 +185,6 @@ run.
   of each family (`RECIPES.md`).
 - Whether capability traits are supertraits of `PhilisPdk` or associated
   types: decided by the first conformance test's ergonomics.
-- The fork's upstream sync policy (Q35).
+- The fork's upstream sync cadence: the rev moves on purpose, recorded in the
+  README (Q35); how often is decided when the first upstream fix is needed.
+- Where the analog-only PDK numbers live (Q57).

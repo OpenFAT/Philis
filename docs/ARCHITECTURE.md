@@ -7,7 +7,7 @@ place-and-route is a separately selected mode that shares the netlist, the
 constraints, the device blocks, the router and the signoff.
 
 Every line below cites the decision it comes from (`DECISIONS.md`, Q numbers).
-Lines marked **open** depend on a Round 3 question.
+Rounds 1 to 3 are settled; Round 4 items still open are marked **open**.
 
 ## Module DAG
 
@@ -16,15 +16,15 @@ owner's skeleton of 2026-10-25.
 
 | crate | owns | depends on |
 |---|---|---|
-| `kernel/analog` | ids, tables, geometry (1.0 `pnr_core` folded in, **open Q36**); `Rule`, `RuleBatch`, requirements; `intent` with `Confidence` added; matching math (moments, mismatch, patterns); claim scoring | nothing |
-| `kernel/verify` (**open Q36**) | decks (JSON sidecars per PDK), `Process`, GPurify DRC, ERC, LVS, PEX, `Checker`, coverage | analog |
-| `kernel/substrate3` | the fork of Substrate2 with `atoll` and `sky130` (**open Q35**); typed PDKs for sky130, gf180mcu, ihp_sg13g2, asap7 generated from decks; capability traits (`TRAITS.md`); device blocks (1.0 `cells`) as tiles on all four PDKs (Q8, Q27); set recipes and their ladders (Q1, Q19); signoff adapter | analog, verify |
+| `kernel/analog` | ids, tables, geometry (1.0 `pnr_core` folded in, Q36); `Rule`, `RuleBatch`, requirements; `intent` with `Confidence` added; matching math (moments, mismatch, patterns); claim scoring | nothing |
+| `kernel/verify` (Q36, Q55) | the thin adapter over GPurify: load a deck, expose its rule tables, run DRC, ERC, LVS, PEX, coverage; the analog-only numbers per Q57 | analog |
+| `kernel/substrate3` | the fork of Substrate2 with `atoll` and `sky130` (Q35); typed PDKs for sky130, gf180mcu, ihp_sg13g2, asap7 generated from decks; capability traits (`TRAITS.md`); device blocks (1.0 `cells`) as tiles on all four PDKs (Q8, Q27); set recipes and their ladders (Q1, Q19); signoff adapter | analog, verify |
 | `backend/placement` | floorplan recipes: symmetric row stack, array (Q21); glue row (Q20); targets solver (Q22); free-form placer (1.0 `gp`, `dp`) | analog, substrate3 |
 | `backend/routing` | routing recipes: mirror pair, star common node, shield, keepout (Q23); negotiated router (1.0 `gr`, `dr`); EM width, antenna repair | analog, substrate3 |
 | `backend/post-processing` | compaction (Q24, Q25; research first); later fill and density | analog, substrate3 |
 | `frontend/annotator` | netlist to `intent`: identification, confidence (Q6, Q30), sidecar reader (Q7, Q31) | analog, substrate3 (SCIR) |
 | `frontend/engine` | the two spines, the `recipe_calls` table (Q32), the printer (Q12, Q34), the CLI, modes (Q16, Q18) | all of the above |
-| `frontend/visualizer` (**open Q36**) | GDS parse, SVG export, viewer, progress probe | analog, `gpurify-geom` only |
+| `frontend/visualizer` (Q36) | GDS parse, SVG export, viewer, progress probe | analog, `gpurify-geom` only |
 
 Enforced by: Cargo crates (a cycle is a build error) plus `frontend/engine/tests/deps.rs`
 over `cargo tree` for the forbidden edges: the visualizer never links the GPurify
@@ -56,7 +56,7 @@ work happens live here; transforms are straight loops over tables.
 
 | table | owner (crate) | written by | read by | capacity | lifetime |
 |---|---|---|---|---|---|
-| `netlist` (SCIR library, **open Q37**) | engine (`parse`) | parse | annotator, plan, LVS reference | 65 535 devices and nets (u16 ids, as 1.0 asserts) | run |
+| `netlist` (SCIR library, Q37) | engine (`parse`) | parse | annotator, plan, LVS reference | 65 535 devices and nets (u16 ids, as 1.0 asserts) | run |
 | `intent`: sets, compounds, orders, net classes, guard-ring requirements, budgets, device facts; every row carries `origin` and `confidence` | annotator | annotate, sidecar | gate_confidence, plan_recipes, score_claims | one row per constraint, bounded by devices × families | run |
 | `recipe_calls`: recipe kind, parameters, claimed constraint ids, parent, children, placement relation, ladder step taken (Q32) | engine | plan_recipes | build_tiles, arrange, printer, visualizer, sidecar | ≤ sets + compounds + 1 glue + 1 floorplan per block | run |
 | `tiles`: outline, pins and abstract, unit table, device membership | substrate3 | build_tiles | arrange, route, score_claims | one per set-level call | run |
@@ -84,8 +84,12 @@ work happens live here; transforms are straight loops over tables.
 Every rung-5 seam here sits in cold code: layout generation runs once per
 circuit, never per element in a hot loop, so the `asm_probe` rule of
 `AGENTS.md` does not apply to them. The hot loops are inside `kernel/analog`
-scoring and `backend/routing` negotiation, where 1.0's SIMD and branchless
-rules continue to apply.
+scoring and `backend/routing` negotiation; per Q53 their performance is
+tracked, not gated, until the acceptance set passes.
+
+API shape across every crate (Q54, `API.md`): a variant family is one closed
+enum plus one shared trait plus a `Kind` discriminant; tables in, tables out;
+no callbacks, no registries, no hidden state.
 
 ## Invariants
 
@@ -138,35 +142,36 @@ rules continue to apply.
   (Q31).
 - Outside code needing to change a table: a request table its owner drains.
 
-## Change drill (**open Q51**)
+## Change drill (Q51)
 
-The three likely changes come from the owner. Candidates and their expected
-edit lists; radius counts existing function bodies edited.
+The owner took the three candidates (Q51). Edit lists are by design; the
+verdict is drilled when the crate exists. Radius counts existing function
+bodies edited.
 
 | ID | change | source | edits | radius | weight Δ | verdict |
 |---|---|---|---|---|---|---|
-| D1 | a new PDK (gf180mcu) through the hot path | candidate | `pdks/gf180mcu.json` keys; `substrate3/pdk`: tile constructors (new); conformance run (new rows) | 0 expected | +0 for callers (same `PhilisPdk` bound) | pending |
-| D2 | a new set recipe: 2-D common centroid for resistors | candidate | `substrate3/recipes/set/res_cc2d.rs` (new); `RecipeKind` variant (compiler-listed match arms in `plan_recipes`, printer); ladder row; conformance tests | arms listed by the compiler | +1 kind | pending |
-| D3 | a new routing recipe: shield tracks beside a victim | candidate | `routing/recipes/shield.rs` (new); request-table row kind; `Shield` claim already exists in 1.0's rules | 0 expected | +1 request kind | pending |
+| D1 | a new PDK (gf180mcu) through the hot path | owner (Q51) | `pdks/gf180mcu.json` keys; `substrate3/pdk`: tile constructors (new); conformance run (new rows) | 0 expected | +0 for callers (same `PhilisPdk` bound) | pending |
+| D2 | a new set recipe: 2-D common centroid for resistors | owner (Q51) | `substrate3/recipes/set/res_cc2d.rs` (new); `RecipeKind` variant (compiler-listed match arms in `plan_recipes`, printer); ladder row; conformance tests | arms listed by the compiler | +1 kind | pending |
+| D3 | a new routing recipe: shield tracks beside a victim | owner (Q51) | `routing/recipes/shield.rs` (new); request-table row kind; `Shield` claim already exists in 1.0's rules | 0 expected | +1 request kind | pending |
 
 ## Migration from Philis 1.0
 
-Copies, one commit each, citing the 1.0 commit (**open Q38**). 1.0 remains the
+Copies, one commit each, citing the 1.0 commit (Q38). 1.0 remains the
 history archive.
 
 | 1.0 | 2.0 | how |
 |---|---|---|
-| `kernel/core` (`pnr_core`) | `kernel/analog` leaf module (**open Q36**) | copy; ids and tables unchanged |
+| `kernel/core` (`pnr_core`) | `kernel/analog` leaf module (Q36) | copy; ids and tables unchanged |
 | `kernel/analog` | `kernel/analog` | copy; add `Confidence` to `intent` |
 | `kernel/cells` | `kernel/substrate3` device blocks | copy; each generator wrapped as a tile on all four PDKs (plan-09 P2 pattern) |
 | `kernel/macroMaster` (`pdk`, `signoff`) | `kernel/substrate3` | copy into the fork; `legacy` not carried |
-| `backend/verify` | `kernel/verify` (**open Q36**) | copy |
+| `backend/verify` | `kernel/verify` (Q36, Q55) | copy, then delete what re-derives GPurify tables |
 | `backend/annotator` | `frontend/annotator` | copy; then ID-01 to ID-18 for confidence (Q6) |
 | `backend/gp`, `backend/dp` | `backend/placement` (free-form) | copy |
 | `backend/gr`, `backend/dr` | `backend/routing` | copy; constrained-first ordering added (Q23) |
-| `frontend/library::parse` | `frontend/engine` or the fork's `spice` (**open Q37**) | decided by the M0 corpus run |
+| `frontend/library::parse` | SCIR is the IR (Q37); the parser that fills it is decided by the M0 corpus run | port 1.0's dialect handling where the fork's parser falls short |
 | `frontend/library::elaborate` | `frontend/engine` recipe spine (`route_recipes`, `route_rest`) | the hot path's route step |
 | `frontend/library::emit` | not carried (Q34) | the printer is new |
-| `kernel/visualizer` | `frontend/visualizer` (**open Q36**) | copy |
+| `kernel/visualizer` | `frontend/visualizer` (Q36) | copy |
 | `benchmarks/fixtures`, `signoff_xcheck.py`, `progress.py` | `benchmarks/` | copy |
 | `docs/ref`, textbook digests | `docs/ref` | done |

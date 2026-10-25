@@ -3,8 +3,8 @@
 Oracles first, inputs second. Every layer names the independent thing that says
 an output is wrong; a bug found by luck means an oracle is missing, and the fix
 is a new oracle or a new input generator, not one more example. Round 3 of
-`DECISIONS.md` (Q39 to Q50) holds the open questions; this plan is written to
-the recommended answers and changes where the owner answers differently.
+`DECISIONS.md` (Q39 to Q50) accepted this plan as written; Q53 made performance
+a tracked number rather than a gate.
 
 **In one sentence each.** Input: a SPICE netlist (plus an optional ALIGN-style
 sidecar, an interface file, an operating point) and a PDK deck. Output: a GDS,
@@ -46,7 +46,7 @@ with a coded diagnostic.
 | parser or reader crash or misread | coverage-guided fuzz with `cargo-fuzz`: SPICE, sidecar JSON, deck JSON, GDS bytes into the visualizer (Q45); oracle: no panic, every rejection carries a diagnostic, value round-trips | fuzz targets with a checked-in corpus | merge replays the corpus; nightly fuzzes |
 | printer drift | round-trip: `recipe_calls → Rust → cargo check → run → recipe_calls'` equal (Q47) | one generated crate per acceptance fixture | nightly |
 | output not reproducible for a seed | run twice with the same seed, compare `recipe_calls` and the GDS (Q33) | acceptance fixtures | merge |
-| hot path slower than its target | wall per fixture against the 10 s OTA target; +20 % alerts (Q48) | benchmark harness, `progress.py` | merge gates the target; nightly tracks |
+| hot path slower than its target | wall per fixture against the 10 s OTA target; +20 % alerts (Q48) | benchmark harness, `progress.py` | tracked on every push, reviewed at release, gates nothing until the acceptance set passes (Q53, Q56) |
 | free-form and recipe modes disagree on signoff | both modes must sign off every acceptance fixture (Q43) | differential run | merge |
 | overflow, NaN, out-of-range | `debug_assert!` contracts, `overflow-checks` on in test builds, saturating arithmetic where 1.0 found overflows | all debug tests | local |
 | rule silently not run | coverage rows in the signoff report (1.0's `Coverage`); a test asserts the set of rules run equals the deck's set | acceptance fixtures | merge |
@@ -93,7 +93,7 @@ proves nothing.
 | tier | budget | contents |
 |---|---|---|
 | local | < 10 s | `cargo fmt --check`, `cargo clippy`, unit and small-iteration property tests |
-| merge (required) | < 15 min | every unit, property and exhaustive test; conformance on sky130 and asap7; acceptance fixtures through both modes with in-process signoff; fuzz corpus replay; seeded reproducibility; the OTA wall target; `deps.rs` |
+| merge (required) | < 15 min | every unit, property and exhaustive test; conformance on sky130 and asap7; acceptance fixtures through both modes with in-process signoff; fuzz corpus replay; seeded reproducibility; `deps.rs` |
 | nightly | hours | foundry cross-check; gf180mcu and ihp conformance; long fuzz; printer round-trip; high-iteration properties; perf trend |
 | release | unbounded | exit criteria below on the release commit |
 
@@ -113,7 +113,7 @@ dropped.
 - Every `RuleKind` has a seeded-violation test.
 - Fuzz: each target ≥ 24 CPU-hours with no open crash and coverage plateaued.
 - Printer round-trip passes for every acceptance fixture.
-- OTA on sky130 under 10 s wall in release.
+- OTA on sky130 wall recorded in the release note against the 10 s target; it does not block the release (Q53).
 - Both modes sign off every acceptance fixture.
 - Zero quarantined tests on `kernel/*`, `backend/*`, `frontend/annotator`,
   `frontend/engine`.

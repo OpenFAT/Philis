@@ -485,15 +485,16 @@ the way.
 
 ---
 
-## Round 3 (open: testability, repo structure, drills)
+## Round 3 (18 decisions, 2026-10-25; the owner: "Otherwise I agree with all your suggestions")
 
 Asked 2026-10-25 after the owner created the `Philis2_0` skeleton
 (`crates/kernel/{substrate3,analog}`, `crates/backend/{placement,routing,
 post-processing}`, `crates/frontend/{annotator,engine}`; `substrate3/README.md`
 says "Fork of substrate2") and asked for testability: each feature built and
-tested to be functional as we go. Answers are appended here when given.
+tested to be functional as we go. Every recommendation below was accepted as
+written; the owner's same message added the three decisions of Round 4.
 
-### Q35 substrate3 is a fork, not a re-export — open
+### Q35 substrate3 is a fork, not a re-export — accepted
 
 plan-09 chose "re-export substrate2, send fixes upstream". The skeleton says
 fork. A fork lets capability traits be implemented directly on upstream tiles
@@ -504,7 +505,7 @@ Recommendation: fork, vendored at `crates/kernel/substrate3`, the upstream rev
 recorded in its README, BSD-3 notice kept, resynced on purpose and never
 silently.
 
-### Q36 Crate map — open
+### Q36 Crate map — accepted
 
 Where do the owners live? Settled by the skeleton: set recipes and the device
 blocks (`cells`) in `substrate3`; floorplan recipes in `backend/placement`;
@@ -519,7 +520,7 @@ Recommendation: `pnr_core` folds into `kernel/analog` as its leaf module;
 viewer must not link; the visualizer becomes `frontend/visualizer` because of
 its GPU dependency.
 
-### Q37 Netlist frontend — open
+### Q37 Netlist frontend — accepted
 
 Substrate's `spice` parser produces SCIR; 1.0's `library::parse` (1170 lines)
 handles dialects, `.param` expressions, hierarchy and TinyTapeout
@@ -529,13 +530,13 @@ by construction. Which parser fills it is a fact to establish in M0 by running
 both over the fixture corpus; 1.0's dialect handling is ported into the fork's
 parser where it falls short.
 
-### Q38 How code moves — open
+### Q38 How code moves — accepted
 
 Plain copy from Philis 1.0 with a commit message citing the 1.0 commit, versus
 `git subtree` or `filter-repo` to keep history. Recommendation: plain copy; 1.0
 stays as the history archive; every move is one commit.
 
-### Q39 Definition of done per feature — open
+### Q39 Definition of done per feature — accepted
 
 A feature lands with all four: (1) its self-check or unit test with a named
 oracle; (2) a fixture in the acceptance set, or an existing one, that
@@ -543,71 +544,71 @@ exercises it end to end; (3) a report row visible in `report.txt`; (4) a
 negative control that fails when the feature is broken (plan-09's resized
 schematic failing LVS is the model). Recommendation: yes, checked by CI.
 
-### Q40 Oracle for claims — open
+### Q40 Oracle for claims — accepted
 
 The independent `RuleBatch` scoring in `kernel/analog` is the oracle for every
 claim, plus one seeded-violation test per claim kind: inject one asymmetry into
 a clean tile and exactly that claim fails. Recommendation: yes.
 
-### Q41 Goldens — open
+### Q41 Goldens — accepted
 
 Per fixture: the call-tree table (seeded), the signoff verdict and an area
 bound. Never GDS bytes (Q15). Recommendation: yes.
 
-### Q42 Signoff oracles and tiers — open
+### Q42 Signoff oracles and tiers — accepted
 
 GPurify in-process on every push for sky130 and asap7; the foundry KLayout,
 magic and netgen cross-check (1.0's `signoff_xcheck.py`) nightly; gf180mcu and
 ihp_sg13g2 nightly. Recommendation: yes.
 
-### Q43 Differential against free-form — open
+### Q43 Differential against free-form — accepted
 
 Every acceptance fixture must sign off in both modes; hot-path area and wall
 are tracked against free-form; the gate in v1 is signoff plus the 10 s OTA
 target only. Recommendation: yes.
 
-### Q44 Property and exhaustive tests — open
+### Q44 Property and exhaustive tests — accepted
 
 Exhaustive for small pattern spaces (every member count up to 16 for centroid
 assignment: moments cancel); property tests for compaction invariants and
 floorplan symmetry with a hand-rolled seeded generator (1.0's `SplitMix64`),
 no `proptest` dependency. Recommendation: yes.
 
-### Q45 Fuzzing at trust boundaries — open
+### Q45 Fuzzing at trust boundaries — accepted
 
 SPICE netlist, sidecar JSON, deck JSON and GDS input to the visualizer, with
 `cargo-fuzz` nightly; corpus checked in; every crash becomes a regression
 input. Recommendation: yes.
 
-### Q46 Annotator gold — open
+### Q46 Annotator gold — accepted
 
 Extend the 69 ALIGN `*.const.json` corpus with expected confidence per
 constraint and expected recipe eligibility; the scoreboard gates every
 identification step. Recommendation: yes.
 
-### Q47 Printer round-trip — open
+### Q47 Printer round-trip — accepted
 
 For every acceptance fixture the emitted Rust compiles (`cargo check` of a
 generated crate) and rebuilds an equal call tree; nightly tier because of
 compile time. Recommendation: yes.
 
-### Q48 Performance regression — open
+### Q48 Performance regression — accepted
 
 Wall per fixture recorded per push (1.0's `progress.py`); gate only on the OTA
 target; nightly alert at +20 %. Recommendation: yes.
 
-### Q49 Visual artifacts — open
+### Q49 Visual artifacts — accepted
 
 One SVG per fixture from the visualizer attached to every CI run for human
 review; the progress page carries them. Recommendation: yes.
 
-### Q50 CI budget — open
+### Q50 CI budget — accepted
 
 Merge tier under 15 min: unit, property, conformance on two PDKs, acceptance
 fixtures in-process. Nightly unbounded. When the acceptance set outgrows the
 budget, fixtures rotate to nightly by size, never dropped. Recommendation: yes.
 
-### Q51 Three change drills — open
+### Q51 Three change drills — accepted
 
 The drill table in `ARCHITECTURE.md` needs three likely changes from the owner.
 Candidates: (D1) a new PDK, gf180mcu, through the hot path; (D2) a new set
@@ -615,9 +616,68 @@ recipe, 2-D common centroid for resistors; (D3) a new routing recipe, shield
 tracks beside a victim net. Recommendation: take the three unless the owner has
 others.
 
-### Q52 Roadmap order — open
+### Q52 Roadmap order — accepted
 
 M0 skeleton with `pair` through the hot path; M1 set recipes; M2 floorplan and
 routing to `ota`; M3 arrays to `dac4` and `bgr_core`; M4 confidence and sidecar
 to `strongarm`; M5 printer; M6 compaction spike; M7 free-form mode.
 Recommendation: yes, routing inside M2 because that is where 1.0 fails.
+
+---
+
+## Round 4 (decided by the owner with the `/api-design` request, 2026-10-25)
+
+### Q53 Performance is secondary to functionality, for now — decided
+
+The owner: "Performance is secondary to functionality right now." Consequences
+recorded in `TESTING.md` and `ROADMAP.md`: the 10 s OTA wall target is tracked
+and reported on every push, and is not a merge gate until the acceptance set
+passes functionally. The data-layout rules of `AGENTS.md` still shape tables
+(layout is cheap to get right once and expensive to change), but no feature
+waits on an `asm_probe` or a benchmark. Follow-up: Q56.
+
+### Q54 Every exposed struct family shares a trait and a closed enum — decided
+
+The owner: every crate's API must be easy to use; abstraction is good when it
+has negative overhead; the structs a crate exposes should share traits so a
+caller can match over them, especially where there are many variants, as in
+`kernel/analog`. Recorded as the API rule in `API.md`: a family of variants is
+one closed `enum` (a tagged union a caller can `match` exhaustively) plus one
+trait every variant implements for the shared operations, plus a `kind()`
+discriminant; `dyn Trait` is reserved for sets of implementations that live
+outside the workspace. Follow-up: Q58.
+
+### Q55 GPurify is the PDK input and the rule source — decided
+
+The owner: GPurify reads the PDK and sets up all the DRC, LVS, PEX and ERC
+rules; Philis consumes it to read the same rules and use them, and to read the
+PDK input without a special parser. Recorded in `ARCHITECTURE.md` and
+`TRAITS.md`: `kernel/verify` is a thin adapter over GPurify's deck tables; the
+capability traits of Q10 read rule values from those tables; Philis writes no
+deck parser. Open: where the analog-only numbers live (mismatch coefficients,
+layout-dependent-effect reach, EM derating) once GPurify's extension mechanism
+is known. Follow-up: Q57.
+
+### Q56 The OTA target becomes a tracked number — open
+
+Given Q53: the 10 s OTA wall is recorded per push and shown on the progress
+page, reviewed at each release, and gates nothing until the acceptance set is
+functionally complete. Recommendation: yes.
+
+### Q57 Where the analog-only PDK numbers live — open (waits on the GPurify inventory)
+
+1.0 kept them in a JSON sidecar beside the GPurify deck. Options: (a) extend
+GPurify's deck grammar upstream so one file carries DRC, LVS, ERC, PEX and the
+analog numbers; (b) keep a sidecar read through GPurify's own reader if its
+grammar admits unknown statements; (c) keep 1.0's JSON sidecar. Recommendation
+pending the inventory of GPurify's extension mechanism.
+
+### Q58 The shape of the shared-trait rule — open
+
+For every variant family (constraints and rules, intent rows, claims, recipe
+kinds, diagnostics, routing requests, capabilities): one closed enum holding the
+variant structs, one trait with the shared operations implemented by every
+struct and by the enum through an exhaustive match, and a `Kind` discriminant
+enum for tables that store only the tag. `dyn Trait` only for sets that live
+outside the workspace. Recommendation: yes, and `API.md` applies it crate by
+crate with usage code first.
