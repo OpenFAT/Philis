@@ -522,7 +522,7 @@ mod tests {
     #[test]
     fn a_bad_stack_is_an_error_not_a_panic() {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../pdks/");
-        let deck = std::fs::read_to_string(format!("{root}decks/sky130.deck")).unwrap();
+        let deck = std::fs::read_to_string(format!("{root}sky130.deck")).unwrap();
         let good = std::fs::read_to_string(format!("{root}sky130.json")).unwrap();
         let sidecar = good.replace(",\n        \"via4\"", "");
         assert!(!sidecar.contains("\"via4\""), "the sidecar edit took");
