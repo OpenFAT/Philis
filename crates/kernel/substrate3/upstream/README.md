@@ -1,0 +1,66 @@
+# Substrate 2
+
+![CI](https://github.com/substrate-labs/substrate2/actions/workflows/ci-main.yml/badge.svg)
+[![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
+
+21st century design automation tools.
+
+## Documentation
+
+User documentation, including installation instructions, tutorials, and API documentation, can be found [here](https://docs.substratelabs.io/).
+
+## Installation/Usage
+
+To use Substrate, [install Rust](https://www.rust-lang.org/tools/install) and add the Substrate registry to your Cargo config (`~/.cargo/config.toml`):
+
+```toml
+[registries]
+substrate = { index = "https://github.com/substrate-labs/crates-index" }
+```
+
+Then, add `substrate` as a dependency in your project's Cargo.toml:
+
+```toml
+[dependencies]
+substrate = { git = "https://github.com/substrate-labs/substrate2", branch = "main" }
+```
+
+Substrate is developed and tested using the latest version of Rust.
+
+Please note that all APIs are under development and may change without warning.
+
+## Testing
+
+Before running the tests, you must install [`just`](https://github.com/casey/just) by running `cargo install just`.
+
+To run the Substrate tests (both unit and integration tests), run
+
+```bash
+just test
+```
+
+from the root of the Substrate repository.
+
+## Contributing
+
+If you'd like to contribute to Substrate, please let us know. You can:
+* Ping us in the `#substrate` channel in the Berkeley Architecture Research Slack workspace.
+* Open an issue.
+* Email `rahulkumar -AT- berkeley -DOT- edu` and `rohankumar -AT- berkeley -DOT- edu`.
+
+Documentation updates, tests, and bugfixes are always welcome.
+For larger feature additions, please discuss your ideas with us before implementing them.
+
+Contributions can be submitted by opening a pull request against the `main` branch
+of this repository.
+
+Please see the [Getting Started page](https://docs.substratelabs.io/dev) for more information.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion
+in the work by you shall be licensed under the BSD 3-Clause license, without any additional terms or conditions.
+
+## Acknowledgements
+
+Portions of Substrate are derived from [Layout21](https://github.com/dan-fritchman/Layout21),
+which was written by Dan Fritchman, Arya Reais-Parsi, and others.
+This project is licensed under the BSD-3-Clause license.

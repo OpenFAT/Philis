@@ -1,0 +1,22 @@
+[package]
+name = "spice"
+version = "0.9.3"
+edition = "2024"
+
+[dependencies]
+arcstr = { version = "1", features = ["serde", "substr-usize-indices"] }
+nom = "8"
+thiserror = "2"
+tracing = "0.1"
+itertools = "0.14"
+rust_decimal = { version = "1", features = ["serde", "maths"] }
+rust_decimal_macros = "1"
+unicase = "2"
+ena = "0.14"
+regex = "1"
+lazy_static = "1"
+num-traits = "0.2"
+
+scir = { version = "0.9.2", registry = "substrate", path = "../scir" }
+substrate = { version = "0.10.3", registry = "substrate", path = "../../substrate" }
+enumify = { version = "0.2.2", registry = "substrate", path = "../enumify" }

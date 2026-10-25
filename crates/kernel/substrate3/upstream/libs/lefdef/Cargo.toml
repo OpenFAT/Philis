@@ -1,0 +1,7 @@
+[package]
+name = "lefdef"
+version = "0.2.2"
+edition = "2024"
+
+[dependencies]
+geometry = { version = "0.7.2", registry = "substrate", path = "../geometry" }

@@ -1,0 +1,36 @@
+[package]
+name = "sky130"
+version = "0.10.3"
+edition = "2024"
+
+[dependencies]
+atoll = { version = "0.1.4", registry = "substrate", path = "../../libs/atoll" }
+substrate = { version = "0.10.3", registry = "substrate", path = "../../substrate" }
+scir = { version = "0.9.2", registry = "substrate", path = "../../libs/scir" }
+layir = { version = "0.2.2", registry = "substrate", path = "../../libs/layir" }
+gdsconv = { version = "0.2.2", registry = "substrate", path = "../../libs/gdsconv" }
+gds = { version = "0.4.2", registry = "substrate", path = "../../libs/gds" }
+spectre = { version = "0.11.3", registry = "substrate", path = "../../tools/spectre" }
+ngspice = { version = "0.5.3", registry = "substrate", path = "../../tools/ngspice" }
+pegasus = { version = "0.2.2", registry = "substrate", path = "../../tools/pegasus" }
+spice = { version = "0.9.3", registry = "substrate", path = "../../libs/spice" }
+geometry_macros = { version = "0.1.2", registry = "substrate", path = "../../libs/geometry_macros" }
+geometry = { version = "0.7.2", registry = "substrate", path = "../../libs/geometry" }
+
+rust_decimal = "1"
+rust_decimal_macros = "1"
+indexmap = { version = "2", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+arcstr = { version = "1", features = ["serde"] }
+paste = "1"
+unicase = "2"
+derive_builder = "0.20"
+thiserror = "2"
+lazy_static = "1"
+
+[dev-dependencies]
+approx = "0.5"
+derive-where = "1"
+
+[features]
+spectre = []
