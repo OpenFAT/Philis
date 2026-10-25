@@ -472,6 +472,35 @@ impl Pdk {
         side.div_euclid(g) * g + if side.rem_euclid(g) == 0 { 0 } else { g }
     }
 
+    /// The discrete widths, nm, of the deck's first `width(L; allowed: [..])`
+    /// rule whose layer is built only from `drawn` (deck layer ids): `L`
+    /// itself drawn, or derived from drawn layers alone (sky130 rpm.1b's
+    /// `prec_rpm` = rpm, psdm, poly, poly_rs). `None` when no such rule binds
+    /// what a cell drawing `drawn` makes.
+    #[must_use]
+    pub fn allowed_widths_on(&self, drawn: &[u16]) -> Option<Vec<i32>> {
+        fn built_from(p: &Pdk, l: GvLayerId, drawn: &[u16], depth: u8) -> bool {
+            if !p.deck.layers.is_derived(l) {
+                return drawn.contains(&l.0);
+            }
+            // ponytail: a deck's derivations are a few levels deep; 32 bounds a cycle.
+            let ops = p.deck.layers.operands(l);
+            depth < 32 && !ops.is_empty() && ops.iter().all(|&o| built_from(p, o, drawn, depth + 1))
+        }
+        let (kind, width) = (self.strings.get("allowed_width")?, self.strings.get("width")?);
+        let rules = &self.deck.rules;
+        let rule = rules.spec.iter().find(|s| s.kind == kind && rules.layers_of(s).first().is_some_and(|&l| built_from(self, l, drawn, 0)))?;
+        let widths: Vec<i32> = rules
+            .params_of(rule)
+            .iter()
+            .filter_map(|&(n, v)| match v {
+                ParamValue::Length(d) if n == width => Some(d.raw() as i32),
+                _ => None,
+            })
+            .collect();
+        (!widths.is_empty()).then_some(widths)
+    }
+
     /// The deck's `min_area` for a layer in nm².
     #[must_use]
     pub fn min_area(&self, layer: u16) -> Option<i64> {
@@ -1228,6 +1257,9 @@ impl Process for Pdk {
         let l = analog::base::Process::layer(self, role)?.0;
         self.widest_on("eol_spacing", "limit", &[l]).map(|v| v as i32)
     }
+    fn allowed_widths(&self, roles: &[&str]) -> Option<Vec<i32>> {
+        self.allowed_widths_on(&roles.iter().filter_map(|r| Some(analog::base::Process::layer(self, r)?.0)).collect::<Vec<_>>())
+    }
     fn width(&self, role: &str) -> Option<i32> {
         let l = analog::base::Process::layer(self, role)?.0;
         self.min_width(l).or_else(|| self.widest_on("min_width", "limit", &[l]).map(|v| v as i32))
@@ -1527,6 +1559,9 @@ impl Process for Overlay<'_> {
     }
     fn eol_space(&self, role: &str) -> Option<i32> {
         self.pdk.widest_on("eol_spacing", "limit", &[self.layer(role)?.0]).map(|v| v as i32)
+    }
+    fn allowed_widths(&self, roles: &[&str]) -> Option<Vec<i32>> {
+        self.pdk.allowed_widths_on(&roles.iter().filter_map(|r| Some(self.layer(r)?.0)).collect::<Vec<_>>())
     }
 }
 

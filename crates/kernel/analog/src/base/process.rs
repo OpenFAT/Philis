@@ -105,6 +105,15 @@ pub trait Process {
         None
     }
 
+    /// The only widths, nm, a shape may take when a cell draws `roles`'
+    /// layers together: the deck's discrete-width rule on a layer built from
+    /// them (sky130 rpm.1b: a precision poly body is 350, 690, 1410, 2850 or
+    /// 5730 nm). `None` = any width at or above the minimum.
+    fn allowed_widths(&self, roles: &[&str]) -> Option<Vec<i32>> {
+        let _ = roles;
+        None
+    }
+
 }
 
 /// Hastings §13.3 matching class (PDF p.712): what a matched set's

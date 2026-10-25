@@ -372,8 +372,22 @@ fn every_generator_is_clean_on_every_deck() {
         let recipes: Vec<String> = pdk.cell.get("resistors").and_then(|r| r.get("recipes")).and_then(|r| r.as_object()).map_or(Vec::new(), |o| o.values().filter_map(|v| v.get("model")?.as_str().map(String::from)).collect());
         for model in recipes {
             let ov = verify::pdk::Overlay { pdk: &pdk, recipe: pdk.recipe("resistor", &model).expect("recipe") };
-            add(&format!("res {model}"), check_on::<Resistor>(deck, DeviceKind::Resistor, vec![1], 500, 2000, &ov, SeriesParallel::Parallel));
-            add(&format!("res {model}"), check_on::<Resistor>(deck, DeviceKind::Resistor, vec![2, 2], 500, 4000, &ov, SeriesParallel::Parallel));
+            // A precision body (sky130 rpm.1b) draws only at a deck width:
+            // two of them; 500 nm, not one, enumerates nothing.
+            let widths = match analog::base::Process::allowed_widths(&ov, substrate3::cells::resistor::DRAWN_ROLES) {
+                Some(allowed) => {
+                    let (g, c) = sized(DeviceKind::Resistor, vec![1], 500, 2000, SeriesParallel::Parallel);
+                    if !allowed.contains(&500) && !Resistor::enumerate(&g, &c, &ov).is_empty() {
+                        add(&format!("res {model}"), vec!["500 nm is not a deck width, yet it enumerates".into()]);
+                    }
+                    vec![690, 1410]
+                }
+                None => vec![500],
+            };
+            for w in widths {
+                add(&format!("res {model}"), check_on::<Resistor>(deck, DeviceKind::Resistor, vec![1], w, 2000, &ov, SeriesParallel::Parallel));
+                add(&format!("res {model}"), check_on::<Resistor>(deck, DeviceKind::Resistor, vec![2, 2], w, 4000, &ov, SeriesParallel::Parallel));
+            }
         }
         add("cap", check_nf::<Capacitor>(deck, DeviceKind::Capacitor, vec![1], 2000, 2000, &pdk, SeriesParallel::Parallel));
         add("bank", check_nf::<CapArray>(deck, DeviceKind::Capacitor, vec![1, 1, 2, 4, 8], 2000, 2000, &pdk, SeriesParallel::Parallel));
