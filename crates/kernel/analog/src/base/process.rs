@@ -65,6 +65,13 @@ pub trait Process {
         None
     }
 
+    /// Whether `inner` must span its `outer` host exactly across one axis
+    /// (ASAP7 V0.M1.AUX.3: a via as wide as its wire); `false` = not given.
+    fn full_width(&self, inner: &str, outer: &str) -> bool {
+        let _ = (inner, outer);
+        false
+    }
+
     /// The end-cap: how far `outer` must pass `inner` on at least one side
     /// of each axis (an asymmetric enclosure), nm; `None` = not given.
     fn endcap(&self, outer: &str, inner: &str) -> Option<i32> {

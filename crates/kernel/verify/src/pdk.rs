@@ -1023,19 +1023,8 @@ impl Pdk {
     /// (structures no Philis generator draws, e.g. sky130's varactor) do not
     /// set a dimension; the checker still runs them.
     pub(crate) fn widest_on(&self, kind: &str, param: &str, layers: &[u16]) -> Option<i64> {
-        let (kind, param) = (self.strings.get(kind)?, self.strings.get(param)?);
-        let skip: Vec<&str> = self.cell.get("inapplicable_rules").and_then(|v| v.as_array()).map_or(Vec::new(), |a| a.iter().filter_map(|x| x.as_str()).collect());
-        self.deck
-            .rules
-            .spec
-            .iter()
-            .filter(|s| {
-                let l = self.deck.rules.layers_of(s);
-                s.kind == kind
-                    && !skip.contains(&self.strings.resolve(s.id))
-                    && l.len() == layers.len()
-                    && l.iter().zip(layers).all(|(&x, &d)| self.drawn_from(x, d))
-            })
+        let param = self.strings.get(param)?;
+        self.rules_on(kind, layers)
             .filter_map(|s| match self.deck.rules.param(s, param) {
                 Some(ParamValue::Length(d)) => Some(d.raw()),
                 _ => None,
@@ -1043,6 +1032,32 @@ impl Pdk {
             .max()
     }
 
+    /// The `kind` rules on `layers`, each rule layer the drawn layer or a
+    /// part of it ([`Pdk::drawn_from`]), minus `cell.inapplicable_rules`.
+    fn rules_on<'a>(&'a self, kind: &str, layers: &'a [u16]) -> impl Iterator<Item = &'a RuleSpec> + 'a {
+        let kind = self.strings.get(kind);
+        let skip: Vec<&str> = self.cell.get("inapplicable_rules").and_then(|v| v.as_array()).map_or(Vec::new(), |a| a.iter().filter_map(|x| x.as_str()).collect());
+        self.deck.rules.spec.iter().filter(move |s| {
+            let l = self.deck.rules.layers_of(s);
+            Some(s.kind) == kind
+                && !skip.contains(&self.strings.resolve(s.id))
+                && l.len() == layers.len()
+                && l.iter().zip(layers).all(|(&x, &d)| self.drawn_from(x, d))
+        })
+    }
+
+    /// The widest enclosure of `inner` by `outer`, nm: the all-sides rules
+    /// and the edge rules (ASAP7 `enclosure(a.edges().vertical(), L)`), so
+    /// a generator drawing one margin on every side meets both.
+    pub(crate) fn enclosure_nm(&self, outer: u16, inner: u16) -> Option<i64> {
+        self.widest_on("min_enclosure", "limit", &[outer, inner]).max(self.widest_on("edge_enclosure", "limit", &[inner, outer]))
+    }
+
+    /// Whether a `full_width(inner, outer)` rule binds: `inner` must span
+    /// its `outer` host exactly across one axis (ASAP7 V0.M1.AUX.3).
+    pub(crate) fn full_width_on(&self, outer: u16, inner: u16) -> bool {
+        self.rules_on("full_width", &[outer, inner]).next().is_some()
+    }
 
     /// The shortest legal channel `(l, w)`, nm, of a MOS of `model` (`pmos`
     /// polarity): poly's and diffusion's min width, the sidecar's
@@ -1246,8 +1261,11 @@ impl Process for Pdk {
         self.min_width(l).or_else(|| self.widest_on("min_width", "limit", &[l]).map(|v| v as i32))
     }
     fn enclosure(&self, outer: &str, inner: &str) -> Option<i32> {
-        let l = [analog::base::Process::layer(self, outer)?.0, analog::base::Process::layer(self, inner)?.0];
-        self.widest_on("min_enclosure", "limit", &l).map(|v| v as i32)
+        self.enclosure_nm(analog::base::Process::layer(self, outer)?.0, analog::base::Process::layer(self, inner)?.0).map(|v| v as i32)
+    }
+    fn full_width(&self, inner: &str, outer: &str) -> bool {
+        let l = |r| analog::base::Process::layer(self, r).map(|l| l.0);
+        l(outer).zip(l(inner)).is_some_and(|(o, i)| self.full_width_on(o, i))
     }
     fn endcap(&self, outer: &str, inner: &str) -> Option<i32> {
         let l = [analog::base::Process::layer(self, outer)?.0, analog::base::Process::layer(self, inner)?.0];
@@ -1518,7 +1536,10 @@ impl Process for Overlay<'_> {
     }
     // By the overlay's layers, so a recipe role (`res_implant`) resolves.
     fn enclosure(&self, outer: &str, inner: &str) -> Option<i32> {
-        self.pdk.widest_on("min_enclosure", "limit", &[self.layer(outer)?.0, self.layer(inner)?.0]).map(|v| v as i32)
+        self.pdk.enclosure_nm(self.layer(outer)?.0, self.layer(inner)?.0).map(|v| v as i32)
+    }
+    fn full_width(&self, inner: &str, outer: &str) -> bool {
+        self.layer(outer).zip(self.layer(inner)).is_some_and(|(o, i)| self.pdk.full_width_on(o.0, i.0))
     }
     fn endcap(&self, outer: &str, inner: &str) -> Option<i32> {
         self.pdk.widest_on("asymmetric_enclosure", "min_one_side", &[self.layer(outer)?.0, self.layer(inner)?.0]).map(|v| v as i32)

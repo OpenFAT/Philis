@@ -17,7 +17,7 @@ use crate::cells::Cell;
 
 /// One FinFET variant: each member on its own active, side by side
 /// (variant 0), or every member interleaved on one shared common-centroid
-/// active. Every active ends in one uncontacted edge gate per side.
+/// active. Every active runs one empty gate slot past its end gates.
 #[derive(Clone)]
 pub struct FinFet {
     /// Members interleave on one active ([`pattern::diffusion_cc_row`]).
@@ -116,7 +116,8 @@ impl Cell for FinFet {
         let v1_w = process.width("mcon").unwrap_or(r.v0);
         let v1_in_m1 = process.endcap("li", "mcon").unwrap_or(0).max(process.enclosure("li", "mcon").unwrap_or(0));
         let v1_in_m2 = process.endcap("met1", "mcon").unwrap_or(0).max(process.enclosure("met1", "mcon").unwrap_or(0));
-        let m2_w = process.width("met1").unwrap_or(r.m1_w).max(v1_w + 2 * v1_in_m2.min(v1_in_m1));
+        // A full-width V1 (ASAP7 V1.M2.AUX.2) is exactly as wide as its strap.
+        let m2_w = if process.full_width("mcon", "met1") { v1_w } else { process.width("met1").unwrap_or(r.m1_w).max(v1_w + 2 * v1_in_m2.min(v1_in_m1)) };
         let v1_pad = v1_w + 2 * v1_in_m1;
         let (own_sel, tap_sel) = if pmos { (req(process, "psdm"), req(process, "nsdm")) } else { (req(process, "nsdm"), req(process, "psdm")) };
 
@@ -146,13 +147,19 @@ impl Cell for FinFet {
         // Drain track `t`: its V1 pads and M2 strap, one M2 pitch per track up
         // (end-of-line spacing: a one-drain member's strap is all line ends).
         let d_pitch = m2_w + process.space("met1").unwrap_or(0).max(process.eol_space("met1").unwrap_or(0));
-        let y_d = |t: i32| v0_y + r.v0 / 2 + t * d_pitch;
+        // The pads sit above the S/D V0, which keeps the strip's own width
+        // across it (ASAP7 V0.M1.AUX.3: a V0 spans its M1).
+        let y_d = |t: i32| v0_y + r.v0 + v1_pad / 2 + t * d_pitch;
         // Source strap above every drain track's landing pads.
         let d_top = (sd_m1_y + m1_h).max(y_d(n_tracks - 1) + v1_pad / 2);
         let s_strap_y = d_top + r.m1_s.max(process.eol_space("li").unwrap_or(0));
         let strap_top = sd_m1_y.min(-r.lig_channel) - r.m1_s;
         let gv0_y = strap_top - r.m1_w + (r.m1_w - r.v0) / 2;
-        let lig_h = (r.v0 + 2).max(i32::try_from(r.lig_area / i64::from(r.lig_w.max(r.gate_w).max(1)) + 1).unwrap_or(0));
+        // LIG past the gate on both sides, its edges off the gate's (ASAP7
+        // LIG.GATE.AUX.1). ponytail: one grid step; a deck extension rule
+        // (LIG.GATE.EX.1, still a "needs" there) would size it when it lands.
+        let lgw = r.lig_w.max(r.gate_w + 2 * process.grid().max(1));
+        let lig_h = (r.v0 + 2).max(i32::try_from(r.lig_area / i64::from(lgw.max(1)) + 1).unwrap_or(0));
         let lig_y = (gv0_y + r.v0 / 2 - lig_h / 2).min(-r.lig_channel - lig_h);
         // Gate track `t` sits `t·gpitch` below track 0: its M1 strap and its
         // LIG pads each clear the next track's by their spacing.
@@ -172,10 +179,10 @@ impl Cell for FinFet {
                     members.push(k);
                 }
             }
-            // One uncontacted edge gate per diffusion end (gates -1 and n,
-            // diffusion-break style). Not a `analog::base::Dummy`: that means a
-            // bulk-tied, extracted transistor with an LVS card, and ASAP7
-            // extracts none here (no LIG on the gate, no trench beyond it).
+            // The active is sized as if an edge gate sat at each end (slots -1
+            // and n), so the fins meet their length rule (ASAP7 FIN.W.2), but
+            // none is drawn: a gate over the active is a channel the deck
+            // recognises, and an uncontacted one binds no gate terminal.
             let a = Rect { x, y: 0, w: 2 * r.act_past_gate + (n + 2) * r.gate_w + (n + 1) * gap, h };
             b.rect(act, a);
             acts.push(a);
@@ -214,16 +221,11 @@ impl Cell for FinFet {
                 b.rect(m2, Rect { x: d0 - v1_w / 2 - v1_in_m2, y: yd - m2_w / 2, w: d1 - d0 + v1_w + 2 * v1_in_m2, h: m2_w });
                 b.pin(pin(k, "D", Rect { x: d0 - v1_w / 2, y: yd - v1_w / 2, w: v1_w, h: v1_w }, m2));
             }
-            for i in -1..=n {
+            for i in 0..n {
                 let g = gx(i);
-                if i < 0 || i == n {
-                    b.rect(gate, Rect { x: g, y: gate_lo_min, w: r.gate_w, h: gate_hi - gate_lo_min });
-                    continue;
-                }
                 let k = owners[i as usize];
                 let off = track(k) * gpitch;
                 b.rect(gate, Rect { x: g, y: lig_y - off, w: r.gate_w, h: gate_hi - lig_y + off });
-                let lgw = r.lig_w.max(r.gate_w);
                 b.rect(lig, Rect { x: g + r.gate_w / 2 - lgw / 2, y: lig_y - off, w: lgw, h: lig_h });
                 b.rect(v0, Rect { x: g + r.gate_w / 2 - r.v0 / 2, y: gv0_y - off, w: r.v0, h: r.v0 });
                 let c = g + r.gate_w / 2;
@@ -258,13 +260,21 @@ impl Cell for FinFet {
         // clear of the device select and of the gates' field ends.
         let tap_h = r.fin_p.max(r.lisd_w);
         // Its rail (at the tap's centre) a spacing above the source strap.
-        let tap_y = (sel.y + sel.h + r.sel_enc)
+        let tap_min = (sel.y + sel.h + r.sel_enc)
             .max(gate_hi + r.gate_field)
             .max(h + r.act_s)
             .max(s_strap_y + r.m1_w + r.m1_s - (tap_h - r.m1_w) / 2);
+        // The tap fin is a row of the device's fin lattice, and every row
+        // between is drawn: an exact pitch (ASAP7 FIN.S.1) reads a missing
+        // row as a double pitch.
+        let (half, lat) = ((tap_h - r.fin_w) / 2, (r.fin_p - r.fin_w) / 2);
+        let tap_row = (tap_min - lat + half + r.fin_p - 1).div_euclid(r.fin_p.max(1));
+        let tap_y = tap_row * r.fin_p + lat - half;
+        for k in nfin..=tap_row {
+            b.rect(fin, Rect { x: x0 + r.act_past_fin, y: k * r.fin_p + lat, w: x1 - x0 - 2 * r.act_past_fin, h: r.fin_w });
+        }
         let tap = Rect { x: x0, y: tap_y, w: x1 - x0, h: tap_h };
         b.rect(act, tap);
-        b.rect(fin, Rect { x: tap.x + r.act_past_fin, y: tap_y + (tap_h - r.fin_w) / 2, w: tap.w - 2 * r.act_past_fin, h: r.fin_w });
         let tsel = Rect { x: tap.x - r.sel_enc, y: tap_y - r.sel_enc, w: tap.w + 2 * r.sel_enc, h: (tap_h + 2 * r.sel_enc).max(r.sel_w) };
         b.rect(tap_sel, tsel);
         let tv0_y = tap_y + (tap_h - r.v0) / 2;
@@ -336,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn every_active_has_one_dummy_gate_per_end() {
+    fn every_gate_is_a_contacted_finger_and_every_fin_on_the_lattice() {
         let pdk = deck();
         let (g, c) = group(DeviceKind::Nmos, &[2, 2], 1680);
         let vs = FinFet::enumerate(&g, &c, &pdk);
@@ -345,7 +355,14 @@ mod tests {
             let m = v.draw(&g, &c, &pdk);
             let actives = on(&m, &pdk, "diff").len() - 1; // minus the tap's
             assert_eq!(actives, if v.shared { 1 } else { 2 });
-            assert_eq!(on(&m, &pdk, "poly").len(), m.units.len() + 2 * actives, "shared={}", v.shared);
+            // An uncontacted gate over the active is a channel with no gate
+            // terminal (`lvs.terminal_net`), so every drawn gate is a finger.
+            assert_eq!(on(&m, &pdk, "poly").len(), m.units.len(), "shared={}", v.shared);
+            // ASAP7 FIN.S.1, an exact 27 nm pitch, gaps included.
+            let mut ys: Vec<i32> = on(&m, &pdk, "fin").iter().map(|r| r.y).collect();
+            ys.sort_unstable();
+            ys.dedup();
+            assert!(ys.windows(2).all(|w| w[1] - w[0] == 27), "{ys:?}");
         }
     }
 
