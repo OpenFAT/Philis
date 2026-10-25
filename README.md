@@ -17,12 +17,14 @@ from [Philis 1.0](https://github.com/UW-ASIC/Philis) milestone by milestone.
 2. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): crates as owners, the two
    spines, the tables, the seams, the invariants, how to add a feature, the
    migration from 1.0.
-3. [`docs/TRAITS.md`](docs/TRAITS.md): the trait system the Substrate2 fork adds.
-4. [`docs/RECIPES.md`](docs/RECIPES.md): the initial recipe catalog, from the
-   textbooks and the 1.0 constraint model.
-5. [`docs/TESTING.md`](docs/TESTING.md): oracles, layers, gates, exit criteria.
-6. [`docs/ROADMAP.md`](docs/ROADMAP.md): milestones and the acceptance set.
-7. [`GLOSSARY.md`](GLOSSARY.md): the words.
+3. [`docs/API.md`](docs/API.md): every crate's boundary, usage code first; one
+   closed enum plus one shared trait per variant family.
+4. [`docs/TRAITS.md`](docs/TRAITS.md): the trait system the Substrate2 fork adds.
+5. [`docs/RECIPES.md`](docs/RECIPES.md): the initial recipe catalog, from the
+   textbooks and the 1.0 constraint model (in progress).
+6. [`docs/TESTING.md`](docs/TESTING.md): oracles, layers, gates, exit criteria.
+7. [`docs/ROADMAP.md`](docs/ROADMAP.md): milestones and the acceptance set.
+8. [`GLOSSARY.md`](GLOSSARY.md): the words.
 
 Reference library: [`docs/ref/`](docs/ref/) holds the textbook and paper
 digests (`textbooks/`), the requirement-family notes (`Notes/`), and the layout
