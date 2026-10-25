@@ -685,7 +685,7 @@ enum for tables that store only the tag. `dyn Trait` only for sets that live
 outside the workspace. Recommendation: yes, and `API.md` applies it crate by
 crate with usage code first.
 
-### Q59 Where the analog-only PDK numbers live, by kind — open (proposed from the GPurify inventory)
+### Q59 Where the analog-only PDK numbers live, by kind — accepted (2026-10-25, from the GPurify inventory)
 
 The inventory (`docs/ref/research/gpurify-api.md`) resolves Q57's condition:
 GPurify's deck text admits no unknown statement, keyword, unit or parameter;
