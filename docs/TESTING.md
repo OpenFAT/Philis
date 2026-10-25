@@ -138,29 +138,35 @@ magic 8.3.629, netgen 1.5.320:
 |---|---|---|---|
 | sky130 | clean, match | clean, match | clean, match |
 | gf180mcu | M2.1 ×2, match | M2.1 ×2, match | M2.1 ×2, CO.7 ×10, CO.3 ×1, match |
-| ihp_sg13g2 | M1.b, M1.e, M1.f, match | M1.b ×1, **mismatch** | M1.b ×19, CntB.b ×10, CntB.h1 ×13, match |
+| ihp_sg13g2 | clean, match | clean, match | CntB.b ×10, CntB.h1 ×13 (engine difference), match |
 | asap7 | clean, match | DRC only: ACTIVE.S.2A ×2 | refused (`foundry/no-deck`) |
 
 What the differences say, open:
 
 - gf180mcu M2.1: all three agree; a routing defect, not a deck gap.
-- ihp_sg13g2 LVS: the IHP deck excludes any gate under nSD (7/0) from MOS
-  extraction (`mos_exclude`), and Philis's IHP nfet draws nSD over its gate;
-  with nSD stripped the same layout matches. GPurify's IHP deck has no such
-  exclusion: a GPurify deck gap and a device-drawing defect.
-- ihp_sg13g2 M1.b: all three see metal1 spacing; magic counts more.
+- ihp_sg13g2, closed: the IHP deck excludes any gate under drawn nSD (7/0,
+  the rhigh implant) from MOS extraction (`mos_exclude`), and SG13G2 dopes
+  n+ wherever pSD is not drawn, so Philis's IHP cells draw no nSD (the role
+  is gone from its `cell.layers`) and GPurify's deck excludes the gate too
+  (`overrides::ihp_sg13g2`; `pair.rs` lays nSD over the gates and fails
+  LVS). M1.b was the router: cell metal closed lattice nodes by half a wire,
+  not half the 430 nm via pad, and not at all on a pin's stitch nodes.
 - asap7 ACTIVE.S.2A (92 nm between the active regions of different
   transistors): GPurify's asap7 deck has no such rule; to be decided against
   the ASAP7 DRM.
-- magic's gf180mcu CO.7/CO.3 and IHP CntB rows: KLayout ran the same rules
-  and passed them; magic's contact model, not confirmed defects.
+- magic's gf180mcu CO.7/CO.3 rows: KLayout ran the same rules and passed
+  them; magic's contact model, not confirmed defects.
+- magic's IHP CntB rows: an engine difference. magic applies the ContBar
+  rules to square cuts, but the DRM's ContBar is a non-square Cont
+  (`pdks/magic/ihp_sg13g2/PROVENANCE.md`). The IHP magic gate names the two
+  rows and fails on any other.
 - sky130's KLayout LVS names the NMOS bulk globally (`lvs_sub`), so it
   cannot see a missing p-tap; GPurify and magic can.
 
 The negative controls (a schematic twice as wide fails LVS; one routing
 metal at half its minimum width adds a DRC finding against the unmodified
-run) pass under both foundry engines on sky130 and gf180mcu, under magic on
-ihp_sg13g2 (LVS) and both engines (DRC), and under KLayout on asap7 (DRC).
+run) pass under both foundry engines on sky130, gf180mcu and ihp_sg13g2, and
+under KLayout on asap7 (DRC).
 When a PDK's `pair` signs off clean under an engine, its `pair_signs_off_…`
 test is added beside sky130's.
 
