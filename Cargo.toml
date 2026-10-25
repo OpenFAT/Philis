@@ -1,6 +1,21 @@
-[package]
-name = "Philis2_0"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+resolver = "2"
+members = [
+  "crates/kernel/analog",
+]
 
-[dependencies]
+# Pinned external engines. GPurify is the PDK input (Q55); the pin moves to its
+# head in the `verify` re-pin commit (Q59). Substrate2 is pinned where Philis 1.0
+# left it until the fork is vendored into `crates/kernel/substrate3` (Q35).
+[workspace.dependencies]
+fearless_simd = "1.0.0"
+gdsverify = { package = "gpurify", git = "https://github.com/UW-ASIC/GPurify", rev = "be14a73f663cd0da3989c421fd4feadb7963ae7e" }
+gdsverify-geom = { package = "gpurify-geom", git = "https://github.com/UW-ASIC/GPurify", rev = "be14a73f663cd0da3989c421fd4feadb7963ae7e" }
+substrate = { git = "https://github.com/ucb-substrate/substrate2", rev = "01d9600f946437d3bc18806a6517e35001b68251" }
+sky130 = { git = "https://github.com/ucb-substrate/substrate2", rev = "01d9600f946437d3bc18806a6517e35001b68251" }
+layir = { git = "https://github.com/ucb-substrate/substrate2", rev = "01d9600f946437d3bc18806a6517e35001b68251" }
+gdsconv = { git = "https://github.com/ucb-substrate/substrate2", rev = "01d9600f946437d3bc18806a6517e35001b68251" }
+gds = { git = "https://github.com/ucb-substrate/substrate2", rev = "01d9600f946437d3bc18806a6517e35001b68251" }
+scir = { git = "https://github.com/ucb-substrate/substrate2", rev = "01d9600f946437d3bc18806a6517e35001b68251" }
+spice = { git = "https://github.com/ucb-substrate/substrate2", rev = "01d9600f946437d3bc18806a6517e35001b68251" }
+serde_json = "1"
