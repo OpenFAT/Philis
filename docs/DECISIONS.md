@@ -625,7 +625,7 @@ Recommendation: yes, routing inside M2 because that is where 1.0 fails.
 
 ---
 
-## Round 4 (decided by the owner with the `/api-design` request, 2026-10-25)
+## Round 4 (2026-10-25; Q53 to Q55 decided by the owner with the `/api-design` request, Q56 to Q58 accepted: "I agree with your answers")
 
 ### Q53 Performance is secondary to functionality, for now — decided
 
@@ -658,21 +658,24 @@ deck parser. Open: where the analog-only numbers live (mismatch coefficients,
 layout-dependent-effect reach, EM derating) once GPurify's extension mechanism
 is known. Follow-up: Q57.
 
-### Q56 The OTA target becomes a tracked number — open
+### Q56 The OTA target becomes a tracked number — accepted
 
 Given Q53: the 10 s OTA wall is recorded per push and shown on the progress
 page, reviewed at each release, and gates nothing until the acceptance set is
 functionally complete. Recommendation: yes.
 
-### Q57 Where the analog-only PDK numbers live — open (waits on the GPurify inventory)
+### Q57 Where the analog-only PDK numbers live — accepted as a conditional (resolved by the GPurify inventory)
 
 1.0 kept them in a JSON sidecar beside the GPurify deck. Options: (a) extend
 GPurify's deck grammar upstream so one file carries DRC, LVS, ERC, PEX and the
 analog numbers; (b) keep a sidecar read through GPurify's own reader if its
-grammar admits unknown statements; (c) keep 1.0's JSON sidecar. Recommendation
-pending the inventory of GPurify's extension mechanism.
+grammar admits unknown statements; (c) keep 1.0's JSON sidecar. Recommendation, accepted: (a) if GPurify's
+grammar is extensible without forking it, since the owner owns both projects
+and one file per PDK is the point of Q55; otherwise (c). The inventory of
+GPurify's deck reader decides which branch applies; the result is recorded as
+Q59.
 
-### Q58 The shape of the shared-trait rule — open
+### Q58 The shape of the shared-trait rule — accepted
 
 For every variant family (constraints and rules, intent rows, claims, recipe
 kinds, diagnostics, routing requests, capabilities): one closed enum holding the
