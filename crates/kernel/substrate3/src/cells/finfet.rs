@@ -17,7 +17,7 @@ use crate::cells::Cell;
 
 /// One FinFET variant: each member on its own active, side by side
 /// (variant 0), or every member interleaved on one shared common-centroid
-/// active. Every active runs one empty gate slot past its end gates.
+/// active. Every active ends in one uncontacted edge gate (PODE) per side.
 #[derive(Clone)]
 pub struct FinFet {
     /// Members interleave on one active ([`pattern::diffusion_cc_row`]).
@@ -179,10 +179,11 @@ impl Cell for FinFet {
                     members.push(k);
                 }
             }
-            // The active is sized as if an edge gate sat at each end (slots -1
-            // and n), so the fins meet their length rule (ASAP7 FIN.W.2), but
-            // none is drawn: a gate over the active is a channel the deck
-            // recognises, and an uncontacted one binds no gate terminal.
+            // One uncontacted edge gate per diffusion end (slots -1 and n):
+            // PODE, poly on the diffusion edge. It keeps the exact gate pitch
+            // across the ends (ASAP7 GATE.S.1) and is no device (the deck
+            // extracts channels under contacted gates only); the active passes
+            // it by the deck's extension, so the fins meet FIN.W.2.
             let a = Rect { x, y: 0, w: 2 * r.act_past_gate + (n + 2) * r.gate_w + (n + 1) * gap, h };
             b.rect(act, a);
             acts.push(a);
@@ -221,6 +222,9 @@ impl Cell for FinFet {
                 b.rect(m2, Rect { x: d0 - v1_w / 2 - v1_in_m2, y: yd - m2_w / 2, w: d1 - d0 + v1_w + 2 * v1_in_m2, h: m2_w });
                 b.pin(pin(k, "D", Rect { x: d0 - v1_w / 2, y: yd - v1_w / 2, w: v1_w, h: v1_w }, m2));
             }
+            for i in [-1, n] {
+                b.rect(gate, Rect { x: gx(i), y: gate_lo_min, w: r.gate_w, h: gate_hi - gate_lo_min });
+            }
             for i in 0..n {
                 let g = gx(i);
                 let k = owners[i as usize];
@@ -240,9 +244,23 @@ impl Cell for FinFet {
                 b.rect(m1, Rect { x: g0 - r.v0_in_m1, y: strap_top - off - r.m1_w, w: g1 - g0 + 2 * r.v0_in_m1, h: r.m1_w });
                 b.pin(pin(k, "G", Rect { x: g0, y: gv0_y - off, w: r.v0, h: r.v0 }, m1));
             }
-            x = a.x + a.w + r.act_s.max(2 * r.sel_enc);
+            // The next active on the same gate lattice, an active spacing
+            // clear; field gates fill every slot between, so the pitch holds
+            // across the break. Each slot clears both actives by the deck's
+            // gate-to-field spacing when the extension leaves room for it.
+            debug_assert!(r.act_past_gate + r.gate_field <= gap, "a field gate cannot fit beside a diffusion end");
+            let next = a.x + ((a.w + r.act_s + r.gate_p - 1) / r.gate_p) * r.gate_p;
+            if acts.len() < rows.len() {
+                let mut g = gx(n) + r.gate_p;
+                while g < next + r.act_past_gate {
+                    b.rect(gate, Rect { x: g, y: gate_lo_min, w: r.gate_w, h: gate_hi - gate_lo_min });
+                    g += r.gate_p;
+                }
+            }
+            x = next;
         }
-        let (x0, x1) = (acts[0].x, x - r.act_s.max(2 * r.sel_enc));
+        let last = *acts.last().expect("a row at least");
+        let (x0, x1) = (acts[0].x, last.x + last.w);
         // The device select over the actives and gates.
         let sel = Rect { x: x0 - r.sel_enc, y: (-r.sel_enc).min(gate_lo_min - r.sel_past_gate), w: x1 - x0 + 2 * r.sel_enc, h: 0 };
         let sel_top = (h + r.sel_enc).max(gate_hi + r.sel_past_gate);
@@ -346,7 +364,7 @@ mod tests {
     }
 
     #[test]
-    fn every_gate_is_a_contacted_finger_and_every_fin_on_the_lattice() {
+    fn every_gate_on_the_pitch_and_every_fin_on_the_lattice() {
         let pdk = deck();
         let (g, c) = group(DeviceKind::Nmos, &[2, 2], 1680);
         let vs = FinFet::enumerate(&g, &c, &pdk);
@@ -355,9 +373,12 @@ mod tests {
             let m = v.draw(&g, &c, &pdk);
             let actives = on(&m, &pdk, "diff").len() - 1; // minus the tap's
             assert_eq!(actives, if v.shared { 1 } else { 2 });
-            // An uncontacted gate over the active is a channel with no gate
-            // terminal (`lvs.terminal_net`), so every drawn gate is a finger.
-            assert_eq!(on(&m, &pdk, "poly").len(), m.units.len(), "shared={}", v.shared);
+            // ASAP7 GATE.S.1, an exact 54 nm pitch: fingers, the PODE at each
+            // diffusion end, and field gates across every break.
+            let mut xs: Vec<i32> = on(&m, &pdk, "poly").iter().map(|r| r.x).collect();
+            xs.sort_unstable();
+            assert!(xs.windows(2).all(|w| w[1] - w[0] == 54), "shared={}: {xs:?}", v.shared);
+            assert!(xs.len() >= m.units.len() + 2 * actives, "shared={}", v.shared);
             // ASAP7 FIN.S.1, an exact 27 nm pitch, gaps included.
             let mut ys: Vec<i32> = on(&m, &pdk, "fin").iter().map(|r| r.y).collect();
             ys.sort_unstable();

@@ -326,6 +326,11 @@ rule ir_drop ir_drop()
 # LIG on it, when one is (an uncontacted edge gate is no net).
 layer SD = (ACTIVE not GATE).interacting(SDT)
 layer GATE_C = (GATE_UNCUT or LIG).interacting(LIG)
+# PHILIS: a channel is a transistor only under a contacted gate. An
+# uncontacted gate over a diffusion edge is PODE (poly on diffusion edge): it
+# keeps the exact gate pitch (GATE.S.1) across a row's ends, and a FinFET LVS
+# deck extracts no device under it.
+layer CHANNEL_C = CHANNEL.interacting(GATE_C)
 connect conductors [SD, GATE_C, LISD, M1, M2, M3, M4, M5, M6, M7, M8, M9]
 connect touch_within_layer
 # PHILIS: the front-end cuts [DRM 2.2]: SDT from diffusion to LISD, V0 from
@@ -355,14 +360,14 @@ connect label M9_LABEL names M9
 # block below lists them ([DRM] 2.1 layers, models per the PDK cells in
 # cdslib/asap7_TechLib_10), on the conductors above. Three terminals: the
 # well and substrate are not conductors here, so the bulk is not compared.
-layer nmos_rvt = (CHANNEL and NSELECT) not (SLVT or LVT or SRAMVT)
-layer nmos_lvt = CHANNEL and NSELECT and LVT
-layer nmos_slvt = CHANNEL and NSELECT and SLVT
-layer nmos_sram = CHANNEL and NSELECT and SRAMVT
-layer pmos_rvt = (CHANNEL and PSELECT) not (SLVT or LVT or SRAMVT)
-layer pmos_lvt = CHANNEL and PSELECT and LVT
-layer pmos_slvt = CHANNEL and PSELECT and SLVT
-layer pmos_sram = CHANNEL and PSELECT and SRAMVT
+layer nmos_rvt = (CHANNEL_C and NSELECT) not (SLVT or LVT or SRAMVT)
+layer nmos_lvt = CHANNEL_C and NSELECT and LVT
+layer nmos_slvt = CHANNEL_C and NSELECT and SLVT
+layer nmos_sram = CHANNEL_C and NSELECT and SRAMVT
+layer pmos_rvt = (CHANNEL_C and PSELECT) not (SLVT or LVT or SRAMVT)
+layer pmos_lvt = CHANNEL_C and PSELECT and LVT
+layer pmos_slvt = CHANNEL_C and PSELECT and SLVT
+layer pmos_sram = CHANNEL_C and PSELECT and SRAMVT
 device mos nmos_rvt model "nmos_rvt" terminals [GATE_C, SD, SD]
 device mos nmos_lvt model "nmos_lvt" terminals [GATE_C, SD, SD]
 device mos nmos_slvt model "nmos_slvt" terminals [GATE_C, SD, SD]

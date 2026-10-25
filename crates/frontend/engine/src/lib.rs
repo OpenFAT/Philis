@@ -13,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 
 use analog::base::netlist::{Device, Net, Netlist as Flat};
 use analog::base::{DeviceGroup, DeviceId, DeviceKind, Layout, Macro, NetId, Orient, Report, Routes, Shape};
+use substrate3::cells::finfet::FinFet;
 use substrate3::cells::mosfet::Mosfet;
 use substrate3::cells::{Cell, Pattern};
 use substrate3::scir::{self, ChildId, ParamValue};
@@ -261,14 +262,22 @@ pub fn build_tiles(calls: &RecipeCalls, problem: &annotator::Problem, flat: &Fla
             let model = &flat.devices[members[0].0 as usize].model;
             let overlay = pdk.mos_overlay(model);
             let process: &dyn analog::base::Process = overlay.as_ref().map_or(pdk as &dyn analog::base::Process, |o| o);
-            let mut m = match calls.kind[i] {
+            // A fin deck draws fins (each member on its own active), any
+            // other the planar block's `Single` style: members side by side.
+            let drawn: Vec<Macro> = match calls.kind[i] {
+                RecipeKind::MosAdjacent if process.layer("fin").is_some() => {
+                    FinFet::enumerate(&group, &constraints, process).into_iter().filter(|v| !v.shared).map(|v| v.draw(&group, &constraints, process)).collect()
+                }
                 RecipeKind::MosAdjacent => Mosfet::enumerate(&group, &constraints, process)
                     .into_iter()
                     .filter(|v| v.style == Pattern::Single && v.rows == 1)
                     .map(|v| v.draw(&group, &constraints, process))
-                    .min_by_key(|m| i64::from(m.bbox.w) * i64::from(m.bbox.h))
-                    .ok_or_else(|| refuse("no-recipe", format!("{}: no MosAdjacent variant draws it", names(flat, members))))?,
+                    .collect(),
             };
+            let mut m = drawn
+                .into_iter()
+                .min_by_key(|m| i64::from(m.bbox.w) * i64::from(m.bbox.h))
+                .ok_or_else(|| refuse("no-recipe", format!("{}: no {:?} variant draws it", names(flat, members), calls.kind[i])))?;
             bind_pins(&mut m, flat, members, ground);
             Ok(m)
         })
