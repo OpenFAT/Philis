@@ -124,6 +124,9 @@ pub trait InterconnectModel<P: PhilisPdk> {
 
 `Capability` is a closed enum naming each trait and each optional method; the
 availability matrix (Q28) says which (recipe, PDK) pairs passed conformance.
+The full list of numbers the recipes read, grouped by family and with the
+ones no source gives, is `RECIPES.md` §6; the capability traits are shaped
+from that list, not the other way round.
 `plan_recipes` consults it before drawing anything; a missing capability is a
 ladder step or a refusal, never a silent fallback (Q13).
 

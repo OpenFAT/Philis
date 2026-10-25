@@ -21,7 +21,8 @@ from [Philis 1.0](https://github.com/UW-ASIC/Philis) milestone by milestone.
    closed enum plus one shared trait per variant family.
 4. [`docs/TRAITS.md`](docs/TRAITS.md): the trait system the Substrate2 fork adds.
 5. [`docs/RECIPES.md`](docs/RECIPES.md): the initial recipe catalog, from the
-   textbooks and the 1.0 constraint model (in progress).
+   textbooks and the 1.0 constraint model; the research reports it condenses
+   are in `docs/ref/research/`.
 6. [`docs/TESTING.md`](docs/TESTING.md): oracles, layers, gates, exit criteria.
 7. [`docs/ROADMAP.md`](docs/ROADMAP.md): milestones and the acceptance set.
 8. [`GLOSSARY.md`](GLOSSARY.md): the words.
