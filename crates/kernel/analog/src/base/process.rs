@@ -92,6 +92,15 @@ pub trait Process {
         None
     }
 
+    /// Horizontal spacing a role's layer needs between facing vertical
+    /// edges, nm: the deck's spacing on that layer's vertical edges, which
+    /// may exceed [`Process::space`] (ASAP7 ACTIVE.S.2A, 92 nm between
+    /// device actives side by side); `None` = not given.
+    fn horizontal_space(&self, role: &str) -> Option<i32> {
+        let _ = role;
+        None
+    }
+
     /// Spacing the deck requires between two roles' layers, nm (its
     /// two-layer spacing rules, widest); `None` = not given.
     fn space_between(&self, a: &str, b: &str) -> Option<i32> {

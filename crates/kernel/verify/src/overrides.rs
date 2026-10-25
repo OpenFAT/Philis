@@ -152,6 +152,14 @@ fn asap7(d: &mut DeckBuilder<'_>) {
             d.device(DeviceKind::Mos, marker, &name, &[gate_c, sd, sd], DeviceValue::default());
         }
     }
+
+    // ACTIVE.S.2A [DRM 3.5], 92 nm horizontal between the source/drain
+    // ACTIVE of different transistors on different nets, as the OpenROAD
+    // asap7.lydrc reads it: facing vertical edges of ACTIVE interacting GATE,
+    // apart from where LISD covers the edge (a shared contact, one net).
+    let s2a = d.derived("ACTIVE_S2A_EDGE", e(active).interacting(gate).edges().vertical().outside_part(lisd));
+    let limit = d.length(92.0);
+    d.add("ACTIVE.S.2A", rules::edge_facing_space(s2a, limit));
 }
 
 /// Rules raised past the foundry minimum to a Philis margin, by owner
@@ -195,6 +203,27 @@ mod tests {
         sort(&mut s.devices);
         sort(&mut s.pex);
         s
+    }
+
+    /// ASAP7 ACTIVE.S.2A's control: two device actives (each under a gate)
+    /// 38 nm apart side by side fail it, 92 nm apart pass, and LISD across
+    /// the break (one net) waives it; stacked 38 nm apart vertically, the
+    /// horizontal-only rule does not measure them.
+    #[test]
+    fn asap7_active_s2a_is_horizontal_and_lisd_waived() {
+        use analog::base::{Process, Rect, Shape};
+        let pdk = crate::Pdk::builtin("asap7").expect("asap7 loads");
+        assert_eq!(pdk.horizontal_space("diff"), Some(92), "generators read the rule");
+        let r = |l: &str, x, y, w, h| Shape { layer: pdk.layer(l).expect(l), rect: Rect { x, y, w, h } };
+        let device = |x, y| [r("diff", x, y, 70, 81), r("poly", x + 25, y - 20, 20, 121)];
+        let hits = |shapes: &[Shape]| crate::drc(shapes, &[], &pdk).iter().filter(|f| f.rule == "ACTIVE.S.2A").count();
+        let pair = |gap: i32| [device(0, 0), device(70 + gap, 0)].concat();
+        assert!(hits(&pair(38)) > 0, "38 nm side by side");
+        assert_eq!(hits(&pair(92)), 0, "92 nm side by side");
+        let mut bridged = pair(38);
+        bridged.push(r("lisd", 50, 0, 78, 81));
+        assert_eq!(hits(&bridged), 0, "LISD across the break");
+        assert_eq!(hits(&[device(0, 0), device(0, 81 + 38)].concat()), 0, "stacked");
     }
 
     /// The override-built deck states exactly what 1.0's hand-edited

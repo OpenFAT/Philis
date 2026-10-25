@@ -152,6 +152,12 @@ rule GATE.ACTIVE.S.4 space(ACTIVE, GATE_FIELD) >= 9nm
 rule ACTIVE.W.3 width(ACTIVE) >= 16nm
 # S.1 (vertical 27); S.2B is horizontal 38.
 rule ACTIVE.S.1 space(ACTIVE) >= 27nm
+# PHILIS: ACTIVE.S.2A, 92nm horizontal between ACTIVE forming source/drain
+# of different transistors on different nets, as the OpenROAD asap7.lydrc
+# reads it: facing vertical edges of ACTIVE interacting GATE, apart from
+# where LISD covers the edge (a shared contact across the break, one net).
+layer ACTIVE_S2A_EDGE = ACTIVE.interacting(GATE).edges().vertical().outside_part(LISD)
+rule ACTIVE.S.2A facing_space(ACTIVE_S2A_EDGE) >= 92nm
 rule ACTIVE.FIN.EX.1 extension(ACTIVE, FIN) >= 10nm
 rule ACTIVE.WELL.S.4 space(ACTIVE_OUT_WELL, WELL) >= 27nm
 rule ACTIVE.WELL.EN.1 enclosure(ACTIVE_IN_WELL, WELL) >= 27nm
@@ -427,9 +433,8 @@ rule SDT.LISD.AUX.4 inside(SDT, LISD)
 # ACTIVE outside SRAMDRC that touches it.
 rule SRAM.ACTIVE.AUX.2 forbidden(ACTIVE.outside(SRAMDRC).interacting(SRAMDRC))
 #
-# needs: net spacing that is directional (S.2A), or on ACTIVE, LIG, LISD and
-# SDT, which are not conductors in this deck:
-#   rule ACTIVE.S.2A space(ACTIVE; different_net) >= 92nm   (horizontal only)
+# needs: net spacing on ACTIVE, LIG, LISD and SDT, which are not conductors
+# in this deck (ACTIVE.S.2A is above, LISD standing in for the net):
 #   rule LIG.LISD.S.6 space(LIG, LISD; different_net) >= 14nm
 #   rule LIG.LISD.S.7 corner_space(LIG, LISD; different_net) >= 15nm
 #   rule LIG.SDT.S.8 space(LIG, SDT; different_net) >= 14nm
