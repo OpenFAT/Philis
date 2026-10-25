@@ -211,7 +211,9 @@ impl RecipeCalls {
         let s = self.member_start[i] as usize;
         &self.members[s..s + usize::from(self.member_count[i])]
     }
-    fn push(&mut self, kind: RecipeKind, members: &[DeviceId], unitization: Option<u16>) {
+    /// Append a call at ladder step 0. `unitization`: the annotator's row it
+    /// draws; `None` draws the members at their schematic fingers.
+    pub fn push(&mut self, kind: RecipeKind, members: &[DeviceId], unitization: Option<u16>) {
         self.kind.push(kind);
         self.member_start.push(self.members.len() as u32);
         self.member_count.push(members.len() as u16);
@@ -257,7 +259,7 @@ pub fn build_tiles(calls: &RecipeCalls, problem: &annotator::Problem, flat: &Fla
             let group = DeviceGroup { devices: members.to_vec() };
             let constraints = match calls.unitization[i] {
                 Some(_) => problem.constraints.clone(),
-                None => single(&flat.devices[members[0].0 as usize], members[0]),
+                None => as_drawn(flat, members),
             };
             let model = &flat.devices[members[0].0 as usize].model;
             let overlay = pdk.mos_overlay(model);
@@ -289,17 +291,20 @@ fn names(flat: &Flat, members: &[DeviceId]) -> String {
     members.iter().map(|d| flat.devices[d.0 as usize].name.as_str()).collect::<Vec<_>>().join(", ")
 }
 
-/// The one-device unitization a lone MOS draws from (as `substrate3`'s
-/// adapter synthesises it): its schematic fingers at their own width.
-fn single(d: &Device, id: DeviceId) -> analog::Constraints {
-    let s = d.mos_size();
-    let nf = s.map_or(1, |s| s.fingers().clamp(1, u32::from(u16::MAX)) as u16);
+/// The unitization a call with no annotator row draws (as `substrate3`'s
+/// adapter synthesises one): every member at its schematic fingers and the
+/// first member's finger size. ponytail: members of unequal size draw at the
+/// first's; the annotator's rows carry real ratios.
+fn as_drawn(flat: &Flat, members: &[DeviceId]) -> analog::Constraints {
+    let first = &flat.devices[members[0].0 as usize];
+    let s = first.mos_size();
+    let nf = |d: &DeviceId| flat.devices[d.0 as usize].mos_size().map_or(1, |s| s.fingers().clamp(1, u32::from(u16::MAX)) as u16);
     analog::Constraints {
         unitization: vec![analog::cell::Unitization {
-            devices: vec![id],
-            device_type: d.kind,
-            dev_nf: vec![nf],
-            target_ratio: vec![1],
+            devices: members.to_vec(),
+            device_type: first.kind,
+            dev_nf: members.iter().map(nf).collect(),
+            target_ratio: vec![1; members.len()],
             unit_w: s.map_or(0, |s| s.w_finger_nm() as i32),
             unit_l: s.map_or(0, |s| s.l_nm as i32),
             series_parallel: analog::cell::SeriesParallel::Parallel,
@@ -421,8 +426,14 @@ fn join_members(m: &mut Macro, pdk: &Pdk) {
 /// [`Layout`] the router's `place_macros` stamps. `gap`: the widest spacing
 /// among the layers the tiles draw, so neighbours never interact.
 /// ponytail: one row; the symmetric row stack is M2's floorplan recipe.
-#[must_use]
-pub fn arrange(tiles: &[Macro], pdk: &Pdk) -> Layout {
+///
+/// # Errors
+/// Several tiles on a deck with fins: exact gate and fin pitches (ASAP7
+/// GATE.S.1, FIN.S.1) need the gate-lattice glue row between tiles (M2).
+pub fn arrange(tiles: &[Macro], pdk: &Pdk) -> Result<Layout, Refusal> {
+    if tiles.len() > 1 && analog::base::Process::layer(pdk, "fin").is_some() {
+        return Err(refuse("floorplan", format!("{} tiles on a fin deck: a row needs the gate-lattice glue row (M2)", tiles.len())));
+    }
     let mut layers: Vec<u16> = tiles.iter().flat_map(|m| m.shapes.iter().map(|s| s.layer.0)).collect();
     layers.sort_unstable();
     layers.dedup();
@@ -437,7 +448,7 @@ pub fn arrange(tiles: &[Macro], pdk: &Pdk) -> Layout {
         x.push(cursor + m.bbox.w / 2);
         cursor += (m.bbox.w + gap + lattice - 1) / lattice * lattice;
     }
-    Layout {
+    Ok(Layout {
         x,
         y: tiles.iter().map(|m| m.bbox.h / 2).collect(),
         hw: tiles.iter().map(|m| m.bbox.w / 2).collect(),
@@ -450,7 +461,7 @@ pub fn arrange(tiles: &[Macro], pdk: &Pdk) -> Layout {
         power_uw: vec![0; n],
         temp_mc: vec![0; n],
         units: Default::default(),
-    }
+    })
 }
 
 /// Everything signoff reads, and its verdict.
@@ -551,10 +562,19 @@ pub fn run(spice: &str, pdk: &Pdk) -> Result<Outcome, Refusal> {
     let cfg = annotation(pdk);
     let problem = annotator::annotate(&netlist.flat, &cfg);
     let calls = plan_recipes(&problem, &netlist.flat)?;
-    let tiles = build_tiles(&calls, &problem, &netlist.flat, pdk)?;
-    let layout = arrange(&tiles, pdk);
-    let (placed, routes, route_report) = route::route(&tiles, &layout, &problem, &cfg, netlist.flat.nets.len(), pdk);
-    let signoff = signoff(&netlist, &placed, &routes, pdk)?;
+    run_calls(&netlist, &problem, &cfg, calls, pdk)
+}
+
+/// The spine from a call table on: what [`run`] does after `plan_recipes`,
+/// for a caller (the conformance harness) that writes its own calls.
+///
+/// # Errors
+/// Any step's [`Refusal`].
+pub fn run_calls(netlist: &Netlist, problem: &annotator::Problem, cfg: &annotator::AnnotationConfig, calls: RecipeCalls, pdk: &Pdk) -> Result<Outcome, Refusal> {
+    let tiles = build_tiles(&calls, problem, &netlist.flat, pdk)?;
+    let layout = arrange(&tiles, pdk)?;
+    let (placed, routes, route_report) = route::route(&tiles, &layout, problem, cfg, netlist.flat.nets.len(), pdk);
+    let signoff = signoff(netlist, &placed, &routes, pdk)?;
     let report = report(&calls, &netlist.flat, &signoff);
     Ok(Outcome { calls, placed, routes, route_report, signoff, report })
 }

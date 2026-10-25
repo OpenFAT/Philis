@@ -12,3 +12,7 @@ substrate3 = { path = "../../kernel/substrate3" }
 annotator = { path = "../annotator" }
 routing = { path = "../../backend/routing" }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+analog = { path = "../../kernel/analog" }
+annotator = { path = "../annotator" }
