@@ -44,7 +44,7 @@
     "antenna_source": "antenna_gatpoly (Ant.a, 200) added from SG13G2_os_layout_rules.pdf sec. 7.1 (~/pdks/IHP-Open-PDK (git 5e6d592e) libs.doc); existing Ant.b 200, Ant.c 20, Ant.d 20 rules agree with that table (areal ratios). Diode-protected Ant.e/Ant.f not encoded. Ant.a counts GatPoly over field oxide only; the rule here takes all gatpoly, which is stricter.",
     "em_current_density_source": "existing em_* rules checked against SG13G2_os_process_spec.pdf (~/pdks/IHP-Open-PDK (git 5e6d592e)) JMAX table: M1 1, M2-M5 2, TM1 15, TM2 16 mA/um; Cont 0.3, Via1-4 0.4, TopVia1 1.4, TopVia2 10 mA/cut: all agree. Narrow-line IMAX (M1 0.36 mA for w 0.16-0.36 um, M2-M5 0.6 mA for w 0.2-0.3 um) not encoded.",
     "em_derating": {"t_ref_k": 378.15, "ea_ev": null, "n": null},
-    "em_derating_source": "pdks/decks/ihp_sg13g2.deck:601 [PS] §2.15 \"11 years at 105 C\"; Ea and n not stated",
+    "em_derating_source": "pdks/ihp_sg13g2.deck:601 [PS] §2.15 \"11 years at 105 C\"; Ea and n not stated",
     "layers": {
       "diff": "activ",
       "poly": "gatpoly",

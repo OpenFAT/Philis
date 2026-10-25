@@ -1,6 +1,6 @@
 //! Finds GPurify's `pdks/` in the checkout Cargo fetched for the rev
 //! `Cargo.lock` pins, and hands it to the crate as `GPURIFY_PDKS`: the
-//! fallback for a sidecar naming a deck that is not vendored in `pdks/decks/`
+//! fallback for a sidecar naming a deck that is not vendored in `pdks/`
 //! (those are compiled in, src/decks.rs). `GPURIFY_DIR` (a local GPurify
 //! tree) overrides it.
 

@@ -8,7 +8,7 @@ Sources. Upstream decks: GPurify at the pinned rev `687c8bc8bf9468095a4104a05075
 (`~/.cargo/git/checkouts/gpurify-92358cf428c48214/687c8bc/pdks/`), which the
 dependency also exposes byte for byte as `gdsverify::pdks::{SKY130, GF180MCU,
 IHP_SG13G2, GENERIC_FINFET}` (`src/pdks.rs`, `include_str!` of the same files).
-Edited decks: `pdks/decks/*.deck` in this repo. GPurify's own HEAD
+Edited decks: `pdks/*.deck` in this repo. GPurify's own HEAD
 (`40ff66c`, the owner's checkout) carries none of the edits below yet.
 
 ## 1. The diff
@@ -92,7 +92,7 @@ of the four PDKs, compile the override-built text and the edited deck, take
 `CompiledDeck::source` (every layer, derived row, rule with params,
 connectivity, device, pex row, lvs control), sort each list, and compare
 equal. It passes for all four; a mutated override (a sidewall, a dropped
-conductor) fails it. The edited `pdks/decks/*.deck` stay only as its
+conductor) fails it. The edited `pdks/*.deck` stay only as its
 fixtures (`decks::DECKS` is `#[cfg(test)]`) and can go once the edits are upstream.
 
 Differences the switch makes visible: `Pdk::source` is now the printed deck,

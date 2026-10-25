@@ -2,17 +2,17 @@
 //! loads its PDKs without GPurify's checkout or this repository on disk.
 //!
 //! The decks themselves are GPurify's, edited in Rust ([`crate::overrides`]).
-//! `pdks/decks/*.deck` are 1.0's hand-edited copies (line 1 names the
+//! `pdks/*.deck` are 1.0's hand-edited copies (line 1 names the
 //! upstream commit, each edit under a `# PHILIS:` line), kept only as the
 //! fixtures the overrides are proven equal to.
 
 /// `(deck file name, 1.0's hand-edited deck text)`.
 #[cfg(test)]
 pub(crate) const DECKS: &[(&str, &str)] = &[
-    ("sky130.deck", include_str!("../../../../pdks/decks/sky130.deck")),
-    ("gf180mcu.deck", include_str!("../../../../pdks/decks/gf180mcu.deck")),
-    ("ihp_sg13g2.deck", include_str!("../../../../pdks/decks/ihp_sg13g2.deck")),
-    ("asap7.deck", include_str!("../../../../pdks/decks/asap7.deck")),
+    ("sky130.deck", include_str!("../../../../pdks/sky130.deck")),
+    ("gf180mcu.deck", include_str!("../../../../pdks/gf180mcu.deck")),
+    ("ihp_sg13g2.deck", include_str!("../../../../pdks/ihp_sg13g2.deck")),
+    ("asap7.deck", include_str!("../../../../pdks/asap7.deck")),
 ];
 
 /// `(PDK name, sidecar JSON)`, what [`crate::Pdk::builtin`] loads.

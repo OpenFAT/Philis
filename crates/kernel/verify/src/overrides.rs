@@ -172,7 +172,7 @@ mod tests {
         for (name, edited) in crate::decks::DECKS {
             let pdk = name.trim_end_matches(".deck");
             let built = deck_text(pdk).unwrap_or_else(|e| panic!("{e}"));
-            assert_eq!(canon(&built), canon(edited), "{pdk}: overrides differ from pdks/decks/{name}");
+            assert_eq!(canon(&built), canon(edited), "{pdk}: overrides differ from pdks/{name}");
         }
     }
 }
