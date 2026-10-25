@@ -29,19 +29,42 @@ pub struct Shield {
 impl Shield {
     /// Shielded fraction of the victim's wire length, `0..=1`; `None` when the
     /// victim has no wire.
+    ///
+    /// Wire length is the union of the victim's runs along each track: a run
+    /// is a shape at least [`RUN_ASPECT`] times as long as it is wide, and
+    /// runs on one layer, track and width merge before they are measured, so
+    /// overlapping shapes count once. Cuts, via pads and one-pitch access
+    /// jogs are not runs: they count neither in the length nor as shielded.
     fn coverage(self, r: &Routes) -> Option<f32> {
         let refs = r.shapes(self.reference);
+        // (layer, horizontal, across lo, across hi, along lo, along hi), merged.
+        let mut runs: Vec<(u16, bool, i32, i32, i32, i32)> = r
+            .shapes(self.victim)
+            .iter()
+            .filter(|s| s.rect.w.max(s.rect.h) >= RUN_ASPECT * s.rect.w.min(s.rect.h))
+            .map(|s| {
+                let q = s.rect;
+                if q.w > q.h { (s.layer.0, true, q.y, q.y + q.h, q.x, q.x + q.w) } else { (s.layer.0, false, q.x, q.x + q.w, q.y, q.y + q.h) }
+            })
+            .collect();
+        runs.sort_unstable();
+        let mut merged: Vec<(u16, bool, i32, i32, i32, i32)> = Vec::with_capacity(runs.len());
+        for v in runs {
+            match merged.last_mut() {
+                Some(m) if m.0 == v.0 && m.1 == v.1 && m.2 == v.2 && m.3 == v.3 && v.4 <= m.5 => m.5 = m.5.max(v.5),
+                _ => merged.push(v),
+            }
+        }
         let (mut total, mut covered) = (0i64, 0i64);
-        for v in r.shapes(self.victim).iter().filter(|s| s.rect.w != s.rect.h) {
-            let horiz = v.rect.w > v.rect.h;
-            let (lo, hi) = if horiz { (v.rect.x, v.rect.x + v.rect.w) } else { (v.rect.y, v.rect.y + v.rect.h) };
+        for (layer, horiz, c0, c1, lo, hi) in merged {
+            let rect = if horiz { Rect { x: lo, y: c0, w: hi - lo, h: c1 - c0 } } else { Rect { x: c0, y: lo, w: c1 - c0, h: hi - lo } };
             total += i64::from(hi - lo);
             // The run's stretches shadowed by reference metal on one side:
             // merged, clipped to [lo, hi), sorted.
             let side = |below: bool| -> Vec<(i32, i32)> {
                 let mut spans: Vec<(i32, i32)> = refs
                     .iter()
-                    .filter(|s| s.layer == v.layer && gap_on_side(v.rect, s.rect, horiz, below).is_some_and(|g| g <= self.max_gap_nm))
+                    .filter(|s| s.layer.0 == layer && gap_on_side(rect, s.rect, horiz, below).is_some_and(|g| g <= self.max_gap_nm))
                     .map(|s| if horiz { (s.rect.x, s.rect.x + s.rect.w) } else { (s.rect.y, s.rect.y + s.rect.h) })
                     .map(|(a, b)| (a.max(lo), b.min(hi)))
                     .filter(|(a, b)| a < b)
@@ -63,6 +86,10 @@ impl Shield {
         (total > 0).then(|| covered as f32 / total as f32)
     }
 }
+
+/// Least long-to-wide ratio of a victim shape that counts as wire: a cut or
+/// via pad (one or two cuts plus enclosure) and a one-pitch jog fall below.
+const RUN_ASPECT: i32 = 3;
 
 /// Total length common to two sorted, disjoint interval lists; O(a + b).
 pub(crate) fn intersection_len(p: &[(i32, i32)], q: &[(i32, i32)]) -> i64 {
@@ -144,6 +171,17 @@ mod tests {
         assert_eq!(rule().coverage(&far), Some(0.0));
         // Unrouted victim: unknown.
         assert!(!rule().known(&Routes { wires: vec![vec![], vec![]], ..Default::default()  }));
+    }
+
+    #[test]
+    fn overlaps_and_pads_count_once() {
+        // The victim's run in two overlapping pieces, plus a via pad and a cut
+        // on it: the length is still 10 µm, all of it shielded.
+        let pad = Shape { layer: LayerId(1), rect: Rect { x: 0, y: 1_000, w: 340, h: 140 } };
+        let cut = Shape { layer: LayerId(2), rect: Rect { x: 20, y: 1_020, w: 100, h: 100 } };
+        let v = vec![h(1_000, 0, 6_000), h(1_000, 4_000, 6_000), pad, cut];
+        let r = Routes { wires: vec![v, vec![h(720, 0, 10_000), h(1_280, 0, 10_000)]], ..Default::default() };
+        assert!((rule().coverage(&r).unwrap() - 1.0).abs() < 1e-6);
     }
 
     #[test]

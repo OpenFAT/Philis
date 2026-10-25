@@ -775,8 +775,24 @@ pub struct RouteCtx<G> {
     pub term_k: Vec<Vec<[u8; MAX_LAYERS]>>,
 }
 
-/// Extra cost of one node over a foreign matched cell, in steps.
-pub const KEEPOUT_COST: f32 = 2.0;
+/// Extra cost of one node over a foreign matched cell, in steps: one via
+/// (`routing::dr`'s lattice via cost, 4), so a foreign net goes around a
+/// matched cell rather than over it (Hastings: no foreign routing over
+/// matched devices).
+///
+/// Derivation. A straight run across a soft blockage `n` nodes wide pays
+/// `n·K` on top of the straight line. The cheapest way around a blockage `n`
+/// nodes tall leaves the track, passes it and returns: four vias (onto the
+/// perpendicular layer and back, twice) plus `n + 1` perpendicular rows, so
+/// `4V + n + 1`. Crossing loses whenever `n·K > 4V + n + 1`, i.e.
+/// `K > 1 + (4V + 1)/n`. At `K = V = 4` that holds for `n ≥ 6` nodes, a
+/// blockage of 5 pitches (≈ 2.2 µm at a 430 nm pitch) or more: a matched
+/// cell that size or larger is routed around. Over the 4 µm test cell (`n = 11`)
+/// crossing pays 44 (49 with its forced jogs) against a 28 detour. Below 6
+/// nodes (one Minimal-class gate strip, a narrow resistor body) a long
+/// detour still loses to crossing: soft stays soft. At 2.0 the test cell
+/// tied (27 against 28, Philis 1.0's carried failure).
+pub const KEEPOUT_COST: f32 = 4.0;
 
 /// Base cost of a one-pitch step across a stride-1 layer's preferred
 /// direction (RTE-28, tuning default): below the 2·via_cost of a via detour
