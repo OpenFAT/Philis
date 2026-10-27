@@ -157,8 +157,8 @@ impl Cell for FinFet {
         let d_top = (sd_m1_y + m1_h).max(y_d(n_tracks - 1) + v1_pad / 2);
         let s_strap_y = d_top + r.m1_s.max(process.eol_space("li").unwrap_or(0));
         // An S/D strip's bottom is a line end facing the strap's side (ASAP7
-    // M1.S.2, 25): with one fin the strips reach below the active.
-    let strap_top = sd_m1_y.min(-r.lig_channel) - r.m1_s.max(process.eol_space("li").unwrap_or(0));
+        // M1.S.2, 25): with one fin the strips reach below the active.
+        let strap_top = sd_m1_y.min(-r.lig_channel) - r.m1_s.max(process.eol_space("li").unwrap_or(0));
         let gv0_y = strap_top - r.m1_w + (r.m1_w - r.v0) / 2;
         // LIG past the gate on both sides, its edges off the gate's (ASAP7
         // LIG.GATE.AUX.1). ponytail: one grid step; a deck extension rule

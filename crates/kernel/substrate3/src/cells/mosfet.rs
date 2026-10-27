@@ -2096,7 +2096,8 @@ mod tests {
                     leaving.dedup();
                     // A shared bar, or an unsplit centroid row whose bars overlap
                     // (one poly island, as the ABBA mirror's strap was).
-                    let want = if !v.split_gates && (v.mirror_pins || matches!(v.style, Pattern::Cc1d | Pattern::Interdig)) { 1 } else { leaving.len() };
+                    let want =
+                        if !v.split_gates && (v.mirror_pins || matches!(v.style, Pattern::Cc1d | Pattern::Interdig)) { 1 } else { leaving.len() };
                     assert_eq!(runs.len(), want, "{tag}: runs {runs:?}");
                     checked += 1;
                 }
