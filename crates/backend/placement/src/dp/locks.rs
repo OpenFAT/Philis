@@ -131,19 +131,10 @@ fn relative(sets: &[Vec<u16>], pairs: &[(u32, u32)], mirrored: &[(u32, u32)], n:
     rel
 }
 
-/// Non-singleton groups, sorted, and the cell → set map.
+/// Non-singleton groups, sorted (as [`UnionFind::groups`] gives them), and
+/// the cell → set map.
 fn sets(uf: &mut UnionFind, n: usize) -> (Vec<Vec<u16>>, Vec<Option<u16>>) {
-    let mut out: Vec<Vec<u16>> = uf
-        .groups()
-        .into_iter()
-        .filter(|g| g.len() >= 2)
-        .map(|g| {
-            let mut g: Vec<u16> = g.into_iter().map(|c| c as u16).collect();
-            g.sort_unstable();
-            g
-        })
-        .collect();
-    out.sort_unstable();
+    let out: Vec<Vec<u16>> = uf.groups().into_iter().map(|g| g.into_iter().map(|c| c as u16).collect()).collect();
     let mut of = vec![None; n];
     for (i, g) in out.iter().enumerate() {
         for &c in g {
