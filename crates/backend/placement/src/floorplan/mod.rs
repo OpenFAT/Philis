@@ -1,17 +1,20 @@
 //! Floorplan recipes (Q20 to Q22): [`targets`] hands each set a width and
 //! height bound and its axis top-down; [`row_stack`] places tiles in rows by
 //! stage, pairs mirrored about one shared vertical axis; [`glue`] places a
-//! row on the gate lattice of a fin deck with field-gate fill. Each returns a
+//! row on the gate lattice of a fin deck with field-gate fill. Both size
+//! every gap from the shapes that face across it ([`Spacing`]). Each returns a
 //! [`Floorplan`] table, one row per tile, that [`Floorplan::layout`] turns
 //! into the `Layout` columns `place_macros` stamps.
 
 mod glue;
 mod row_stack;
+mod spacing;
 #[cfg(test)]
 mod tests;
 
 pub use glue::glue;
 pub use row_stack::row_stack;
+pub use spacing::Spacing;
 
 use analog::base::{Layout, Orient};
 
