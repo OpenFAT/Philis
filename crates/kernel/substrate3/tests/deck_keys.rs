@@ -170,7 +170,6 @@ fn generators_read_exactly_the_required_keys() {
         "poly_ext",
         "nwell_diff_enc",
         "m1_enc",
-        "min_finger_width",
         "cap_strap_via_enclosure_nm",
         "cap_strap_via_spacing_nm",
         "diff_encloses_licon",
@@ -198,9 +197,10 @@ fn generators_read_exactly_the_required_keys() {
         "keys generators read with a compiled default but not required (a deck omitting them builds to Philis's number): {optional_read:?}"
     );
     // And a name in no registry row: it must resolve from the loaded PDK
-    // (sidecar scalar or deck-derived `<role>_min_*`; `min_gate_l` from the
-    // deck's channel rules), or every shipped deck builds to the default.
-    let resolved: BTreeSet<&str> = pdk.rules.iter().map(|(n, _)| n.as_str()).chain(["min_gate_l"]).collect();
+    // (sidecar scalar or deck-derived `<role>_min_*`; `min_gate_l`,
+    // `min_finger_width` and `tie_max_dist_nm` from the deck's channel, finger
+    // and latch-up rules), or every shipped deck builds to the default.
+    let resolved: BTreeSet<&str> = pdk.rules.iter().map(|(n, _)| n.as_str()).chain(["min_gate_l", "min_finger_width", "tie_max_dist_nm"]).collect();
     let defaulted: Vec<_> =
         recorded.iter().filter(|n| !resolved.contains(n.as_str()) && !raise_deck.contains(&n.as_str()) && !flags.contains(&n.as_str())).collect();
     assert!(defaulted.is_empty(), "names generators read that sky130 does not state, so they build to Philis's compiled default: {defaulted:?}");
