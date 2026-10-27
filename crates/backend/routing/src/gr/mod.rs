@@ -376,15 +376,19 @@ impl TrackGrid {
         (r % self.nx, r / self.nx, n / self.layer_size())
     }
 
-    /// Up to `k` unclaimed landing nodes passing `ok` for a pin at `(x, y)`: Chebyshev rings
-    /// `0..=rmax`, layer 0 before layer 1, nearest ring first. A layer-1 node within
-    /// two rows of a claimed layer-1 node in its column is skipped (stacked vias).
+    /// Up to `k` unclaimed landing nodes passing `ok` for a pin at `(x, y)` on
+    /// lattice layer `base` (0 for a pin below the lattice): Chebyshev rings
+    /// `0..=rmax` on two layers, the lower first, nearest ring first — layers
+    /// 0 and 1 for a pin on either, else the pin's own and the one above. A
+    /// node on the upper layer within two rows of a claimed node there in its
+    /// column is skipped (stacked vias).
     #[must_use]
-    pub fn candidates(&self, x: i32, y: i32, claimed: &[bool], ok: impl Fn(u32) -> bool, rmax: i32, k: usize) -> Vec<u32> {
+    pub fn candidates(&self, (x, y, base): (i32, i32, u32), claimed: &[bool], ok: impl Fn(u32) -> bool, rmax: i32, k: usize) -> Vec<u32> {
         let (cx, cy) = (self.bin_x(x) as i32, self.bin_y(y) as i32);
         let (nx, ny) = (self.nx as i32, self.ny as i32);
         let mut out = Vec::new();
-        for layer in 0..self.n_layers.min(2) {
+        let lo = if base <= 1 { 0 } else { base };
+        for layer in lo..self.n_layers.min(lo + 2) {
             for r in 0..=rmax {
                 for dy in -r..=r {
                     for dx in -r..=r {
@@ -393,10 +397,10 @@ impl TrackGrid {
                             continue;
                         }
                         let n = self.node(ix as u32, iy as u32, layer);
-                        let stacked = layer == 1
+                        let stacked = layer == lo + 1
                             && (-2..=2).any(|d: i32| {
                                 let jy = iy + d;
-                                d != 0 && (0..ny).contains(&jy) && claimed[self.node(ix as u32, jy as u32, 1) as usize]
+                                d != 0 && (0..ny).contains(&jy) && claimed[self.node(ix as u32, jy as u32, layer) as usize]
                             });
                         if !claimed[n as usize] && !stacked && self.on_track(n) && ok(n) {
                             out.push(n);

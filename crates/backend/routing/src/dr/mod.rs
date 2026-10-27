@@ -877,7 +877,7 @@ impl DetailedRoute {
                                 && climb_clear(&reserved, m, jog_l)
                         })
                 };
-                let cands = grid.candidates(ca.0, ca.1, &claimed, ok_n, 8, 12);
+                let cands = grid.candidates((ca.0, ca.1, pin_base(layers, la)), &claimed, ok_n, 8, 12);
                 let spaced = (stitch, (cfg.pitch - cfg.wire_width).max(1));
                 let pick = [spaced, (full, 1)].into_iter().find_map(|(zone, gap)| {
                     cands.iter().copied().find_map(|n| {
@@ -937,6 +937,8 @@ impl DetailedRoute {
                 let (cx, cy) = (r.x + r.w / 2, r.y + r.h / 2);
                 // Never land inside another net's stitch reservation.
                 let jog_l = jog_layer(cfg, layers, cuts, grid.n_layers, r_layer);
+                // Landing searches from the pin's own lattice layer.
+                let base = pin_base(layers, r_layer);
                 let mine = |n: u32| {
                     [NONE, CONTESTED, ci as u32].contains(&reserved[n as usize])
                         && blocked_for[ci].binary_search(&n).is_err()
@@ -970,7 +972,7 @@ impl DetailedRoute {
                 let narrow = full.min(r.w).min(r.h).max(floor).max(need);
                 // A point terminal (1×1 rect) is its own node: nothing to jog to.
                 let point = r.w <= 1 && r.h <= 1;
-                let mut cands = if point { Vec::new() } else { grid.candidates(cx, cy, &claimed, clean, 8, 12) };
+                let mut cands = if point { Vec::new() } else { grid.candidates((cx, cy, base), &claimed, clean, 8, 12) };
                 // Nearest first within each layer's ring: the ring scan's own
                 // order (row by row) is not distance.
                 cands.sort_by_key(|&n| {
@@ -1006,10 +1008,10 @@ impl DetailedRoute {
                         Some((n, Some(choice)))
                     }
                     None => grid
-                        .candidates(cx, cy, &claimed, clean, 2, 1)
+                        .candidates((cx, cy, base), &claimed, clean, 2, 1)
                         .first()
-                        .or(grid.candidates(cx, cy, &claimed, short_ok, 3, 1).first())
-                        .or(grid.candidates(cx, cy, &claimed, mine, 4, 1).first())
+                        .or(grid.candidates((cx, cy, base), &claimed, short_ok, 3, 1).first())
+                        .or(grid.candidates((cx, cy, base), &claimed, mine, 4, 1).first())
                         .map(|&n| (n, None)),
                 };
                 let Some((n, choice)) = landed else {
@@ -2598,13 +2600,18 @@ fn jog_legs(nx: i32, ny: i32, px: i32, py: i32, w: i32) -> [[Rect; 2]; 2] {
 
 /// Lattice layer an access jog off `pin_layer` runs on.
 fn jog_layer(cfg: &DetailedCfg, layers: &[LayerId], cuts: &[Cut], n_layers: u32, pin_layer: LayerId) -> u32 {
-    let base = layers.iter().position(|&l| l == pin_layer).unwrap_or(0) as u32;
+    let base = pin_base(layers, pin_layer);
     let l = match cfg.pin_access {
         Some((pl, _)) if pl == pin_layer => 0,
         _ if base + 1 < n_layers && (base as usize) < cuts.len() => base + 1,
         _ => base,
     };
     l.min(n_layers.saturating_sub(1))
+}
+
+/// `pin_layer`'s lattice layer; 0 for a layer below the lattice (pin access).
+fn pin_base(layers: &[LayerId], pin_layer: LayerId) -> u32 {
+    layers.iter().position(|&l| l == pin_layer).unwrap_or(0) as u32
 }
 
 /// Jog legs clear of every foreign stitch zone (`zone` wide) and every foreign
@@ -4266,6 +4273,32 @@ mod tests {
 
     fn rules(r: &Report) -> Vec<&String> {
         r.hard_violations.iter().map(|v| &v.rule).collect()
+    }
+
+    /// Two pins on lattice layer 2 of four, with layers 0 and 1 filled by
+    /// fixed metal: they land from their own layer and the net closes.
+    /// Before: landing searched layers 0 and 1 only, so neither pin landed
+    /// (with a smaller fill, both jogged blind past its edge).
+    /// Oracle: dr's open-net and unlanded rows, and the drawn metal on layer
+    /// 2 or 3 over each pin.
+    #[test]
+    fn a_pin_above_the_lowest_layers_lands_from_its_own() {
+        let layers = [LayerId(0), LayerId(1), LayerId(3), LayerId(5)];
+        let cuts: [Cut; 3] = [(LayerId(2), 100, 140, 140), (LayerId(4), 100, 140, 140), (LayerId(6), 100, 140, 140)];
+        let at = |x, y| Rect { x, y, w: 170, h: 170 };
+        let pins = [(NetId(0), at(1_000, 1_000), layers[2]), (NetId(0), at(9_000, 6_000), layers[2])];
+        // Past the landing search's eight rings around either pin.
+        let fill = Rect { x: -5_000, y: -5_000, w: 20_000, h: 16_000 };
+        let fixed =
+            Macro { shapes: vec![Shape { layer: layers[0], rect: fill }, Shape { layer: layers[1], rect: fill }], bbox: fill, ..Macro::default() };
+        let reqs = Requirements::<Routes>::default();
+        let neg = &mut crate::gr::Negotiation::new();
+        let (routes, report, _) = DetailedRoute { cfg: test_cfg() }.route(&pins, &[], &[fixed], &reqs, &layers, &cuts, neg);
+        let bad: Vec<&String> = rules(&report).into_iter().filter(|r| r.starts_with("open net") || r.contains("unlanded")).collect();
+        assert!(bad.is_empty(), "{:?}", rules(&report));
+        for p in &pins {
+            assert!(routes.wires[0].iter().any(|s| [layers[2], layers[3]].contains(&s.layer) && s.rect.touches(&p.1)), "pin {:?} unreached", p.1);
+        }
     }
 
     #[test]
