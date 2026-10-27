@@ -10,6 +10,7 @@
 pub mod claims;
 pub mod floorplan;
 pub mod interface;
+mod ratioed;
 pub mod route;
 
 use std::collections::{HashMap, HashSet};
@@ -194,13 +195,9 @@ pub enum RecipeKind {
     /// shared source (Hastings Table 13.3, `(ₛAᴅAₛBᴅBₛ)ⁱ`): equal LOD and
     /// source resistance, not common-centroid (`RECIPES.md` §2.1). Planar.
     MosInterdigitated,
-    /// A ratioed mirror's members (one kind, model and L) drawn from one unit
-    /// finger ([`ratioed`]) in one diffusion-legal common-centroid row with
-    /// end dummies (`RECIPES.md` §2.1 MOS-Ratioed; 1.0 `diffusion_cc_row`
-    /// and `sets::unitize`). The row is a palindrome, so every member's
-    /// centroid sits on the row's centre; counts with no such row (an odd
-    /// member at the gcd unit whose half the deck cannot draw, or no
-    /// diffusion-legal order) draw nothing and the ladder steps down.
+    /// A ratioed mirror's members (one kind, model and L) from one unit
+    /// finger in one centroid row with end dummies (`RECIPES.md` §2.1,
+    /// `ratioed.rs`); a set with no such row draws nothing, the ladder steps down.
     MosRatioed,
 }
 
@@ -280,39 +277,19 @@ impl RecipeCalls {
 pub fn plan_recipes(problem: &annotator::Problem, flat: &Flat, pdk: &Pdk) -> Result<RecipeCalls, Refusal> {
     let mut calls = RecipeCalls::default();
     let mut taken = vec![false; flat.devices.len()];
-    // The first rung of `rungs` that draws `members` on this deck.
-    let first_rung = |rungs: &[RecipeKind], members: &[DeviceId], row: Option<usize>| {
-        let process = Mos::new(flat, members, pdk);
-        rungs.iter().position(|&k| {
-            constraints_of(k, &problem.constraints, row, flat, members, pdk, process.get())
-                .is_some_and(|c| !mos_variants(k, flat, members, &c, process.get()).is_empty())
-        })
-    };
-    for s in &problem.intent.sets {
-        let members: Vec<DeviceId> = s.members.iter().map(|m| m.device).collect();
-        let mos = members.iter().all(|d| matches!(flat.devices[d.0 as usize].kind, DeviceKind::Nmos | DeviceKind::Pmos));
-        let has_row =
-            problem.constraints.unitization.iter().any(|u| u.devices.len() == members.len() && u.devices.iter().all(|d| members.contains(d)));
-        if !mos || has_row || members.len() < 2 || members.iter().any(|d| taken[d.0 as usize]) {
-            continue;
-        }
-        let rungs = ladder(Some(s.class), Some(s.kind));
-        // Only Ratioed draws members of unequal fingers: no other rung is tried.
-        let Some(step) = rungs.iter().position(|&k| k == RecipeKind::MosRatioed) else { continue };
-        if first_rung(&rungs[step..=step], &members, None).is_none() {
-            continue;
-        }
-        members.iter().for_each(|d| taken[d.0 as usize] = true);
-        calls.push(RecipeKind::MosRatioed, &members, None);
-        *calls.ladder_step.last_mut().expect("just pushed") = step as u8;
-    }
+    ratioed::plan(problem, flat, pdk, &mut calls, &mut taken);
     for (i, u) in problem.constraints.unitization.iter().enumerate() {
         if u.devices.iter().any(|d| taken[d.0 as usize]) || !matches!(u.device_type, DeviceKind::Nmos | DeviceKind::Pmos) {
             continue;
         }
         u.devices.iter().for_each(|d| taken[d.0 as usize] = true);
+        // The first rung this set can be drawn as on this deck.
         let rungs = ladder(u.class, u.kind);
-        let Some(step) = first_rung(rungs, &u.devices, Some(i)) else {
+        let process = Mos::new(flat, &u.devices, pdk);
+        let Some(step) = rungs.iter().position(|&k| {
+            constraints_of(k, &problem.constraints, Some(i), flat, &u.devices, pdk, process.get())
+                .is_some_and(|c| !mos_variants(k, flat, &u.devices, &c, process.get()).is_empty())
+        }) else {
             return Err(refuse(
                 "no-recipe",
                 format!("{}: no rung of {rungs:?} draws this {:?} set", names(flat, &u.devices), u.class.unwrap_or_default()),
@@ -446,7 +423,7 @@ impl<'a> Mos<'a> {
 }
 
 /// The unitization a `kind` call over `members` draws: MOS-Ratioed's one unit
-/// ([`ratioed`], over annotator row `row` when it has one), else row `row`
+/// ([`ratioed::unitize`], over annotator row `row` when it has one), else row `row`
 /// folded ([`folded`]), else the members as drawn ([`as_drawn`]). `None`:
 /// Ratioed finds no unit the deck draws.
 fn constraints_of(
@@ -459,73 +436,12 @@ fn constraints_of(
     process: &dyn analog::base::Process,
 ) -> Option<analog::Constraints> {
     match (kind, row) {
-        (RecipeKind::MosRatioed, _) => ratioed(flat, members, row.map(|r| &c.unitization[r]), pdk, process),
+        (RecipeKind::MosRatioed, _) => ratioed::unitize(flat, members, row.map(|r| &c.unitization[r]), pdk, process),
         (RecipeKind::MosAdjacent | RecipeKind::MosCc1d | RecipeKind::MosCc2d | RecipeKind::MosInterdigitated, Some(r)) => Some(folded(c, r, process)),
         (RecipeKind::MosAdjacent | RecipeKind::MosCc1d | RecipeKind::MosCc2d | RecipeKind::MosInterdigitated, None) => {
             Some(as_drawn(flat, members, process))
         }
     }
-}
-
-/// MOS-Ratioed's unitization (`RECIPES.md` §2.1; 1.0 `sets::unitize`): every
-/// member drawn from one unit finger, the gcd of the members' fingers folded
-/// to the tap reach ([`fold`]), member `k` as that unit's integer count of its
-/// own total W, with end dummies. A member with an odd count would put a
-/// device boundary on a drain, so then the unit halves, every count even.
-/// `base` (the annotator's row) lends its class and route matching.
-///
-/// `None`, never a rounded or resized unit: members of another kind, model or
-/// L, or a unit (or the half) off the grid or below what the deck draws
-/// ([`drawable_size`]).
-fn ratioed(
-    flat: &Flat,
-    members: &[DeviceId],
-    base: Option<&analog::cell::Unitization>,
-    pdk: &Pdk,
-    process: &dyn analog::base::Process,
-) -> Option<analog::Constraints> {
-    fn gcd(a: i64, b: i64) -> i64 {
-        if b == 0 {
-            a
-        } else {
-            gcd(b, a % b)
-        }
-    }
-    assert!(!members.is_empty(), "a call has members");
-    let devs: Vec<&Device> = members.iter().map(|d| &flat.devices[d.0 as usize]).collect();
-    let sizes: Vec<analog::base::MosSize> = devs.iter().map(|d| d.mos_size()).collect::<Option<_>>()?;
-    let (d0, l) = (devs[0], sizes[0].l_nm);
-    if devs.iter().zip(&sizes).any(|(d, s)| d.kind != d0.kind || d.model != d0.model || s.l_nm != l) {
-        return None;
-    }
-    let total: Vec<i64> = sizes.iter().map(|s| s.w_finger_nm() * i64::from(s.fingers())).collect();
-    let g = sizes.iter().map(|s| s.w_finger_nm() / i64::from(fold(s.w_finger_nm(), l, process))).fold(0, gcd);
-    let odd = total.iter().any(|t| (t / g.max(1)) % 2 == 1);
-    let unit = if odd { g / 2 } else { g };
-    if (odd && g % 2 != 0) || unit <= 0 || unit % i64::from(process.grid().max(1)) != 0 || drawable_finger(unit, l, d0, pdk).is_err() {
-        return None;
-    }
-    let dev_nf: Vec<u16> = total.iter().map(|t| u16::try_from(t / unit).ok()).collect::<Option<_>>()?;
-    assert!(total.iter().zip(&dev_nf).all(|(t, &n)| i64::from(n) * unit == *t), "every member is a whole number of units");
-    let r = dev_nf.iter().fold(0, |a, &n| gcd(a, i64::from(n))) as u16;
-    Some(analog::Constraints {
-        unitization: vec![analog::cell::Unitization {
-            devices: members.to_vec(),
-            device_type: d0.kind,
-            target_ratio: dev_nf.iter().map(|&n| n / r).collect(),
-            dev_nf,
-            unit_w: i32::try_from(unit).ok()?,
-            unit_l: i32::try_from(l).ok()?,
-            series_parallel: analog::cell::SeriesParallel::Parallel,
-            dummy_required: true,
-            route_matching_required: base.is_some_and(|u| u.route_matching_required),
-            class: base.and_then(|u| u.class),
-            kind: base.and_then(|u| u.kind),
-            series: Vec::new(),
-            style: base.and_then(|u| u.style),
-        }],
-        ..analog::Constraints::default()
-    })
 }
 
 /// A recipe's candidate variants for a set; empty when the kind cannot draw
@@ -573,7 +489,7 @@ fn mos_variants(kind: RecipeKind, flat: &Flat, members: &[DeviceId], c: &analog:
             all().into_iter().filter(|v| v.style == Pattern::Interdig && v.rows == 1 && (v.split_gates || !private_gates)).collect(),
             false,
         ),
-        // Ratioed is the one-row centroid over its own unit ([`ratioed`]).
+        // Ratioed is the one-row centroid over its own unit ([`ratioed::unitize`]).
         RecipeKind::MosCc1d | RecipeKind::MosCc2d | RecipeKind::MosRatioed => {
             let rows = if kind == RecipeKind::MosCc2d { 2 } else { 1 };
             Variants::Planar(
