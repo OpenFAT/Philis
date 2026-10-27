@@ -1962,4 +1962,18 @@ mod tests {
         let met1 = sky.gv_layer(id(&sky, "met1"));
         assert!((0..t.layer.len()).any(|r| t.layer[r] == met1 && t.window[r].0.raw() == 700_000 && t.max_density[r] == Some(0.7)));
     }
+
+    /// `Checker::new` copies the `Pdk`'s parse instead of parsing again: the
+    /// copy is what a second parse gives, ids included.
+    #[test]
+    fn a_second_parse_equals_the_first() {
+        use gdsverify::ingest::StrId;
+        for name in crate::pdk_data::NAMES {
+            let p = load(name);
+            let mut strings = StrTable::default();
+            let deck = gdsverify::ingest::deck::parse_deck(&p.source, nm_grid(), &mut strings).unwrap();
+            assert!(deck == p.deck && strings.len() == p.strings.len(), "{name}");
+            assert!((0..strings.len() as u32).all(|i| strings.resolve(StrId(i)) == p.strings.resolve(StrId(i))), "{name}");
+        }
+    }
 }

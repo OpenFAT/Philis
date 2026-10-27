@@ -1,5 +1,5 @@
 //! [`Checker`] — one reusable gdsverify session over one deck. It owns its own
-//! string table (re-parsed from `pdk.source`), so every `StrId` the engine
+//! string table (a copy of the `Pdk`'s, same ids), so every `StrId` the engine
 //! reports resolves against `self.loaded.strings`.
 
 use analog::base::Shape;
@@ -9,7 +9,7 @@ use gdsverify::check::report::{Outcome, Severity, Violations};
 use gdsverify::engine::pipeline::{extract, intern_report_ids, Extracted, Loaded};
 use gdsverify::engine::run::run_checks;
 use gdsverify::engine::{Checks, Outputs, RunOptions, Summary};
-use gdsverify::ingest::deck::{parse_deck, Deck};
+use gdsverify::ingest::deck::Deck;
 use gdsverify::ingest::{StrId, StrTable};
 
 use crate::geom::{build_store, LabeledPin};
@@ -49,15 +49,19 @@ pub struct Checker {
 }
 
 impl Checker {
-    /// Parse the deck out of `pdk.source`. `strip_density` drops every
-    /// `density` and `density_cmp` rule — the in-loop mode, where a density
-    /// window over a half-drawn layout is noise.
+    /// A session over `pdk`'s deck. `strip_density` drops every `density`
+    /// and `density_cmp` rule — the in-loop mode, where a density window over
+    /// a half-drawn layout is noise.
     ///
     /// # Errors
-    /// The deck failing gdsverify's parser (cannot happen for a loaded `Pdk`).
+    /// The filtered deck failing to compile (cannot happen for a loaded `Pdk`).
     pub fn new(pdk: &Pdk, strip_density: bool) -> Result<Self, String> {
+        // `StrTable` is not `Clone`; interning in id order keeps every id.
         let mut strings = StrTable::default();
-        let mut deck = parse_deck(&pdk.source, nm_grid(), &mut strings).map_err(|e| format!("deck rejected: {e}"))?;
+        for i in 0..pdk.strings.len() {
+            strings.intern(pdk.strings.resolve(StrId(i as u32)));
+        }
+        let mut deck = pdk.deck.clone();
         if strip_density {
             let kinds = [strings.get("density"), strings.get("density_cmp")];
             deck.rules.spec.retain(|s| !kinds.contains(&Some(s.kind)));
