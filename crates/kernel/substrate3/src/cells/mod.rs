@@ -104,18 +104,41 @@ pub(crate) mod testkit {
     /// chip-level; its gates have no driver (`floating_gate` is vacuous); its
     /// taps meet only through the substrate until routing ties them
     /// (`soft_connection`), and a two-ended gate's straps only through poly.
-    /// Named known failure (Q61): GPurify flags `unconnected_pin` (sky130
-    /// `x.22`) on a labelled port too until its intent file reads `ports`,
-    /// and every pin of a lone cell is one, so those rows are not findings
-    /// here. The canary is verify's `unconnected_metal_is_floating_unless_it_is_a_port`:
-    /// when it fails, GPurify exempts ports and [`PORT_GAP`] goes.
+    /// A [`PORT_GAP`] row carries its location (`x.22:met1@x,y`), so a
+    /// test's known-failure list ([`port_gap`]) names each row exactly.
     pub fn findings(shapes: &[analog::base::Shape], labels: &[verify::LabeledPin], pdk: &verify::Pdk) -> Vec<String> {
         findings_in(shapes, &[], labels, pdk)
     }
 
-    /// The `unconnected_pin` rules of the built-in decks: GPurify's port
-    /// exemption gap (Q61, see [`findings`]).
+    /// The `unconnected_pin` rules of the built-in decks. Named known
+    /// failure (Q61): GPurify flags them on a labelled port too until its
+    /// intent file reads `ports`, and every pin of a lone cell is one.
     pub const PORT_GAP: [&str; 2] = ["x.22", "unconnected_conductor"];
+
+    /// Asserts a cell test's dirty lines are exactly its checked-in
+    /// known-failure list `tests/port_gap/<name>.txt`: every row a
+    /// [`PORT_GAP`] row at its location, and no other. Any other finding,
+    /// or a port-gap row anywhere else, fails. `PHILIS_BLESS=1` rewrites
+    /// the list. The canary is verify's
+    /// `unconnected_metal_is_floating_unless_it_is_a_port`: when it fails,
+    /// GPurify exempts ports and these lists go (each test asserts clean).
+    ///
+    /// # Panics
+    /// `dirty` differs from the list, or the list holds a row that is not a
+    /// port-gap row.
+    pub fn port_gap(name: &str, dirty: &[String]) {
+        let path = format!("{}/tests/port_gap/{name}.txt", env!("CARGO_MANIFEST_DIR"));
+        let got = dirty.join("\n");
+        if std::env::var_os("PHILIS_BLESS").is_some() {
+            std::fs::write(&path, &got).unwrap_or_else(|e| panic!("{path}: {e}"));
+        }
+        let want = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e} (PHILIS_BLESS=1 writes it)"));
+        // The rows: a variant line's quoted entries, else the lines themselves.
+        let rows: Vec<&str> = if want.contains('"') { want.split('"').skip(1).step_by(2).collect() } else { want.lines().collect() };
+        assert!(!rows.is_empty(), "{path}: an empty list; the test asserts clean instead");
+        assert!(rows.iter().all(|r| PORT_GAP.iter().any(|g| r.starts_with(&format!("{g}:")))), "{path}: a row that is not a port-gap row");
+        assert_eq!(got, want, "{name}: findings differ from the known port-gap list {path}");
+    }
 
     /// [`findings`] with `cells` named ([`analog::base::Macro::cells`]).
     pub fn findings_in(
@@ -129,8 +152,13 @@ pub(crate) mod testkit {
             .into_iter()
             .chain(verify::erc_with(shapes, labels, pdk, &opts))
             .filter(|f| !f.rule.ends_with("_density") && !(f.rule == "floating_gate" || f.rule.starts_with("soft_connection")))
-            .filter(|f| labels.is_empty() || !PORT_GAP.contains(&f.rule.as_str()))
-            .map(|f| format!("{}:{}", f.rule, f.layer))
+            .map(|f| {
+                if PORT_GAP.contains(&f.rule.as_str()) {
+                    format!("{}:{}@{},{}", f.rule, f.layer, f.x, f.y)
+                } else {
+                    format!("{}:{}", f.rule, f.layer)
+                }
+            })
             .collect()
     }
 

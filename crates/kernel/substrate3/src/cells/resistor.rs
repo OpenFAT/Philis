@@ -664,7 +664,7 @@ mod tests {
                 }
             }
         }
-        assert!(dirty.is_empty(), "DRC/ERC-dirty variants:\n{}", dirty.join("\n"));
+        crate::cells::testkit::port_gap("resistor_every_variant_is_drc_and_erc_clean", &dirty);
     }
 
     fn generic_po(pdk: &verify::Pdk) -> verify::pdk::Overlay<'_> {

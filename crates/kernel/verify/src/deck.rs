@@ -53,6 +53,8 @@ pub struct Derived {
     /// `sized`'s growth, nm.
     pub dx_nm: Option<i64>,
     pub dy_nm: Option<i64>,
+    /// `in_cells`/`not_in_cells`' cell names.
+    pub cells: Option<Vec<String>>,
 }
 
 /// One rule.

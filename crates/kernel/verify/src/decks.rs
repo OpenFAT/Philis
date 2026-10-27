@@ -66,6 +66,56 @@ mod tests {
         }
     }
 
+    /// Every stricter or missing rule Philis states (the `# PHILIS:` edits
+    /// that replaced `overrides.rs`) reaches the dump with Philis's value,
+    /// never upstream's: a re-vendor that loses one fails here by name.
+    ///
+    /// Oracle: each edit's own source, as its `# PHILIS:` comment cites it:
+    /// sky130 m1.5 65 nm (owner margin over [S1]'s 60), the met3–met5
+    /// antenna sidewalls = pex thickness (845/845/1260 nm, not 800/800/1200),
+    /// LU.2/LU.2.1/LU.3 15 µm (magic's sky130A.tech), the poly body sheets
+    /// (model cards: 48.2, 317.3885, 2000 Ω/□), the vertical PNP/NPN, x.25's
+    /// renamed PNP cells, floating_gate's labelled ports; gf180 CO.6 40 nm
+    /// (owner margin over 5); asap7 ACTIVE.S.2A 92 nm (OpenROAD asap7.lydrc)
+    /// and SD contacted by SDT; ihp mos_exc taking nSD (foundry LVS).
+    #[test]
+    fn philis_edits_reach_the_dump() {
+        let dump = |pdk: &str| crate::deck::parse(super::vendored(pdk).unwrap().1).unwrap();
+        let rule = |d: &crate::deck::Deck, id: &str| d.rules.iter().find(|r| r.id == id).cloned().unwrap_or_else(|| panic!("no rule {id}"));
+        let name = |d: &crate::deck::Deck, l: u16| d.layers[usize::from(l)].name.clone();
+
+        let sky = dump("sky130");
+        assert_eq!(rule(&sky, "m1.5").nm("min_one_side"), Some(65));
+        for (id, side) in [("ar.met3.1", 845), ("ar.met4.1", 845), ("ar.met5.1", 1260)] {
+            assert_eq!(rule(&sky, id).nm("sidewall_thickness"), Some(side), "{id}");
+        }
+        for id in ["LU.2", "LU.2.1", "LU.3"] {
+            assert_eq!(rule(&sky, id).nm("limit"), Some(15_000), "{id}");
+        }
+        let sheets: Vec<(String, f64)> =
+            sky.pex.stack.iter().map(|r| (name(&sky, r.layer), r.sheet_ohm_sq)).filter(|(n, _)| n.starts_with("rbody")).collect();
+        assert_eq!(sheets, [("rbody_po".to_string(), 48.2), ("rbody_high_po".to_string(), 317.3885), ("rbody_xhigh_po".to_string(), 2000.0)]);
+        for model in ["sky130_fd_pr__pnp_05v5_W3p40L3p40", "sky130_fd_pr__npn_05v5_W1p00L1p00"] {
+            assert!(sky.model(model).is_some(), "{model}");
+        }
+        let x25 = rule(&sky, "x.25").layers[0];
+        let cells = sky.layers[usize::from(x25)].derived.as_ref().and_then(|d| d.cells.clone()).unwrap_or_default();
+        assert!(cells.iter().any(|c| c == "sky130_fd_pr__pnp_05v5_W3p40L3p40"), "{cells:?}");
+        assert_eq!(rule(&sky, "floating_gate").param("labels_are_ports").and_then(|p| p.value.clone()), Some(serde_json::json!(true)));
+
+        assert_eq!(rule(&dump("gf180mcu"), "CO.6").nm("limit"), Some(40));
+
+        let asap7 = dump("asap7");
+        assert_eq!(rule(&asap7, "ACTIVE.S.2A").nm("limit"), Some(92));
+        let sd = asap7.layer_id("SD").unwrap();
+        assert_eq!(asap7.op(sd), Some("interacting"));
+        assert_eq!(name(&asap7, asap7.operands(sd)[1]), "SDT");
+
+        let ihp = dump("ihp_sg13g2");
+        let exc = ihp.layer_id("mos_exc").unwrap();
+        assert!(ihp.operands(exc).iter().any(|&o| name(&ihp, o) == "nsd"), "mos_exc takes nSD");
+    }
+
     /// Oracle: hand-made three-line decks, one marked and one unmarked edit.
     #[test]
     fn an_unmarked_edit_is_caught() {
