@@ -42,6 +42,7 @@ use mechanics::{analog_cost, analog_phi, canvas_side, choose_variants, clamp_to_
 /// One placeable cell's pre-drawn alternatives; `layout.variant[i]` indexes
 /// `alternatives`.
 pub struct VariantSpace {
+    /// The drawn variants, each a complete macro; index 0 is the default.
     pub alternatives: Vec<Macro>,
 }
 
@@ -91,16 +92,23 @@ pub struct PlaceRules {
 
 /// Everything [`place`] reads.
 pub struct GpInput<'a> {
+    /// Cell `i`'s drawn macro when `variants[i]` has no alternative for `assignment[i]`.
     pub macros: &'a [Macro],
+    /// Cell `i`'s alternatives; empty or short means only `macros[i]`.
     pub variants: &'a [VariantSpace],
+    /// Cell `i`'s starting variant; missing = 0.
     pub assignment: &'a [u16],
+    /// The analog rules the objective reads.
     pub reqs: &'a Requirements<Layout>,
+    /// Spacing, lattice and axis grid.
     pub rules: &'a PlaceRules,
+    /// HPWL weight by `NetId` ([`net_weights`]); short = weight 1.
     pub net_weight: &'a [f32],
     /// Symmetry axes, one per block (`Problem::blocks`).
     pub n_axes: usize,
     /// Per cell, µW; empty = unpowered.
     pub power_uw: &'a [i32],
+    /// Unit geometry the matching rules read, shared with the caller.
     pub units: std::sync::Arc<analog::base::UnitLib>,
     /// `false`: return the initial pile (`GpMode::Pile`).
     pub iterate: bool,
@@ -165,6 +173,7 @@ impl Default for Prices {
 }
 
 impl Prices {
+    /// No batch priced yet: every weight 0 and `drift` infinite, so a fresh table never reads as settled.
     #[must_use]
     pub fn new() -> Self {
         Self::default()

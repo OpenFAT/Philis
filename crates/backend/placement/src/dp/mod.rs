@@ -37,11 +37,17 @@ use crate::gp::mechanics::{analog_phi, choose_variants, report, snap, Nets, Spli
 /// `moves_per_kid · Σ kids` moves per temperature, at most `max_temps` temperatures.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Schedule {
+    /// Flat path: the first move window as a fraction of the die span, shrunk by `RANGE_DECAY` per temperature.
     pub range0: f32,
+    /// Both paths: the cap on temperature steps.
     pub max_temps: u32,
+    /// Flat path: `T0 = t0_scale · mean|ΔPEX|` over 128 probe moves.
     pub t0_scale: f64,
+    /// SP path: the acceptance probability of a mean uphill move at `T0` (Lampaert eq 4.37), in `(0, 1)`; `0` starts at `T0 = 0`.
     pub p0: f64,
+    /// SP path: geometric cooling factor per temperature, in `(0, 1)`.
     pub alpha: f64,
+    /// SP path: moves per temperature per tree kid.
     pub moves_per_kid: u32,
 }
 
@@ -68,6 +74,7 @@ pub struct PlaceStats {
     /// routing track centreline (`axis ≡ p0/2 mod P`, PLC-28; `0` without
     /// `PlaceRules::axis_grid`).
     pub axes: u32,
+    /// Of `axes`, those on a routing track centreline.
     pub axes_on_lattice: u32,
 }
 

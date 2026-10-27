@@ -15,8 +15,11 @@ use analog::base::{LayerId, Orient, Process, Rect, Shape};
 /// layer's own spacing) stay `nm` apart. A layer pair with no row may touch.
 #[derive(Clone, Default, Debug)]
 pub struct Spacing {
+    /// One layer of the pair.
     pub a: Vec<LayerId>,
+    /// The other layer of the pair; equal to `a` for a layer's own spacing.
     pub b: Vec<LayerId>,
+    /// The spacing, nm (> 0).
     pub nm: Vec<i32>,
 }
 

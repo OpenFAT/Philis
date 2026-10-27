@@ -61,12 +61,14 @@ pub struct Nets {
 }
 
 impl SplitMix64 {
+    /// Seeds the stream; every seed, zero included, gives a full-period sequence.
     #[inline]
     #[must_use]
     pub fn new(seed: u64) -> Self {
         Self(seed)
     }
 
+    /// The next 64 uniform bits (Vigna's SplitMix64 finaliser).
     #[inline(always)]
     pub fn next_u64(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -106,6 +108,7 @@ impl SplitMix64 {
 }
 
 impl Nets {
+    /// Builds the CSR from `macros[i]`'s pins as cell `i`; O(pins + max net id).
     #[must_use]
     pub fn from_macros(macros: &[Macro]) -> Self {
         let Some(max_net) = macros.iter().flat_map(|m| &m.pins).map(|p| p.net.0).max() else {
@@ -162,6 +165,7 @@ impl Nets {
         self.weight[i]
     }
 
+    /// Number of rows: nets touching two or more devices. A row index is not a `NetId`.
     #[inline]
     #[must_use]
     pub fn count(&self) -> usize {
@@ -371,6 +375,7 @@ pub fn variant_extents(m: &Macro) -> (i32, i32) {
     (m.bbox.w / 2, m.bbox.h / 2)
 }
 
+/// [`variant_extents`] of every macro, as the `hw` and `hh` columns.
 #[must_use]
 pub fn half_extents(macros: &[Macro]) -> (Vec<i32>, Vec<i32>) {
     macros.iter().map(variant_extents).unzip()

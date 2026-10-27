@@ -30,12 +30,19 @@ use crate::gp::spacing::{Face, Gap, Profile, SpacingTable};
 /// (empty or short = zero; PLC-15). `axis_grid = Some((p0, P))` puts every axis
 /// on a routing track centreline (PLC-28).
 pub struct Geo<'a> {
+    /// Cell width, nm, even, after orient.
     pub w: &'a [i32],
+    /// Cell height, nm, even, after orient.
     pub h: &'a [i32],
+    /// Cell face profile after orient; `None` spaces the cell at `table.fallback`.
     pub prof: &'a [Option<&'a Profile>],
+    /// Routing halo per cell by [`Face`], nm; empty or short = zero.
     pub halo: &'a [[i32; 4]],
+    /// The role × role spacing the gaps come from.
     pub table: &'a SpacingTable,
+    /// Every decoded corner and `2·axis` is a multiple of it, nm (> 0).
     pub lattice: i32,
+    /// `(p0, P)`: every axis at `p0/2 (mod P)`, a track centreline (PLC-28); `None` = lattice only.
     pub axis_grid: Option<(i32, i32)>,
 }
 
@@ -43,17 +50,24 @@ pub struct Geo<'a> {
 /// order, and how many `fix_monotone` passes the decode needed.
 #[derive(Default, Debug)]
 pub struct Out {
+    /// Cell lower-left x, nm, by cell index.
     pub x0: Vec<i32>,
+    /// Cell lower-left y, nm, by cell index.
     pub y0: Vec<i32>,
+    /// One `(axis, x)` per symmetry node, in node order, nm.
     pub axis: Vec<(AxisId, i32)>,
+    /// `fix_monotone` passes the decode needed (0 when the first estimate held).
     pub fixes: u32,
 }
 
 /// Why a code has no realisation; payload: node index.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Fail {
+    /// A mirror pair's centre heights did not meet within `pairs + 2` raising passes; payload: node index.
     SymY(u16),
+    /// No axis on the lattice (or track grid) fits: self kids' widths disagree mod `2·lattice`, or the axis did not settle within `2·pairs + 2` passes; payload: node index.
     SymX(u16),
+    /// Closing the merge bands did not settle within `2·kids + 2` passes; payload: node index.
     Band(u16),
 }
 
@@ -272,13 +286,13 @@ pub(super) fn merge(k: &Kids, wd: i32, ht: i32) -> (Option<Profile>, [i32; 4]) {
             all = false;
             continue;
         };
-        for f in 0..4 {
+        for (f, &df) in d.iter().enumerate() {
             let e = &p.edge[f];
             let mut bits = e.present;
             while bits != 0 {
                 let r = bits.trailing_zeros() as usize;
                 bits &= bits - 1;
-                out.edge[f].put(r, e.inset[r].saturating_add(d[f]));
+                out.edge[f].put(r, e.inset[r].saturating_add(df));
             }
         }
         net = Some(if net.is_none_or(|n| n == p.well_net) { p.well_net } else { None });
@@ -379,7 +393,7 @@ fn decode_node(t: &Tree, g: &Geo, s: &mut Scratch, ni: usize, fixes: &mut u32) -
     let gc = &mut gcn[ni][..];
     let (pa, beta) = (&*pa, &nd.beta);
     let _ = pb;
-    let (kw, kh, kp, khalo, knode): (&[i32], &[i32], &[Option<Profile>], &[[i32; 4]], &[bool]) = (kw, kh, kp, khalo, knode);
+    let (kw, kh, kp, khalo, knode) = (&kw[..], &kh[..], &kp[..], &khalo[..], &knode[..]);
     let mate = nd.sym.as_ref().map(|s| &s.mate);
     let pairs: Vec<(usize, usize)> = mate.map_or(Vec::new(), |m| (0..k).filter(|&a| usize::from(m[a]) > a).map(|a| (a, usize::from(m[a]))).collect());
     // A self kid sits at `(ax2 - w)/2`, on the lattice only when `ax2 ≡ w (mod 2·lattice)`:

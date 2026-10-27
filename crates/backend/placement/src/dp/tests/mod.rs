@@ -165,8 +165,8 @@ fn variant_bench() -> Layout {
 }
 
 fn assert_extents(l: &Layout, variants: &[VariantSpace], seed: u64) {
-    for i in 0..2 {
-        let (w, h) = crate::gp::mechanics::variant_extents(&variants[i].alternatives[l.variant[i] as usize]);
+    for (i, v) in variants.iter().enumerate().take(2) {
+        let (w, h) = crate::gp::mechanics::variant_extents(&v.alternatives[l.variant[i] as usize]);
         let want = if l.orient[i].swaps_axes() { (h, w) } else { (w, h) };
         assert_eq!((l.hw[i], l.hh[i]), want, "seed {seed}: cell {i} sized off-variant");
     }

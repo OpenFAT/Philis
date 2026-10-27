@@ -32,9 +32,12 @@ pub use verify::verify;
 use analog::base::ids::AxisId;
 use analog::base::{DeviceId, Layout};
 
+/// One kid of a tree node: a placed cell or a child node, by index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kid {
+    /// A cell, by cell index.
     Cell(u16),
+    /// A child node, by node index (always lower than its parent's).
     Node(u16),
 }
 
@@ -42,31 +45,48 @@ pub enum Kid {
 /// `mate[k] == k` = self-symmetric (centred on the axis).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Sym {
+    /// The axis the node is symmetric about.
     pub axis: AxisId,
+    /// `mate[k]`: partner kid slot of slot `k`; an involution.
     pub mate: Vec<u16>,
 }
 
 /// `alpha`, `beta`: permutations of kid slots (the node's sequence pair).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Node {
+    /// The node's kids, by slot; the code below permutes these slots.
     pub kids: Vec<Kid>,
+    /// The positive sequence: a permutation of kid slots.
     pub alpha: Vec<u16>,
+    /// The negative sequence: a permutation of kid slots.
     pub beta: Vec<u16>,
+    /// `Some` for a symmetry node, whose code must stay symmetric-feasible.
     pub sym: Option<Sym>,
 }
 
 /// `home[cell] = (node, kid slot)`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tree {
+    /// Post-order: a node's node kids have lower indices; the root is last.
     pub nodes: Vec<Node>,
+    /// Index of the root node (`nodes.len() - 1`).
     pub root: u16,
+    /// `home[cell] = (node, kid slot)`.
     pub home: Vec<(u16, u16)>,
 }
 
+/// A conflict [`Tree::build`] resolved by dropping input; the tree is still valid.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TreeError {
     /// `cell` is mirrored on axis `a` and again on `b`; `b`'s group was dropped.
-    CellInTwoAxes { cell: u16, a: AxisId, b: AxisId },
+    CellInTwoAxes {
+        /// The cell, by index.
+        cell: u16,
+        /// The axis the cell kept.
+        a: AxisId,
+        /// The axis whose group was dropped.
+        b: AxisId,
+    },
 }
 
 impl Tree {

@@ -102,6 +102,7 @@ pub const DECK_ROLE: [&str; 28] = [
     "",
 ];
 
+/// Number of roles; at most 32, so a role set fits `Edge::present`.
 pub const N: usize = ROLES.len();
 
 /// Foreign poly keep-out from a matched device's diffusion, nm, by
@@ -112,11 +113,16 @@ pub const FOREIGN_POLY_NM: [i32; 3] = [0, 3000, 5000];
 /// The eight orients in `Orient as usize` order.
 pub const ORIENTS: [Orient; 8] = [Orient::R0, Orient::R90, Orient::R180, Orient::R270, Orient::Mx, Orient::Mx90, Orient::Mx180, Orient::Mx270];
 
+/// A bbox face, numbered counter-clockwise from the left; the index into `Profile::edge` and halo arrays.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Face {
+    /// Left (−x).
     L = 0,
+    /// Bottom (−y).
     B = 1,
+    /// Right (+x).
     R = 2,
+    /// Top (+y).
     T = 3,
 }
 
@@ -124,13 +130,16 @@ pub enum Face {
 /// `i32::MAX` = role absent. Bit `r` of `present` is set iff `inset[r] < i32::MAX`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Edge {
+    /// By role: distance from the face to the role's nearest shape, nm; `i32::MAX` = absent.
     pub inset: [i32; N],
+    /// Bit `r` set iff `inset[r] < i32::MAX`.
     pub present: u32,
 }
 
 /// One drawn cell's four faces, in its R0 frame unless [`oriented`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Profile {
+    /// By [`Face`].
     pub edge: [Edge; 4],
     /// The cell's bulk net: two n-wells merge only on the same one.
     pub well_net: Option<NetId>,
@@ -141,11 +150,16 @@ pub struct Profile {
     pub set: Option<u16>,
 }
 
+/// Where a [`SpacingTable`] entry came from, for the report.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Src {
+    /// The PDK deck's spacing for the two roles.
     Deck,
+    /// A user override from the sidecar, which wins over the deck.
     Sidecar,
+    /// No value: the scalar `fallback`, owed by same-role pairs and anything facing `other`.
     Fallback,
+    /// No rule binds the pair: it may touch (gap 0).
     NoRule,
 }
 
@@ -153,15 +167,20 @@ pub enum Src {
 /// `g >= min` (nm, lattice-rounded).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Gap {
+    /// The two cells may share an edge (gap exactly 0), e.g. n-wells on one net.
     pub abut: bool,
+    /// The least legal non-zero gap, nm.
     pub min: i32,
 }
 
 /// Role × role spacing, nm, symmetric.
 #[derive(Clone, Debug)]
 pub struct SpacingTable {
+    /// Spacing, nm, by role pair; symmetric.
     pub rule: [[i32; N]; N],
+    /// Where each `rule` entry came from.
     pub src: [[Src; N]; N],
+    /// Gaps round up onto it, nm (> 0).
     pub lattice: i32,
     /// Today's scalar: same-role pairs without a deck value and every pair
     /// with `other`; also the gap when a cell has no profile.
@@ -177,6 +196,7 @@ pub struct SpacingTable {
 /// `of[cell][variant][orient as usize]`, precomputed once (8 orients per variant).
 #[derive(Clone, Debug, Default)]
 pub struct Profiles {
+    /// `of[cell][variant][orient as usize]`.
     pub of: Vec<Vec<[Profile; 8]>>,
 }
 

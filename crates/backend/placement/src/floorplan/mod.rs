@@ -43,6 +43,7 @@ pub struct Stack {
     /// Stage index along the signal or current flow (`Order`); row 0 is the
     /// bottom row. ≤ 255 stages.
     pub row: Vec<u8>,
+    /// The tile's place relative to the row's axis.
     pub side: Vec<Side>,
 }
 
@@ -57,6 +58,7 @@ pub struct Floorplan {
     pub w: Vec<i32>,
     /// Outline height after `orient`, nm.
     pub h: Vec<i32>,
+    /// `Mx180` for a `Left` half, `R0` otherwise.
     pub orient: Vec<Orient>,
     /// The tile's row (stage index).
     pub row: Vec<u8>,
@@ -68,11 +70,17 @@ pub struct Floorplan {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Refusal {
     /// A row's `Left` and `Right` counts differ, or a pair's two outlines do.
-    PairMismatch { row: u8 },
+    PairMismatch {
+        /// The row's stage index.
+        row: u8,
+    },
     /// A fin-deck glue tile whose gates share no height with its left
     /// neighbour's: no field gate can link the two gate columns, so an exact
     /// gate pitch (ASAP7 GATE.S.1) reads a missing gate.
-    GateSpan { tile: u16 },
+    GateSpan {
+        /// The tile's input index; its left neighbour is `tile - 1`.
+        tile: u16,
+    },
 }
 
 /// Top-down bounds per set (Q22), parallel to the [`Stack`].

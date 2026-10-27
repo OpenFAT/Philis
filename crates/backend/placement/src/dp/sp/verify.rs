@@ -33,13 +33,23 @@ pub fn verify(t: &Tree, g: &Geo, out: &Out) -> bool {
             match *kid {
                 Kid::Cell(c) => {
                     let c = usize::from(c);
-                    (x.push(out.x0[c]), y.push(out.y0[c]), w.push(g.w[c]), h.push(g.h[c]));
-                    (p.push(g.prof.get(c).copied().flatten().copied()), hl.push(g.halo.get(c).copied().unwrap_or([0; 4])), kn.push(false));
+                    x.push(out.x0[c]);
+                    y.push(out.y0[c]);
+                    w.push(g.w[c]);
+                    h.push(g.h[c]);
+                    p.push(g.prof.get(c).copied().flatten().copied());
+                    hl.push(g.halo.get(c).copied().unwrap_or([0; 4]));
+                    kn.push(false);
                 }
                 Kid::Node(m) => {
                     let (bx, by, bw, bh) = bbox[usize::from(m)];
-                    (x.push(bx), y.push(by), w.push(bw), h.push(bh));
-                    (p.push(prof[usize::from(m)]), hl.push(halo[usize::from(m)]), kn.push(true));
+                    x.push(bx);
+                    y.push(by);
+                    w.push(bw);
+                    h.push(bh);
+                    p.push(prof[usize::from(m)]);
+                    hl.push(halo[usize::from(m)]);
+                    kn.push(true);
                 }
             }
         }

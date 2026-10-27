@@ -24,26 +24,35 @@ use crate::gp::spacing::Profile;
 
 /// Everything [`place_sp`] reads.
 pub struct PlaceInput<'a> {
+    /// Cell `i`'s drawn macro, used when `variants[i]` has no alternative for its variant.
     pub macros: &'a [Macro],
+    /// Cell `i`'s alternatives; empty or short means the cell has only `macros[i]`.
     pub variants: &'a [crate::gp::VariantSpace],
     /// Per cell variant for [`Start::Constructive`] (missing = 0); the other
     /// starts carry their own.
     pub assignment: &'a [u16],
+    /// The analog rules the key and energy read; `hard` symmetry groups become tree nodes.
     pub reqs: &'a Requirements<Layout>,
+    /// `fixed[i]`: cell `i` keeps its variant and orient (it still moves); short = free.
     pub fixed: &'a [bool],
     /// Recognition blocks, glue last ([`sp::Tree::build`]).
     pub blocks: &'a [Vec<DeviceId>],
+    /// Pairwise spacing and the lattice every decoded coordinate lands on.
     pub rules: crate::gp::PlaceRules,
+    /// Orient and shape locks: a rotate or reshape moves every member of a set together.
     pub locks: &'a locks::Locks,
     /// Static routing halo (PLC-15) per cell and variant, by [`crate::gp::spacing::Face`]
     /// in the R0 frame; re-oriented with the cell. Empty or short = zero.
     pub halo: &'a [Vec<[i32; 4]>],
     /// Congestion halo (PLC-15) per cell by face, placed (world) frame; empty = zero.
     pub halo_dyn: &'a [[i32; 4]],
+    /// HPWL weight by `NetId` ([`crate::gp::net_weights`]); short = weight 1.
     pub net_weight: &'a [f32],
+    /// Symmetry axes in the output `Layout::axis`; at least one is always allocated.
     pub n_axes: usize,
     /// Per cell, µW; empty = unpowered.
     pub power_uw: &'a [i32],
+    /// Unit geometry the matching rules read, shared with the caller.
     pub units: Arc<UnitLib>,
 }
 
@@ -51,9 +60,20 @@ pub struct PlaceInput<'a> {
 /// ([`Tree::seed_from`]), the deterministic [`Tree::seed_constructive`], or an
 /// incumbent's code.
 pub enum Start<'a> {
+    /// Embed a coordinate placement (gp's or a previous flat dp's) into a code.
     Cold(&'a Layout),
+    /// The deterministic constructive code: rows by recognition block.
     Constructive,
-    Warm { tree: &'a Tree, variant: &'a [u16], orient: &'a [Orient] },
+    /// An incumbent's code; falls back to [`Start::Constructive`] (and sets
+    /// [`PlaceStats::warm_fallback`]) when the cells or symmetry groups changed.
+    Warm {
+        /// The incumbent's code.
+        tree: &'a Tree,
+        /// The incumbent's variant per cell.
+        variant: &'a [u16],
+        /// The incumbent's orient per cell.
+        orient: &'a [Orient],
+    },
 }
 
 /// Which detailed placer the flow runs.
