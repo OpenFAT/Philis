@@ -550,9 +550,9 @@ impl DetailedRoute {
         // foreign pin's stitch zone.
         let stitch = cfg.wire_width.max(access_pad);
         // The widest pad a layer-0 node carries (a trunk, or the via up), and
-        // the spacing the lattice keeps between pads.
+        // the spacing kept between pads.
         let pad0 = cfg.wire_width.max(cuts.first().map_or(0, |c| c.2));
-        let pad_space = (cfg.pitch - cfg.wire_width.max(cuts.iter().map(|c| c.2.max(c.3)).max().unwrap_or(0))).max(0);
+        let pad_space = pad_space(cfg, layers, cuts);
         let short_free = |ci: usize, pin: Rect, px: i32, py: i32| -> bool {
             let (cx, cy) = (pin.x + pin.w / 2, pin.y + pin.h / 2);
             let half = cfg.wire_width.min(pin.w).min(pin.h).max(1) / 2;
@@ -2439,6 +2439,16 @@ fn jog_clean(legs: &[Rect; 2], ci: usize, zone: i32, gap: i32, zones: &[(u32, i3
         && blocks.iter().all(|&b| legs.iter().all(|&l| !overlaps(l, b)))
 }
 
+/// Spacing a landing keeps between layer-0 pads: the lattice's `pitch −
+/// widest pad`, but at least layer 0's own spacing. An upper via's pad can
+/// drive the first to 0, while a pin sits off the lattice by up to half a
+/// pitch, so its stitch pad reaches toward the next track.
+fn pad_space(cfg: &DetailedCfg, layers: &[LayerId], cuts: &[Cut]) -> i32 {
+    (cfg.pitch - cfg.wire_width.max(cuts.iter().map(|c| c.2.max(c.3)).max().unwrap_or(0)))
+        .max(layers.first().map_or(0, |&l| cfg.space(l, 0, 0, 0)))
+        .max(0)
+}
+
 /// `r` grown by `g` on every side.
 fn grown(r: Rect, g: i32) -> Rect {
     Rect { x: r.x - g, y: r.y - g, w: r.w + 2 * g, h: r.h + 2 * g }
@@ -4285,6 +4295,18 @@ mod tests {
         assert!(!rules(&report).iter().any(|r| r.starts_with("open net")), "{:?}", rules(&report));
         assert!(metal_over(&routes, 0, body) > 0.0, "the signal crosses the body");
         assert_eq!(metal_over(&routes, 1, body), 0.0, "the clock crosses a head");
+    }
+
+    /// sky130's lattice: the met2 pad of a via up is as wide as the pitch
+    /// (420), so `pitch − widest pad` is 0; a pin's stitch reach still keeps
+    /// met1's 140 nm, or a foreign trunk runs 75 nm off its landing pad (the
+    /// MosCc1d pair's `m1.2`).
+    #[test]
+    fn pad_space_keeps_layer_zero_spacing() {
+        let cfg = DetailedCfg { pitch: 420, wire_width: 260, spacing: vec![(LAYERS[0], 140, Vec::new())], ..test_cfg() };
+        assert_eq!(pad_space(&cfg, &LAYERS, &[(LayerId(2), 150, 320, 420)]), 140);
+        // Where the lattice keeps more, that stands.
+        assert_eq!(pad_space(&cfg, &LAYERS, &[(LayerId(2), 150, 200, 200)]), 160);
     }
 
     /// Minimum same-layer edge gap between two nets' shapes, nm.
