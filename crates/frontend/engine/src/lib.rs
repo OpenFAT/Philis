@@ -13,7 +13,7 @@ pub mod route;
 use std::collections::{HashMap, HashSet};
 
 use analog::base::netlist::{Device, Net, Netlist as Flat};
-use analog::base::{DeviceGroup, DeviceId, DeviceKind, Layout, Macro, NetId, Orient, Report, Routes, Shape};
+use analog::base::{DeviceGroup, DeviceId, DeviceKind, Layout, Macro, NetId, Report, Routes, Shape};
 use substrate3::cells::finfet::FinFet;
 use substrate3::cells::mosfet::Mosfet;
 use substrate3::cells::{Cell, Pattern};
@@ -622,49 +622,28 @@ fn join_members(m: &mut Macro, pdk: &Pdk) {
     }
 }
 
-/// The floorplan: one row, left to right in call order, `gap` apart, as a
-/// [`Layout`] the router's `place_macros` stamps. `gap`: the widest spacing
-/// among the layers the tiles draw, so neighbours never interact.
+/// The floorplan: one glue row (Q20, `placement::floorplan::glue`), tiles
+/// left to right in call order. Every gap is sized from the shapes that face
+/// across it, layer pair by layer pair (sky130 NMOS beside PMOS: 330 nm, not
+/// the widest spacing, nwell's 1270); on a fin deck the tiles share one gate
+/// lattice with field-gate fill. The fill macro is already in world
+/// coordinates, so it goes after the tiles, past the layout's rows, where
+/// `place_macros` leaves it as drawn.
 /// ponytail: one row; the symmetric row stack is M2's floorplan recipe.
 ///
 /// # Errors
-/// Several tiles on a deck with fins: exact gate and fin pitches (ASAP7
-/// GATE.S.1, FIN.S.1) need the gate-lattice glue row between tiles (M2).
+/// `floorplan`: the glue row refuses (tiles whose gates span other heights
+/// on a fin deck).
 pub fn arrange(tiles: &mut Vec<Macro>, pdk: &Pdk) -> Result<Layout, Refusal> {
-    let gap = widest_spacing(tiles, pdk);
+    let roles: Vec<&str> = pdk.roles.iter().map(|(r, _)| r.as_str()).collect();
+    let spacing = placement::floorplan::Spacing::of(pdk, &roles);
     // Tile origins on the cut lattice, as the cells draw their cuts.
     let lattice = substrate3::cells::builder::cut_lattice(pdk).max(1);
-    // A fin deck's exact gate and fin pitches hold across tiles only on one
-    // lattice with field gates in the breaks: the glue row (Q20). Its fill
-    // macro is already in world coordinates, so it goes after the tiles,
-    // past the layout's rows, where `place_macros` leaves it as drawn.
-    if tiles.len() > 1 && analog::base::Process::layer(pdk, "fin").is_some() {
-        let (floorplan, fill) = placement::floorplan::glue(tiles, pdk, gap, lattice).map_err(|e| refuse("floorplan", format!("{e:?}")))?;
+    let (floorplan, fill) = placement::floorplan::glue(tiles, pdk, &spacing, lattice).map_err(|e| refuse("floorplan", format!("{e:?}")))?;
+    if !fill.shapes.is_empty() {
         tiles.push(fill);
-        return Ok(floorplan.layout());
     }
-    let n = tiles.len();
-    let mut x = Vec::with_capacity(n);
-    let mut cursor = 0;
-    for m in tiles.iter() {
-        // `place_macro` puts the lower-left at `x − hw`: here, `cursor`.
-        x.push(cursor + m.bbox.w / 2);
-        cursor += (m.bbox.w + gap + lattice - 1) / lattice * lattice;
-    }
-    Ok(Layout {
-        x,
-        y: tiles.iter().map(|m| m.bbox.h / 2).collect(),
-        hw: tiles.iter().map(|m| m.bbox.w / 2).collect(),
-        hh: tiles.iter().map(|m| m.bbox.h / 2).collect(),
-        axis: vec![0],
-        groups: Vec::new(),
-        orient: vec![Orient::default(); n],
-        variant: vec![0; n],
-        branch: Vec::new(),
-        power_uw: vec![0; n],
-        temp_mc: vec![0; n],
-        units: Default::default(),
-    })
+    Ok(floorplan.layout())
 }
 
 /// Everything signoff reads, and its verdict.
