@@ -180,6 +180,35 @@ pub enum RecipeKind {
     /// Members as compact blocks side by side, same orientation, no
     /// interleave (`RECIPES.md` §2.1; 1.0 `Mosfet` style `Single`).
     MosAdjacent,
+    /// ABBA palindrome row, boundaries on a shared source, end dummies at the
+    /// class reach, split gates where the gates are private (`RECIPES.md`
+    /// §2.1; 1.0 `Mosfet` `Cc1d`; on fins, FinFet's shared CC row).
+    MosCc1d,
+    /// Two rows sharing one tap strip: cross-quad or the swapped ABBA/BAAB
+    /// (`RECIPES.md` §2.1; 1.0 `Mosfet` `rows = 2`). Planar only.
+    MosCc2d,
+}
+
+impl RecipeKind {
+    /// Every kind, in ladder order from the most precise.
+    pub const ALL: [RecipeKind; 3] = [RecipeKind::MosCc2d, RecipeKind::MosCc1d, RecipeKind::MosAdjacent];
+}
+
+/// A MOS set's degradation ladder (Q19, `RECIPES.md` §1), most precise
+/// first. `None` class reads Moderate (C16), `None` kind Voltage. An
+/// Exceptional set whose ladder is exhausted refuses (Q13); the others end on
+/// Adjacent, which every MOS set can draw.
+/// ponytail: Interdigitated and Ratioed are missing rungs (no generator yet);
+/// each ladder skips them.
+#[must_use]
+pub fn ladder(class: Option<analog::intent::MatchClass>, kind: Option<analog::intent::MatchKind>) -> &'static [RecipeKind] {
+    use analog::intent::{MatchClass as C, MatchKind as K};
+    use RecipeKind::{MosAdjacent as Adj, MosCc1d as Cc1, MosCc2d as Cc2};
+    match (class.unwrap_or(C::Moderate), kind == Some(K::Current)) {
+        (C::Exceptional, _) => &[Cc2, Cc1],
+        (C::Moderate, _) => &[Cc1, Adj],
+        (C::Minimal, _) => &[Adj],
+    }
 }
 
 /// The recipe call table (Q32), SoA: one row per call; `members[start..start
@@ -228,7 +257,7 @@ impl RecipeCalls {
 ///
 /// # Errors
 /// A device no recipe draws (M0: anything but a MOS).
-pub fn plan_recipes(problem: &annotator::Problem, flat: &Flat) -> Result<RecipeCalls, Refusal> {
+pub fn plan_recipes(problem: &annotator::Problem, flat: &Flat, pdk: &Pdk) -> Result<RecipeCalls, Refusal> {
     let mut calls = RecipeCalls::default();
     let mut taken = vec![false; flat.devices.len()];
     for (i, u) in problem.constraints.unitization.iter().enumerate() {
@@ -236,7 +265,17 @@ pub fn plan_recipes(problem: &annotator::Problem, flat: &Flat) -> Result<RecipeC
             continue;
         }
         u.devices.iter().for_each(|d| taken[d.0 as usize] = true);
-        calls.push(RecipeKind::MosAdjacent, &u.devices, Some(i as u16));
+        // The first rung this set can be drawn as on this deck.
+        let rungs = ladder(u.class, u.kind);
+        let process = Mos::new(flat, &u.devices, pdk);
+        let Some(step) = rungs.iter().position(|&k| !mos_variants(k, flat, &u.devices, &problem.constraints, process.get()).is_empty()) else {
+            return Err(refuse(
+                "no-recipe",
+                format!("{}: no rung of {rungs:?} draws this {:?} set", names(flat, &u.devices), u.class.unwrap_or_default()),
+            ));
+        };
+        calls.push(rungs[step], &u.devices, Some(i as u16));
+        *calls.ladder_step.last_mut().expect("just pushed") = step as u8;
     }
     for (i, d) in flat.devices.iter().enumerate().filter(|(i, _)| !taken[*i]) {
         match d.kind {
@@ -261,30 +300,15 @@ pub fn build_tiles(calls: &RecipeCalls, problem: &annotator::Problem, flat: &Fla
                 Some(_) => problem.constraints.clone(),
                 None => as_drawn(flat, members),
             };
-            let model = &flat.devices[members[0].0 as usize].model;
-            let overlay = pdk.mos_overlay(model);
-            let process: &dyn analog::base::Process = overlay.as_ref().map_or(pdk as &dyn analog::base::Process, |o| o);
-            // A fin deck draws fins (each member on its own active), any
-            // other the planar block's `Single` style: members side by side.
-            let drawn: Vec<Macro> = match calls.kind[i] {
-                RecipeKind::MosAdjacent if process.layer("fin").is_some() => FinFet::enumerate(&group, &constraints, process)
+            let mos = Mos::new(flat, members, pdk);
+            let process = mos.get();
+            let drawn: Vec<Macro> = match mos_variants(calls.kind[i], flat, members, &constraints, process) {
+                Variants::Fin(vs) => vs.into_iter().map(|v| v.draw(&group, &constraints, process)).collect(),
+                Variants::Planar(vs, apart_too) => vs
                     .into_iter()
-                    .filter(|v| !v.shared)
                     .map(|v| v.draw(&group, &constraints, process))
+                    .chain(apart_too.then(|| apart(members, &constraints, process, pdk)).flatten())
                     .collect(),
-                // Blocks may abut on one shared diffusion only where every
-                // member has the same source and bulk (the block style's
-                // boundaries sit on sources); else each member is its own
-                // block, side by side.
-                RecipeKind::MosAdjacent if common(flat, members, "S") && common(flat, members, "B") => {
-                    Mosfet::enumerate(&group, &constraints, process)
-                        .into_iter()
-                        .filter(|v| v.style == Pattern::Single && v.rows == 1)
-                        .map(|v| v.draw(&group, &constraints, process))
-                        .chain(apart(members, &constraints, process, pdk))
-                        .collect()
-                }
-                RecipeKind::MosAdjacent => apart(members, &constraints, process, pdk).into_iter().collect(),
             };
             let mut m = drawn
                 .into_iter()
@@ -295,6 +319,71 @@ pub fn build_tiles(calls: &RecipeCalls, problem: &annotator::Problem, flat: &Fla
             Ok(m)
         })
         .collect()
+}
+
+/// The process a MOS set draws on: its model's overlay (a flavoured model's
+/// markers) or the deck itself.
+struct Mos<'a> {
+    pdk: &'a Pdk,
+    overlay: Option<verify::pdk::Overlay<'a>>,
+}
+
+impl<'a> Mos<'a> {
+    fn new(flat: &Flat, members: &[DeviceId], pdk: &'a Pdk) -> Self {
+        Mos { pdk, overlay: pdk.mos_overlay(&flat.devices[members[0].0 as usize].model) }
+    }
+    fn get(&self) -> &dyn analog::base::Process {
+        self.overlay.as_ref().map_or(self.pdk as &dyn analog::base::Process, |o| o)
+    }
+}
+
+/// A recipe's candidate variants for a set; empty when the kind cannot draw
+/// it on this process (the ladder then steps down).
+enum Variants {
+    Fin(Vec<FinFet>),
+    /// Generator variants, and whether the members-apart row is a candidate.
+    Planar(Vec<Mosfet>, bool),
+}
+
+impl Variants {
+    fn is_empty(&self) -> bool {
+        match self {
+            Variants::Fin(v) => v.is_empty(),
+            Variants::Planar(v, apart) => v.is_empty() && !apart,
+        }
+    }
+}
+
+/// `kind`'s variants for `members`. Styles that abut members on one shared
+/// diffusion (Single blocks, Cc1d, Cc2d) need one source and one bulk net;
+/// a centroid row with private gates needs split gates.
+fn mos_variants(kind: RecipeKind, flat: &Flat, members: &[DeviceId], c: &analog::Constraints, process: &dyn analog::base::Process) -> Variants {
+    let group = DeviceGroup { devices: members.to_vec() };
+    let shared = common(flat, members, "S") && common(flat, members, "B");
+    let private_gates = !common(flat, members, "G");
+    if process.layer("fin").is_some() {
+        let all = FinFet::enumerate(&group, c, process);
+        return Variants::Fin(match kind {
+            RecipeKind::MosAdjacent => all.into_iter().filter(|v| !v.shared).collect(),
+            RecipeKind::MosCc1d if shared => all.into_iter().filter(|v| v.shared).collect(),
+            RecipeKind::MosCc1d | RecipeKind::MosCc2d => Vec::new(),
+        });
+    }
+    let all = || Mosfet::enumerate(&group, c, process);
+    match kind {
+        RecipeKind::MosAdjacent if shared => {
+            Variants::Planar(all().into_iter().filter(|v| v.style == Pattern::Single && v.rows == 1).collect(), true)
+        }
+        RecipeKind::MosAdjacent => Variants::Planar(Vec::new(), true),
+        RecipeKind::MosCc1d | RecipeKind::MosCc2d if !shared || members.len() < 2 => Variants::Planar(Vec::new(), false),
+        RecipeKind::MosCc1d | RecipeKind::MosCc2d => {
+            let rows = if kind == RecipeKind::MosCc1d { 1 } else { 2 };
+            Variants::Planar(
+                all().into_iter().filter(|v| v.style == Pattern::Cc1d && v.rows == rows && (v.split_gates || !private_gates)).collect(),
+                false,
+            )
+        }
+    }
 }
 
 /// Whether every member's terminal `t` is on one net.
@@ -635,7 +724,7 @@ pub fn run(spice: &str, pdk: &Pdk, engine: verify::SignoffEngine) -> Result<Outc
     let netlist = parse(spice, pdk)?;
     let cfg = annotation(pdk);
     let problem = annotator::annotate(&netlist.flat, &cfg);
-    let calls = plan_recipes(&problem, &netlist.flat)?;
+    let calls = plan_recipes(&problem, &netlist.flat, pdk)?;
     run_calls(&netlist, &problem, &cfg, calls, pdk, engine)
 }
 
