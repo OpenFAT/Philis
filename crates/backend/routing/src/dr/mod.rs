@@ -2536,6 +2536,20 @@ fn via_pads(cfg: &DetailedCfg, layers: &[LayerId], cut: Cut, i: usize, r: Rect) 
     })
 }
 
+/// `pad` (a [`via_pads`] pad around the cut at `cut`) turned to run along
+/// the wire of `wires` meeting that cut, on a metal hosting full-width cuts
+/// ([`DetailedCfg::exact`]): a pad across the wire leaves the cut spanning
+/// neither axis (ASAP7 V1.M2.AUX.2). Any other pad as given.
+fn along_wire(cfg: &DetailedCfg, pad: Shape, cut: Rect, wires: &[Shape]) -> Shape {
+    let wire = wires.iter().find(|w| w.layer == pad.layer && w.rect.w != w.rect.h && rect_gap(w.rect, cut) == 0);
+    match wire {
+        Some(w) if cfg.exact(pad.layer) && (w.rect.w > w.rect.h) != (pad.rect.w > pad.rect.h) => {
+            Shape { rect: centred(pad.rect, pad.rect.h, pad.rect.w), ..pad }
+        }
+        _ => pad,
+    }
+}
+
 /// Smallest rect covering `a` and `b`.
 fn bbox(a: Rect, b: Rect) -> Rect {
     let (x, y) = (a.x.min(b.x), a.y.min(b.y));
@@ -2566,15 +2580,19 @@ fn add_where_clear(
         let img = image.get(n).copied().flatten();
         for site in net_sites {
             let pick = site.iter().position(|alt| {
-                if !alt.iter().all(|&s| clear(n, s, wires)) {
-                    return false;
+                // Each shape is judged with the alternative's earlier ones in:
+                // a pad joined to a new cut sees that cut (`widens`).
+                let len = wires[n].len();
+                for &s in alt {
+                    if !clear(n, s, wires) {
+                        wires[n].truncate(len);
+                        return false;
+                    }
+                    wires[n].push(s);
                 }
                 let Some((b, map)) = img else {
-                    wires[n].extend_from_slice(alt);
                     return true;
                 };
-                let len = wires[n].len();
-                wires[n].extend_from_slice(alt);
                 let mapped: Vec<Shape> = alt.iter().map(|s| Shape { rect: map_rect(s.rect, map, pitch), ..*s }).collect();
                 if mapped.iter().all(|&s| clear(b, s, wires)) {
                     wires[b].extend(mapped);
@@ -2843,6 +2861,24 @@ fn add_pin_access(
         laid.extend(legs.iter().map(|&l| (a.ci, l)));
         let foreign: Vec<Rect> =
             routes.wires.iter().enumerate().filter(|&(n, _)| n != net).flat_map(|(_, w)| w).filter(|s| s.layer == metal).map(|s| s.rect).collect();
+        // An exact pad at the node on a layer with no leg to follow: its
+        // lattice axis, else the other one when only that keeps its tips the
+        // deck's (end-of-line) spacing off other metal (asap7 M2.S.2/S.3).
+        // Every cut landing there is tried, so the node's pads share one axis.
+        let others: Vec<Shape> = routes.wires.iter().enumerate().filter(|&(n, _)| n != net).flat_map(|(_, w)| w).copied().collect();
+        let node_axis = |l: LayerId| {
+            let j = layers.iter().position(|&x| x == l).unwrap_or(0);
+            let s = cfg.space(l, 0, 0, 0);
+            let landing = [j.checked_sub(1).map(|k| (k, true)), Some((j, false))];
+            let free = |along_x: bool| {
+                landing
+                    .iter()
+                    .flatten()
+                    .filter_map(|&(k, upper)| cuts.get(k).map(|&(cut, size, ..)| cfg.exact_pad(l, cut, size, upper, (nx, ny), along_x).rect))
+                    .all(|r| cell.iter().chain(&others).filter(|o| o.layer == l).all(|o| rect_gap(o.rect, r) == 0 || rect_gap(o.rect, r) >= s))
+            };
+            lattice_x(l) ^ (!free(lattice_x(l)) && free(!lattice_x(l)))
+        };
         let wires = &mut routes.wires[net];
         let pad = |l: LayerId, (x, y): (i32, i32), s: i32| Shape { layer: l, rect: Rect { x: x - s / 2, y: y - s / 2, w: s, h: s } };
         wires.push(Shape { layer: metal, rect: legs[0] });
@@ -2935,7 +2971,11 @@ fn add_pin_access(
                     }
                 };
                 if !hosted && cfg.exact(base) {
-                    let along_x = on_strap.filter(|_| end == (px, py)).map_or(lattice_x(base), |(x, _)| x);
+                    let along_x = match on_strap {
+                        Some((x, _)) if end == (px, py) => x,
+                        _ if end == (px, py) => lattice_x(base),
+                        _ => node_axis(base),
+                    };
                     wires.push(cfg.exact_pad(base, cut, size, false, end, along_x));
                 } else if !hosted {
                     wires.push(pad(base, end, below));
@@ -2983,11 +3023,8 @@ fn add_pin_access(
                 if let Some(&(cut, size, below, above)) = cuts.get(k) {
                     wires.push(pad(cut, (nx, ny), size));
                     for (l, square, upper) in [(layers[k], below, false), (layers[k + 1], above, true)] {
-                        wires.push(if cfg.exact(l) {
-                            cfg.exact_pad(l, cut, size, upper, (nx, ny), if l == metal { node_x } else { lattice_x(l) })
-                        } else {
-                            pad(l, (nx, ny), square)
-                        });
+                        let along_x = if l == metal { node_x } else { node_axis(l) };
+                        wires.push(if cfg.exact(l) { cfg.exact_pad(l, cut, size, upper, (nx, ny), along_x) } else { pad(l, (nx, ny), square) });
                     }
                 }
             }
@@ -3024,8 +3061,9 @@ fn build_routes(
         for v in &vs {
             let i = v.layer.0 as usize;
             let Some(&cut) = cuts.get(i) else { continue };
-            dst.push(Shape { layer: cut.0, rect: centred(v.rect, cut.1, cut.1) });
-            pads.extend(via_pads(cfg, layers, cut, i, v.rect).into_iter().flatten());
+            let c = centred(v.rect, cut.1, cut.1);
+            dst.push(Shape { layer: cut.0, rect: c });
+            pads.extend(via_pads(cfg, layers, cut, i, v.rect).into_iter().flatten().map(|p| along_wire(cfg, p, c, dst)));
         }
         dst.append(&mut pads);
     }
@@ -5190,6 +5228,41 @@ mod tests {
         assert!(spans(cut, &[strap, r(140, 4, 28, 28)]), "a pad over part of each edge");
         assert!(!spans(cut, &[strap, r(121, 4, 28, 28)]), "a square pad round it");
         assert!(spans(cut, &[r(126, 4, 18, 28)]), "an exact pad: x flush");
+    }
+
+    /// ota on asap7: a V1 under an M2 wire running across M2's lattice axis.
+    /// Its pad turns along the wire, and a second cut beside it is taken
+    /// only where the pad joining both still leaves each cut spanning M2
+    /// (V1.M2.AUX.2): along the wire, never across it.
+    #[test]
+    fn full_width_pads_run_along_the_wire() {
+        let (v1, m2) = (LayerId(35), LayerId(11));
+        let cfg = DetailedCfg { full_width: vec![(v1, m2)], ..DetailedCfg::default() };
+        let r = |x, y, w, h| Rect { x, y, w, h };
+        let s = |layer, rect| Shape { layer, rect };
+        let cut = r(0, 0, 18, 18);
+        let wire = s(m2, r(-96, 0, 114, 18));
+        let lattice_pad = s(m2, r(0, -5, 18, 28));
+        let pad = along_wire(&cfg, lattice_pad, cut, &[wire]);
+        assert_eq!(pad.rect, r(-5, 0, 28, 18), "turned along the wire");
+        assert!(spans(cut, &[wire.rect, pad.rect]));
+        assert_eq!(along_wire(&DetailedCfg::default(), lattice_pad, cut, &[wire]), lattice_pad, "not exact: as given");
+
+        let mut wires = vec![vec![s(v1, cut), wire, lattice_pad]];
+        let clear = |_: usize, sh: Shape, w: &[Vec<Shape>]| !cfg.exact(sh.layer) || !widens(&cfg, sh, &w.concat());
+        // RTE-27's alternatives: a cut 36 over with the two lattice pads
+        // joined (54 x 28, across), then one 36 up (18 x 64, along).
+        let across = vec![s(v1, r(36, 0, 18, 18)), s(m2, r(0, -5, 54, 28))];
+        let along = vec![s(v1, r(0, 36, 18, 18)), s(m2, r(0, -5, 18, 64))];
+        let mut cross = wires.clone();
+        cross[0].retain(|x| *x != wire);
+        let taken = add_where_clear(&mut cross, &[vec![vec![across.clone(), along.clone()]]], &[None], 1, &clear);
+        assert_eq!(taken, vec![vec![Some(1)]], "the across pad widens the new cut");
+        assert!(!cross[0].contains(&across[0]), "a refused alternative leaves nothing behind");
+        // Beside a cut the wire already crosses, the joined pad changes
+        // nothing there: only the new cut, judged in, refuses it.
+        let taken = add_where_clear(&mut wires, &[vec![vec![across]]], &[None], 1, &clear);
+        assert_eq!(taken, vec![vec![None]], "the new cut is in when its pad is judged");
     }
 
     #[test]
