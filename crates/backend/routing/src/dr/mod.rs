@@ -2609,8 +2609,8 @@ fn jog_layer(cfg: &DetailedCfg, layers: &[LayerId], cuts: &[Cut], n_layers: u32,
 
 /// Jog legs clear of every foreign stitch zone (`zone` wide) and every foreign
 /// leg already laid.
-/// No leg touches another net's pin zone (a `zone`-sided square at the pin,
-/// kept `gap` away: a pin landed later still draws its pad there) or a jog
+/// No leg comes within `gap` of another net's pin zone (a `zone`-sided square
+/// at the pin: a pin landed later still draws its pad there) or of its jog
 /// already laid, or overlaps a hard blockage in `blocks` (those binding the
 /// net on the jog's layer).
 #[allow(clippy::too_many_arguments)]
@@ -2618,7 +2618,7 @@ fn jog_clean(legs: &[Rect; 2], ci: usize, zone: i32, gap: i32, zones: &[(u32, i3
     zones.iter().all(|&(zci, zx, zy)| {
         let zr = Rect { x: zx - zone / 2, y: zy - zone / 2, w: zone, h: zone };
         zci as usize == ci || legs.iter().all(|&l| rect_gap(l, zr) >= gap.max(1))
-    }) && laid.iter().all(|&(lci, lr)| lci == ci || legs.iter().all(|&l| rect_gap(l, lr) > 0))
+    }) && laid.iter().all(|&(lci, lr)| lci == ci || legs.iter().all(|&l| rect_gap(l, lr) >= gap.max(1)))
         && blocks.iter().all(|&b| legs.iter().all(|&l| !overlaps(l, b)))
 }
 

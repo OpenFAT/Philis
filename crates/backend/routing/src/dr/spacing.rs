@@ -201,39 +201,21 @@ mod tests {
         assert!(rows.is_empty(), "{rows:?}");
     }
 
-    /// sky130's `MosCc1d` over XM0..2 (`nfet_01v8` W=1u L=0.15u nf=1, m = 2,
-    /// 4, 8; gate, source and bulk shared): fifteen S/D pins on li 440 nm
-    /// apart over a 420 nm lattice, drains `d0 s d2 s d1 s d2 s d2 s d1 s d2
-    /// s d0` (nets 0, 3, 2, 1), between the tile's gate and tap rails.
-    /// Returns the routes and the report.
-    fn ratioed_row() -> (Routes, Report) {
+    /// A row of S/D pins on li, `(x, net)`, at `y`, over the tile's li
+    /// `shapes`, routed on [`sky130`]. Returns every two nets' metal-1 pair
+    /// under spacing, every metal-1 shape under 140 nm wide, and the report's
+    /// hard rows.
+    fn pin_row(pins: &[(i32, u16)], y: i32, shapes: &[Rect]) -> (Vec<(usize, Rect, usize, Rect)>, Vec<Rect>, Vec<String>) {
         let li = LayerId(3);
-        let r = |x, y, w, h| Rect { x, y, w, h };
-        let nets = [0u16, 3, 2, 3, 1, 3, 2, 3, 2, 3, 1, 3, 2, 3, 0];
-        let xs = (0..15).map(|k| 190 + 440 * k as i32);
-        let pins: Vec<Pin> =
-            xs.clone().zip(nets).map(|(x, n)| Pin { name: format!("p{x}"), net: NetId(n), at: r(x, 940, 170, 170), layer: li }).collect();
-        let strips = xs.map(|x| r(x, 520, 250, 1_010));
-        let rails = [r(410, 20, 5_970, 330), r(130, 2_150, 6_450, 330)];
+        let at = |x| Rect { x, y, w: 170, h: 170 };
         let tile = Macro {
-            bbox: r(0, 0, 6_700, 2_500),
-            shapes: strips.chain(rails).map(|rect| Shape { layer: li, rect }).collect(),
-            pins,
+            bbox: shapes.iter().copied().reduce(super::super::bbox).unwrap_or_default(),
+            shapes: shapes.iter().map(|&rect| Shape { layer: li, rect }).collect(),
+            pins: pins.iter().map(|&(x, n)| Pin { name: format!("p{x}"), net: NetId(n), at: at(x), layer: li }).collect(),
             ..Macro::default()
         };
         let neg = &mut crate::gr::Negotiation::new();
         let (routes, report, _) = DetailedRoute { cfg: sky130() }.route(&[], &[tile], &[], &Requirements::<Routes>::default(), &LAYERS, &CUTS, neg);
-        (routes, report)
-    }
-
-    /// Oracle: a Euclidean gap and width check over the drawn metal-1,
-    /// independent of `spacing_pairs`: two nets' shapes keep 140 nm or
-    /// touch nowhere, and every shape is 140 nm wide. Before: m1.2 between
-    /// a drain's narrow jog and the source's node pad, and a sacrificed
-    /// stitch pad (signoff: m1.1, m1.2, m1.4).
-    #[test]
-    fn a_ratioed_pin_row_keeps_metal_spacing() {
-        let (routes, report) = ratioed_row();
         let m1 = |n: usize| routes.wires[n].iter().filter(|s| s.layer == LAYERS[0]).map(|s| s.rect).collect::<Vec<_>>();
         let mut bad = Vec::new();
         for a in 0..routes.wires.len() {
@@ -243,8 +225,46 @@ mod tests {
                 }
             }
         }
-        let thin: Vec<Rect> = (0..routes.wires.len()).flat_map(m1).filter(|r| r.w.min(r.h) < 140).collect();
-        let rows: Vec<&String> = report.hard_violations.iter().map(|v| &v.rule).collect();
+        let thin = (0..routes.wires.len()).flat_map(m1).filter(|r| r.w.min(r.h) < 140).collect();
+        (bad, thin, report.hard_violations.iter().map(|v| v.rule.clone()).collect())
+    }
+
+    /// Oracle: a Euclidean gap and width check over the drawn metal-1
+    /// ([`pin_row`]), independent of `spacing_pairs`: two nets' shapes keep
+    /// 140 nm or touch, and every shape is 140 nm wide. The row is sky130's
+    /// `MosCc1d` over XM0..2 (`nfet_01v8` W=1u L=0.15u nf=1, m = 2, 4, 8;
+    /// gate, source and bulk shared): fifteen S/D pins 440 nm apart over a
+    /// 420 nm lattice, `d0 s d2 s d1 s d2 s d2 s d1 s d2 s d0` (nets 0, 3, 2,
+    /// 1), between the gate and tap rails. Before: m1.2 between a drain's
+    /// narrow jog and the source's node pad, and a sacrificed stitch pad
+    /// (signoff: m1.1, m1.2, m1.4).
+    #[test]
+    fn a_ratioed_pin_row_keeps_metal_spacing() {
+        let r = |x, y, w, h| Rect { x, y, w, h };
+        let nets = [0u16, 3, 2, 3, 1, 3, 2, 3, 2, 3, 1, 3, 2, 3, 0];
+        let pins: Vec<(i32, u16)> = (0..15).map(|k| 190 + 440 * k as i32).zip(nets).collect();
+        let mut li: Vec<Rect> = pins.iter().map(|&(x, _)| r(x, 520, 250, 1_010)).collect();
+        li.extend([r(410, 20, 5_970, 330), r(130, 2_150, 6_450, 330)]);
+        let (bad, thin, rows) = pin_row(&pins, 940, &li);
+        assert!(bad.is_empty(), "two nets' metal-1 under 140 nm: {bad:?}\n{rows:?}");
+        assert!(thin.is_empty(), "metal-1 under 140 nm wide: {thin:?}");
+        assert!(rows.is_empty(), "{rows:?}");
+    }
+
+    /// The same oracle on `MosRatioed` 1:2 (`nfet_01v8` W=1u and 2u L=0.15u
+    /// nf=1, gate, source and bulk shared): `d0 s d1 s d1 s d0` (nets 0, 2,
+    /// 4, the engine's ids: the source lands before d1) between dummy strips
+    /// tied to the tap rail. Before: a drain's jog
+    /// up between its pin and the source's next pin, 20 nm off the source's
+    /// stitch pad (m1.2).
+    #[test]
+    fn a_ratioed_pair_row_keeps_metal_spacing() {
+        let r = |x, y, w, h| Rect { x, y, w, h };
+        let pins: Vec<(i32, u16)> = [0u16, 2, 4, 2, 4, 2, 0].iter().enumerate().map(|(k, &n)| (4_900 + 440 * k as i32, n)).collect();
+        let mut li: Vec<Rect> = pins.iter().map(|&(x, _)| r(x, 1_560, 250, 330)).collect();
+        li.extend((1..=7).flat_map(|k| [r(4_900 - 440 * k, 1_560, 250, 1_560), r(7_540 + 440 * k, 1_560, 250, 1_560)]));
+        li.extend([r(5_120, 20, 2_450, 330), r(1_740, 3_110, 3_190, 460), r(7_680, 3_110, 3_190, 460), r(130, 3_560, 12_350, 330)]);
+        let (bad, thin, rows) = pin_row(&pins, 1_640, &li);
         assert!(bad.is_empty(), "two nets' metal-1 under 140 nm: {bad:?}\n{rows:?}");
         assert!(thin.is_empty(), "metal-1 under 140 nm wide: {thin:?}");
         assert!(rows.is_empty(), "{rows:?}");
