@@ -286,6 +286,33 @@ pub fn plan_recipes(problem: &annotator::Problem, flat: &Flat, pdk: &Pdk) -> Res
     Ok(calls)
 }
 
+/// A MOS the deck can draw exactly as the netlist sizes it: each finger at
+/// least the deck's shortest legal channel, and on a fin deck a whole number
+/// of fins wide. Anything else is a coded refusal, never a silent resize
+/// (the generator would round fins and LVS would see another W).
+///
+/// # Errors
+/// `device`: the size and the deck limit it misses.
+pub fn drawable_size(d: &Device, pdk: &Pdk) -> Result<(), Refusal> {
+    use analog::base::Process;
+    let Some(s) = d.mos_size() else { return Ok(()) };
+    let (w, l) = (s.w_finger_nm(), s.l_nm);
+    let (l_min, w_min) = pdk.min_channel(d.kind == DeviceKind::Pmos, &d.model);
+    // A transistor's diffusion can be wider than plain diffusion's minimum
+    // (sky130 difftap.2: 420 nm).
+    let w_min = w_min.max(pdk.rule("min_finger_width", 0));
+    if l < i64::from(l_min) || w < i64::from(w_min) {
+        return Err(refuse("device", format!("{}: finger W/L {w}/{l} nm is below the deck's shortest legal channel {w_min}/{l_min} nm", d.name)));
+    }
+    if pdk.layer("fin").is_some() {
+        let fin_p = i64::from(pdk.width("fin").unwrap_or(0) + pdk.space("fin").unwrap_or(0));
+        if fin_p > 0 && w % fin_p != 0 {
+            return Err(refuse("device", format!("{}: finger W {w} nm is not a whole number of {fin_p} nm fins", d.name)));
+        }
+    }
+    Ok(())
+}
+
 /// One drawn tile per call, its pins bound to the netlist's nets.
 ///
 /// # Errors
@@ -741,6 +768,7 @@ pub fn run_calls(
     pdk: &Pdk,
     engine: verify::SignoffEngine,
 ) -> Result<Outcome, Refusal> {
+    netlist.flat.devices.iter().try_for_each(|d| drawable_size(d, pdk))?;
     let tiles = build_tiles(&calls, problem, &netlist.flat, pdk)?;
     let layout = arrange(&tiles, pdk)?;
     let (placed, routes, route_report) = route::route(&tiles, &layout, problem, cfg, netlist.flat.nets.len(), pdk);
