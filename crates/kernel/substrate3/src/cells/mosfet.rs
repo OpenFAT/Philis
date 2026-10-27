@@ -115,10 +115,11 @@ impl Cell for Mosfet {
             };
             return vec![Some(chain(false)).filter(|v| v.bars_fit(&s.dev_nf, n_dev)).unwrap_or_else(|| chain(true))];
         }
-        // Interdig is never offered: an ABAB boundary between devices lands on
-        // a drain region and shorts two drains over shared diffusion. Blocks
-        // only where every boundary can sit on a source ([`legal_row`]): all
-        // even counts from S, two odd ones from D; mixed parity is not offered.
+        // A finger-by-finger ABAB boundary lands on a drain region and shorts
+        // two drains over shared diffusion, so Interdig interleaves drain
+        // pairs ([`pattern::diffusion_interdig_row`]). Blocks only where every
+        // boundary can sit on a source ([`legal_row`]): all even counts from
+        // S, two odd ones from D; mixed parity is not offered.
         let blocks_legal = |dev_nf: &[u16]| {
             let blocks: Vec<usize> = dev_nf.iter().enumerate().flat_map(|(d, &n)| std::iter::repeat_n(d, usize::from(n))).collect();
             legal_row(&blocks, true) || legal_row(&blocks, false)
@@ -149,6 +150,19 @@ impl Cell for Mosfet {
         if n_dev > 1 && styles.contains(&(Pattern::Single, false, false)) {
             styles.push((Pattern::Single, true, false));
         }
+        // Interdigitated; last, so the other variants keep their indices. Not where it draws the blocks or
+        // the centroid row again.
+        let distinct = |dev_nf: &[u16]| {
+            pattern::diffusion_interdig_row(dev_nf)
+                .is_some_and(|(seq, _)| seq != finger_sequence(Pattern::Single, dev_nf) && seq != finger_sequence(Pattern::Cc1d, dev_nf))
+        };
+        // Split only for a pair: two bar rows keep two interleaved gates apart.
+        if distinct(&s.dev_nf) {
+            styles.push((Pattern::Interdig, false, false));
+            if n_dev == 2 {
+                styles.push((Pattern::Interdig, true, false));
+            }
+        }
         // Two rows when every member splits evenly and each half still has
         // its order (a centroid order at nf/2, mirror pairs at nf/2, blocks
         // legal at nf/2: three 2-finger members halve to `0 1 2`, whose two
@@ -161,6 +175,7 @@ impl Cell for Mosfet {
                 && match (style, mirror) {
                     (_, true) => half % 2 == 0,
                     (Pattern::Cc1d, false) => pattern::diffusion_cc_row(&s.dev_nf.iter().map(|&n| n / 2).collect::<Vec<_>>(), Outer::Drain).is_some(),
+                    (Pattern::Interdig, false) => distinct(&s.dev_nf.iter().map(|&n| n / 2).collect::<Vec<_>>()),
                     _ => blocks_legal(&s.dev_nf.iter().map(|&n| n / 2).collect::<Vec<_>>()),
                 }
         };
@@ -340,11 +355,18 @@ impl Mosfet {
         vec![first, second]
     }
 
+    /// Whether one bar runs under the whole row (a shared-gate set): unsplit
+    /// mirror pins, and an unsplit interleave whose per-device bars would
+    /// overlap without nesting.
+    fn shared_bar(&self) -> bool {
+        (self.mirror_pins || self.style == Pattern::Interdig) && !self.split_gates
+    }
+
     /// Whether every row's gate bars fit ([`bar_cuts`]): split rows put
     /// odd-indexed devices on the top bar row.
     fn bars_fit(&self, dev_nf: &[u16], n_dev: usize) -> bool {
         let same_row = |a: usize, b: usize| !self.split_gates || a % 2 == b % 2;
-        self.row_orders(dev_nf, n_dev).iter().all(|seq| bar_cuts(seq, same_row, self.mirror_pins && !self.split_gates).is_some())
+        self.row_orders(dev_nf, n_dev).iter().all(|seq| bar_cuts(seq, same_row, self.shared_bar()).is_some())
     }
 
     /// One row of fingers in `sequence` order (device index per finger).
@@ -568,9 +590,7 @@ impl Mosfet {
         // Which ends of a device's fingers carry a bar.
         let top_end = |di: usize| up(di) || self.double_gate;
         let bottom_end = |di: usize| !up(di);
-        // Unsplit mirror pins run one bar under the whole row (a shared-gate
-        // pair).
-        let shared = self.mirror_pins && !self.split_gates;
+        let shared = self.shared_bar();
         // EXC contacts every finger on its own pad: no boundary cut to drop.
         let cut =
             if exc { vec![true; sequence.len()] } else { bar_cuts(sequence, |a, b| up(a) == up(b), shared).expect("enumerate filters on bars_fit") };
@@ -1164,15 +1184,16 @@ fn mirror_offset(nf: usize) -> i64 {
 }
 
 /// Device index per finger slot: `Cc1d` the diffusion-legal centroid row
-/// ([`pattern::diffusion_cc_row`], ratioed counts too) when one exists;
-/// everything else each device's fingers in a block.
+/// ([`pattern::diffusion_cc_row`], ratioed counts too) and `Interdig` the
+/// interleaved drain pairs ([`pattern::diffusion_interdig_row`]) when one
+/// exists; everything else each device's fingers in a block.
 fn finger_sequence(style: Pattern, dev_nf: &[u16]) -> Vec<usize> {
-    if style == Pattern::Cc1d {
-        if let Some(seq) = pattern::diffusion_cc_row(dev_nf, Outer::Drain) {
-            return seq;
-        }
-    }
-    dev_nf.iter().enumerate().flat_map(|(d, &n)| std::iter::repeat_n(d, usize::from(n))).collect()
+    let row = match style {
+        Pattern::Cc1d => pattern::diffusion_cc_row(dev_nf, Outer::Drain),
+        Pattern::Interdig => pattern::diffusion_interdig_row(dev_nf).map(|(seq, _)| seq),
+        _ => None,
+    };
+    row.unwrap_or_else(|| dev_nf.iter().enumerate().flat_map(|(d, &n)| std::iter::repeat_n(d, usize::from(n))).collect())
 }
 
 #[cfg(test)]
@@ -2075,7 +2096,7 @@ mod tests {
                     leaving.dedup();
                     // A shared bar, or an unsplit centroid row whose bars overlap
                     // (one poly island, as the ABBA mirror's strap was).
-                    let want = if !v.split_gates && (v.mirror_pins || v.style == Pattern::Cc1d) { 1 } else { leaving.len() };
+                    let want = if !v.split_gates && (v.mirror_pins || matches!(v.style, Pattern::Cc1d | Pattern::Interdig)) { 1 } else { leaving.len() };
                     assert_eq!(runs.len(), want, "{tag}: runs {runs:?}");
                     checked += 1;
                 }
@@ -2287,5 +2308,125 @@ mod tests {
             assert_eq!(got[0].0, 0);
             assert!((got[0].1 - want).abs() / want < 0.01, "double_gate={double}: {} Ω, want {want}", got[0].1);
         }
+    }
+
+    /// Interdig fixtures: equal pairs even and odd, ratioed, three members.
+    const INTERDIG: [&[u16]; 7] = [&[4, 4], &[6, 6], &[3, 3], &[5, 5], &[2, 4], &[3, 5], &[4, 4, 4]];
+
+    /// Each Interdig variant of `counts` (dummies off and on), drawn.
+    fn interdig_macros(kind: DeviceKind, counts: &[u16], pdk: &verify::Pdk) -> Vec<(String, Mosfet, Macro)> {
+        let mut out = Vec::new();
+        for dummies in [false, true] {
+            let (g, mut c) = crate::cells::testkit::group_of(kind, counts.len(), counts[0], 1680, 150);
+            c.unitization[0].dev_nf = counts.to_vec();
+            c.unitization[0].dummy_required = dummies;
+            for v in Mosfet::enumerate(&g, &c, pdk).into_iter().filter(|v| v.style == Pattern::Interdig) {
+                let m = v.draw(&g, &c, pdk);
+                let tag = format!("{kind:?} {counts:?} dummies={dummies} split={} rows={} double={}", v.split_gates, v.rows, v.double_gate);
+                out.push((tag, v, m));
+            }
+        }
+        out
+    }
+
+    /// Every Interdig row puts each boundary on a shared source, and an
+    /// equal even pair's centroids sit half a pattern period (two finger
+    /// pitches) apart: interdigitated, not common-centroid.
+    #[test]
+    fn an_interdig_row_shares_sources_and_offsets_half_a_period() {
+        for counts in INTERDIG {
+            let seq = finger_sequence(Pattern::Interdig, counts);
+            assert!(legal_row(&seq, true) || legal_row(&seq, false), "{counts:?}: {seq:?} puts a boundary on a drain");
+        }
+        let Some(pdk) = crate::cells::testkit::pdk() else { return };
+        let pitch = sd_and_pitch(&pdk, 150).1 as i64;
+        for kind in [DeviceKind::Nmos, DeviceKind::Pmos] {
+            for counts in [[4u16, 4], [6, 6], [8, 8]] {
+                let vs = interdig_macros(kind, &counts, &pdk);
+                assert!(!vs.is_empty(), "{kind:?} {counts:?}: no Interdig variant");
+                for (tag, _, m) in vs.iter().filter(|(_, v, _)| v.rows == 1) {
+                    let x = |d: u8| m.units.iter().filter(|u| u.owner == d).map(|u| i64::from(u.x)).sum::<i64>();
+                    let n = i64::from(counts[0]);
+                    assert_eq!((x(1) - x(0)).abs(), 2 * pitch * n, "{tag}: centroids not two pitches apart");
+                    // Each pair is S-D-S, one finger each way: Φ = 0 per member.
+                    for d in 0..2u8 {
+                        assert_eq!(m.units.iter().filter(|u| u.owner == d).map(|u| i32::from(u.phi.0)).sum::<i32>(), 0, "{tag}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Every Interdig variant is DRC/ERC clean with drains private; split
+    /// variants keep their gates private too.
+    #[test]
+    fn every_interdig_variant_is_drc_and_erc_clean() {
+        use crate::cells::testkit;
+        let Some(pdk) = testkit::pdk() else { return };
+        let mut dirty = Vec::new();
+        for kind in [DeviceKind::Nmos, DeviceKind::Pmos] {
+            for counts in INTERDIG {
+                let vs = interdig_macros(kind, counts, &pdk);
+                assert!(!vs.is_empty(), "{kind:?} {counts:?}: no Interdig variant");
+                for (tag, v, m) in vs {
+                    let common: &[&str] = if v.split_gates { &["S", "B"] } else { &["G", "S", "B"] };
+                    let rules = testkit::findings_in(&m.shapes, &m.cells, &testkit::ports_with(&m, common), &pdk);
+                    if !rules.is_empty() {
+                        dirty.push(format!("{tag}: {rules:?}"));
+                    }
+                }
+            }
+        }
+        assert!(dirty.is_empty(), "{}", dirty.join("\n"));
+    }
+
+    /// LVS by extraction: each member's fingers come out as devices between
+    /// its own drain and the shared source, on its gate; the rest are the
+    /// dummies, every terminal on the bulk or an outer S/D.
+    #[test]
+    fn every_interdig_variant_extracts_its_devices() {
+        use crate::cells::testkit;
+        let Some(pdk) = testkit::pdk() else { return };
+        let mut wrong = Vec::new();
+        for kind in [DeviceKind::Nmos, DeviceKind::Pmos] {
+            for counts in INTERDIG {
+                for (tag, v, m) in interdig_macros(kind, counts, &pdk) {
+                    let common: &[&str] = if v.split_gates { &["S", "B"] } else { &["G", "S", "B"] };
+                    // S/D pads and each row's gates join only once routed:
+                    // a label per pad, per row, `__k` stripped below. Rows
+                    // part at each tap strip and midway between two.
+                    let mut labels = testkit::ports_with(&m, common);
+                    let mut taps: Vec<i32> = labels.iter().filter(|l| l.name == "B").map(|l| l.y).collect();
+                    taps.sort_unstable();
+                    taps.dedup();
+                    let parts: Vec<i32> = taps.iter().copied().chain(taps.windows(2).map(|w| (w[0] + w[1]) / 2)).collect();
+                    for (k, l) in labels.iter_mut().enumerate().filter(|(_, l)| l.name != "B") {
+                        let k = if l.name.ends_with('G') { parts.iter().filter(|&&p| p < l.y).count() } else { k };
+                        l.name = format!("{}__{k}", l.name);
+                    }
+                    let spice = verify::extract_spice(&m.shapes, &labels, &pdk, verify::Detail::Schematic).unwrap_or_else(|e| panic!("{tag}: {e}"));
+                    let cards: Vec<Vec<&str>> = spice.lines().filter(|l| l.starts_with('M')).map(|l| l.split_whitespace().collect()).collect();
+                    let mut got = vec![0usize; counts.len()];
+                    let mut extra = 0;
+                    for t in &cards {
+                        let net = |n: &str| n.split("__").next().unwrap_or(n).to_string();
+                        let (d, g, s, b) = (net(t[1]), net(t[2]), net(t[3]), net(t[4]));
+                        let owner = (0..counts.len()).find(|&i| {
+                            let dn = format!("d{i}_D");
+                            let gn = if v.split_gates { format!("d{i}_G") } else { "G".into() };
+                            ((d == dn && s == "S") || (d == "S" && s == dn)) && g == gn && b == "B"
+                        });
+                        match owner {
+                            Some(i) => got[i] += 1,
+                            None => extra += 1,
+                        }
+                    }
+                    if got != counts.iter().map(|&c| usize::from(c)).collect::<Vec<_>>() || extra != m.dummies.len() {
+                        wrong.push(format!("{tag}: members {got:?}, {extra} other vs {} dummies\n{spice}", m.dummies.len()));
+                    }
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{}", wrong.join("\n"));
     }
 }
