@@ -91,8 +91,14 @@ and typed fields for the `pdk_data` tables.
   only (`4896cb5`, 349 ms); `cap_array::extracted_bit_ratios_follow_the_weights`
   passes since `59a9fe8`.
 
-- Compaction is research (M6); until its verdict, the hot path's area is the
-  atoll-snapped area.
+- M6 compaction verdict: deferred (docs/ref/research/compaction-verdict.md).
+  The clean fixtures are single rigid tiles (100 % utilisation); on multi-tile
+  ota/two_ota a 1-D pass recovers only 3.6-4.4 %, all from `arrange` spacing
+  every gap at the widest layer spacing (sky130 nwell 1270 nm vs 320-370 nm
+  facing). That fix belongs to M2's floorplan (gap from facing layers); the
+  rest of the whitespace is row assignment. Reopen when a clean fixture shows
+  more than 10 % recoverable area without reordering tiles
+  (`cargo run --release -p engine --example whitespace`).
 - `Confidence` does not exist until M4; before it, the hot path runs on
   Pattern-origin constraints with the conservative recipe tier only.
 - SCIR is the netlist IR (Q37); which parser fills it is decided by the M0 corpus run.
