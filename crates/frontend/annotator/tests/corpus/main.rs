@@ -319,3 +319,29 @@ fn compound_expectations() {
     let c = common::canon_intent(&annotate(&net(src("three_stage")), &AnnotationConfig::default()), &net(src("three_stage")));
     assert!(c.pairs.iter().all(|(a, b)| !["M6", "M7", "M8", "M9"].contains(&a.as_str()) && !["M6", "M7", "M8", "M9"].contains(&b.as_str())));
 }
+
+/// Every table `annotate` returns that prints, one string per circuit.
+fn printed(name: &str, src: &str) -> String {
+    let nl = net(src);
+    let p = annotate(&nl, &cfg(name));
+    let leaves: Vec<_> = annotator::block::leaves(&p.blocks).into_iter().map(|b| (b.kind, b.template, b.devices.clone())).collect();
+    format!("{:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{leaves:?}", p.intent, p.net_classes, p.groups, p.abutment, p.missing, p.coverage)
+}
+
+/// AGENTS.md determinism: one job and N jobs give the same bytes. Each
+/// thread hashes with its own random seeds, so a table filled in hash order
+/// prints differently across them.
+/// Oracle: the run itself, repeated: four threads against this one, per circuit.
+#[test]
+fn annotate_prints_the_same_bytes_on_every_thread() {
+    let one: Vec<String> = all().map(|(name, src)| printed(name, src)).collect();
+    std::thread::scope(|s| {
+        let jobs: Vec<_> = (0..4).map(|_| s.spawn(|| all().map(|(name, src)| printed(name, src)).collect::<Vec<String>>())).collect();
+        for j in jobs {
+            let got = j.join().expect("annotates");
+            for ((name, _), (a, b)) in all().zip(one.iter().zip(&got)) {
+                assert!(a == b, "{name} differs across threads:\n{a}\n---\n{b}");
+            }
+        }
+    });
+}
