@@ -91,8 +91,6 @@ pub(crate) fn cell() -> serde_json::Value {
         "mom_finger_width": 160,
         "res_min_width": 500,
         "res_value_tol_ppm": 5000,
-        "tie_max_dist_nm": 20000,
-        "tie_max_dist_nm_source": "ihp_sg13g2.deck LU.a, LU.b missing_tie max_distance 20um. Read by cells::mosfet::taps_in_reach (CELL-13).",
         "licon_poly_enc": 70,
         "polycon_to_diff_spacing": 140,
         "resistors": {

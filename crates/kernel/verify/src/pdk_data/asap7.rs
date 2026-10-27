@@ -15,7 +15,6 @@ pub(crate) fn cell() -> serde_json::Value {
         "bjt_ka_pct_um_source": "textbook, not ASAP7: Hastings, The Art of Analog Layout, §10.2.1 (PDF p.507), I_S mismatch area constant of a bipolar pair; replace with the PDK's own figure when one is published.",
         "vbe_tc_uv_per_k": 2000,
         "vbe_tc_uv_per_k_source": "textbook, not ASAP7: Hastings, The Art of Analog Layout, §9.1 (PDF p.433), |dV_BE/dT| ~ 2 mV/K.",
-        "min_finger_width": 27,
         "dummy_max_l_nm": null,
         "layers": {
             "diff": "ACTIVE",
@@ -78,7 +77,5 @@ pub(crate) fn cell() -> serde_json::Value {
         "mom_finger_width": 200,
         "res_min_width": 500,
         "res_value_tol_ppm": 5000,
-        "tie_max_dist_nm": 30000,
-        "tie_max_dist_nm_source": "asap7.deck ACTIVE.LUP.1.PMOS/NMOS missing_tie max_distance 30um. Read by cells::mosfet::taps_in_reach (CELL-13) for planar macros only; the FinFet generator is not checked against it."
     })
 }

@@ -986,6 +986,50 @@ impl Pdk {
         (w("poly").max(gate).max(length).max(chosen), w("diff").max(gate))
     }
 
+    /// The deck's width rule on a MOS finger's diffusion edges, nm: on a
+    /// drawn gate's diffusion edges (sky130 difftap.2, 420 nm, over
+    /// difftap.1's 150) or on the diffusion's own (asap7 ACTIVE.W.1, 27 nm
+    /// across, over its 16 nm `min_width`). `None` when only the
+    /// diffusion's `min_width` binds, which `cells::builder::dim` maxes in.
+    #[must_use]
+    pub fn min_finger_width(&self) -> Option<i32> {
+        use gdsverify::ingest::deck::DerivedOp as Op;
+        let (diff, poly) = (Process::layer(self, "diff")?.0, Process::layer(self, "poly")?.0);
+        // `gate.edges() and diff.edges()`, the gate drawn from poly and diff.
+        let channel = |x: GvLayerId| {
+            let src: Vec<_> = self.deck.layers.operands(x).iter().map(|&o| self.edge_source(o)).collect();
+            self.deck.layers.op(x) == Some(Op::And)
+                && src.contains(&Some(GvLayerId(diff)))
+                && src.iter().flatten().any(|&g| g.0 != diff && self.drawn_from(g, diff) && self.drawn_from(g, poly))
+        };
+        self.compiled
+            .drc
+            .rules
+            .iter()
+            .filter_map(|(_, r)| match *r {
+                Rule::EdgeWidth { layer, limit } if channel(layer) || self.edge_source(layer) == Some(GvLayerId(diff)) => Some(limit.raw() as i32),
+                _ => None,
+            })
+            .max()
+    }
+
+    /// The farthest a drawn diffusion may sit from its tap, nm: the tightest
+    /// `tap_distance` or `missing_tie` limit on a layer Philis geometry can
+    /// produce ([`Pdk::drawn_from`]), so gf180's 3.3 V DF.13 (20 um), not its
+    /// 5 V one on dualgate (15 um). `None` when the deck states none.
+    #[must_use]
+    pub fn tie_max_dist(&self) -> Option<i32> {
+        let tie = &self.compiled.erc.missing_tie;
+        let tap = self.compiled.drc.rules.iter().filter_map(|(_, r)| match *r {
+            Rule::MaxDistanceToTap { well, limit, .. } => Some((well, limit)),
+            _ => None,
+        });
+        tap.chain(tie.region.iter().copied().zip(tie.max_distance.iter().copied()))
+            .filter(|&(l, _)| self.philis_drawn(l))
+            .map(|(_, d)| d.raw() as i32)
+            .min()
+    }
+
     /// The area layer an edge layer's edges were taken from (through its
     /// first operands); `None` for an area layer.
     fn edge_source(&self, x: GvLayerId) -> Option<GvLayerId> {
@@ -1102,9 +1146,20 @@ impl Process for Pdk {
     }
     /// Last match wins: `rules` is built widest-source-first, so an explicit
     /// `cell.*` dimension overrides a value synthesised from a DRC rule.
-    /// No `min_gate_l` chosen: the deck's shortest legal gate, either polarity.
+    /// Three names the deck answers when no `cell.*` value states them:
+    /// `min_gate_l` (the shortest legal gate, either polarity),
+    /// `min_finger_width` ([`Pdk::min_finger_width`]) and `tie_max_dist_nm`
+    /// ([`Pdk::tie_max_dist`]).
     fn rule(&self, name: &str, default: i32) -> i32 {
-        let deck = || (name == "min_gate_l").then(|| self.min_channel(false, "").0.max(self.min_channel(true, "").0)).filter(|&l| l > 0);
+        let deck = || {
+            match name {
+                "min_gate_l" => Some(self.min_channel(false, "").0.max(self.min_channel(true, "").0)),
+                "min_finger_width" => self.min_finger_width(),
+                "tie_max_dist_nm" => self.tie_max_dist(),
+                _ => None,
+            }
+            .filter(|&v| v > 0)
+        };
         self.rules.iter().rev().find(|(n, _)| n == name).map(|(_, v)| *v).or_else(deck).unwrap_or(default)
     }
     fn grid(&self) -> i32 {
@@ -1691,7 +1746,6 @@ mod tests {
         assert!(sky.provenance("avt_n_mv_um").is_some_and(|s| s.starts_with("Monte Carlo")));
         let assumed = sky.unverified();
         assert!(assumed.contains(&"gate_cap_af_um2") && !assumed.contains(&"avt_n_mv_um"), "{assumed:?}");
-        assert!(!assumed.contains(&"tie_max_dist_nm"), "LU.2/LU.2.1/LU.3 source it: {assumed:?}");
     }
 
     const DECKS: [&str; 3] = ["sky130", "gf180mcu", "ihp_sg13g2"];
@@ -1974,6 +2028,17 @@ mod tests {
             let deck = gdsverify::ingest::deck::parse_deck(&p.source, nm_grid(), &mut strings).unwrap();
             assert!(deck == p.deck && strings.len() == p.strings.len(), "{name}");
             assert!((0..strings.len() as u32).all(|i| strings.resolve(StrId(i)) == p.strings.resolve(StrId(i))), "{name}");
+        }
+    }
+
+    /// The two keys the deck now answers (sidecar-keys.md §4) read what the
+    /// sidecars stated: sky130 difftap.2's 420, the latch-up reach per PDK.
+    #[test]
+    fn finger_width_and_tie_reach_come_from_the_deck() {
+        for (name, finger, tie) in [("sky130", 420, 15_000), ("gf180mcu", 0, 20_000), ("ihp_sg13g2", 0, 20_000), ("asap7", 27, 30_000)] {
+            let p = load(name);
+            assert_eq!(Process::rule(&p, "min_finger_width", 0), finger, "{name}");
+            assert_eq!(Process::rule(&p, "tie_max_dist_nm", i32::MAX), tie, "{name}");
         }
     }
 }
