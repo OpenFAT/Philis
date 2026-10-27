@@ -2,22 +2,38 @@
 //! each recipe call promises about its constraint, and whether the drawn
 //! geometry keeps it. Recipes declare ([`claims_of`]); [`score_claims`] fills
 //! the status with the `kernel/analog` rules free-form placement is scored
-//! by, read from the tiles' `Unit` rows, never from the recipe (Q2).
+//! by, read from the tiles' `Unit` rows, never from the recipe (Q2). The
+//! row stack's own claim, every vertical `Order` kept (RECIPES §3), rides
+//! under the [`FLOORPLAN`] call, scored by [`analog::placement::Below`].
 //!
 //! Six questions. In: the call table, its tiles and their floorplan; out: one
-//! row per (call, promise). How many: at most five per call, calls ≤ 65 535.
-//! Widths: call `u16`, constraint `u32`, kind and status `u8`, promise two
-//! bytes, measured `f32`. Access: written once in call order, walked by the
-//! report and the conformance checks. Lifetime: one run. Parallel: per call,
-//! not needed at M1's sizes.
+//! row per (call, promise). How many: at most five per call, calls ≤ 65 535,
+//! plus one per vertical order. Widths: call `u16`, constraint `u32`, kind
+//! and status `u8`, promise four bytes, measured `f32`. Access: written once
+//! in call order, walked by the report and the conformance checks.
+//! Lifetime: one run. Parallel: per call, not needed at M1's sizes.
+//!
+//! Contents:
+//! - `pub const NO_INTENT: ConstraintId`
+//! - `pub const FLOORPLAN: u16`
+//! - `pub enum Promise`
+//! - `pub enum Status`
+//! - `pub struct Claims`
+//! - `Claims::len(&self) -> usize`
+//! - `Claims::is_empty(&self) -> bool`
+//! - `Promise::rule(self) -> RuleKind`
+//! - `pub fn claims_of(kind: RecipeKind) -> &'static [Promise]`
+//! - `pub fn score_claims(calls: &RecipeCalls, tiles: &[Macro], layout: &Layout, problem: &annotator::Problem, pdk: &Pdk) -> Claims`
+//! - `pub fn order_verdicts(calls: &RecipeCalls, problem: &annotator::Problem, layout: &Layout) -> Vec<(u16, Status, i32)>`
 
 use std::sync::Arc;
 
+use analog::base::Target;
 use analog::base::{DeviceId, Layout, Macro, Process, Rect, UnitLib};
 use analog::intent::ConstraintId;
 use analog::matching::moments::{cancelled_order, Pt};
-use analog::placement::{EnvGeo, LiveEnvironment, MatchedSet, OrientCheck, OrientationSet};
-use analog::{RuleBatch, RuleKind};
+use analog::placement::{Below, EnvGeo, LiveEnvironment, MatchedSet, OrientCheck, OrientationSet};
+use analog::{Rule, RuleBatch, RuleKind};
 use verify::Pdk;
 
 use crate::{RecipeCalls, RecipeKind};
@@ -25,6 +41,9 @@ use crate::{RecipeCalls, RecipeKind};
 /// The constraint column of a call whose set the annotator unitized without
 /// inferring a `MatchSpec` (parallel devices: `pair`, `quad`).
 pub const NO_INTENT: ConstraintId = ConstraintId(u32::MAX);
+
+/// The call column of a claim the floorplan makes rather than a set call.
+pub const FLOORPLAN: u16 = u16::MAX;
 
 /// What a recipe promises about one constraint (`RECIPES.md` §2.1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,19 +62,9 @@ pub enum Promise {
     PhiEqual,
     /// Equal WPE and OSE distances for every pair `(0, i)`.
     EqualEnvironment,
-}
-
-impl Promise {
-    /// The rule that scores it.
-    #[must_use]
-    pub fn rule(self) -> RuleKind {
-        match self {
-            Promise::ParallelChannels | Promise::PhiEqual => RuleKind::OrientationSet,
-            Promise::UnitIdentity | Promise::CentroidOffset | Promise::Coincidence => RuleKind::MatchedSet,
-            Promise::MomentsCancelled(_) => RuleKind::CentroidGroup,
-            Promise::EqualEnvironment => RuleKind::Environment,
-        }
-    }
+    /// Every step of `intent.order[k]` (a vertical order) placed wholly
+    /// below the next; measured is the worst overlap, nm.
+    OrderMonotone(u16),
 }
 
 /// A claim's verdict after scoring (`TRAITS.md`).
@@ -110,9 +119,24 @@ impl std::fmt::Display for Claims {
         for i in 0..self.len() {
             let c = self.constraint[i];
             let id = if c == NO_INTENT { "-".to_string() } else { c.0.to_string() };
-            writeln!(f, "claim call {} c{id}: {:?} {:?} {:?} ({})", self.call[i], self.rule[i], self.promised[i], self.status[i], self.measured[i])?;
+            let call = if self.call[i] == FLOORPLAN { "floorplan".to_string() } else { format!("call {}", self.call[i]) };
+            writeln!(f, "claim {call} c{id}: {:?} {:?} {:?} ({})", self.rule[i], self.promised[i], self.status[i], self.measured[i])?;
         }
         Ok(())
+    }
+}
+
+impl Promise {
+    /// The rule that scores it.
+    #[must_use]
+    pub fn rule(self) -> RuleKind {
+        match self {
+            Promise::ParallelChannels | Promise::PhiEqual => RuleKind::OrientationSet,
+            Promise::UnitIdentity | Promise::CentroidOffset | Promise::Coincidence => RuleKind::MatchedSet,
+            Promise::MomentsCancelled(_) => RuleKind::CentroidGroup,
+            Promise::EqualEnvironment => RuleKind::Environment,
+            Promise::OrderMonotone(_) => RuleKind::Order,
+        }
     }
 }
 
@@ -133,6 +157,8 @@ pub fn claims_of(kind: RecipeKind) -> &'static [Promise] {
 /// Declare every multi-member call's claims and score each on `tiles` placed
 /// by `layout` (`arrange`'s, one cell per call). A single device claims
 /// nothing. `tiles` are in their own frames, as `build_tiles` returns them.
+/// A row stack (`layout` has an axis; the glue row has none) adds one
+/// [`Promise::OrderMonotone`] row per vertical order ([`order_verdicts`]).
 ///
 /// # Panics
 /// `tiles` or `layout` not one per call.
@@ -161,13 +187,56 @@ pub fn score_claims(calls: &RecipeCalls, tiles: &[Macro], layout: &Layout, probl
                 Promise::CentroidOffset | Promise::Coincidence => matched(&l, members, tol_nm, p),
                 Promise::MomentsCancelled(n) => moments(&l, members, n),
                 Promise::EqualEnvironment => environment(&l, members, i as u16, geo.clone(), class),
+                Promise::OrderMonotone(_) => unreachable!("the floorplan's promise, no set recipe's"),
             };
             out.push(i as u16, constraint, p, scored);
+        }
+    }
+    if !layout.axis.is_empty() {
+        for (k, status, overlap_nm) in order_verdicts(calls, problem, layout) {
+            out.push(FLOORPLAN, NO_INTENT, Promise::OrderMonotone(k), (status, overlap_nm as f32));
         }
     }
     assert!(out.status.iter().zip(&out.promised).all(|(&s, &p)| (s == Status::Reported) == (p == Promise::CentroidOffset)));
     out
 }
+
+/// Each vertical `Order` of two or more steps, scored on `layout` (cell `i`
+/// is call `i`) by [`Below`] over every device pair of consecutive steps:
+/// its index in `intent.order`, the verdict, and the worst overlap in nm (≤ 0
+/// kept). A device in no call is not scored.
+///
+/// # Panics
+/// More than 65 535 orders, or `layout` with fewer cells than `calls`.
+#[must_use]
+pub fn order_verdicts(calls: &RecipeCalls, problem: &annotator::Problem, layout: &Layout) -> Vec<(u16, Status, i32)> {
+    assert!(problem.intent.order.len() <= usize::from(u16::MAX), "orders are u16-indexed");
+    assert!(layout.x.len() >= calls.len(), "one placed cell per call");
+    let n_devices = calls.members.iter().map(|d| usize::from(d.0) + 1).max().unwrap_or(0);
+    let mut cell_of = vec![u16::MAX; n_devices];
+    for c in 0..calls.len() {
+        calls.members_of(c).iter().for_each(|d| cell_of[usize::from(d.0)] = c as u16);
+    }
+    let in_call = |d: &&DeviceId| cell_of.get(usize::from(d.0)).is_some_and(|&c| c != u16::MAX);
+    let mut out = Vec::new();
+    for (k, o) in problem.intent.order.iter().enumerate().filter(|(_, o)| o.dir == analog::intent::AxisDir::V && o.steps.len() >= 2) {
+        let batch: Vec<Below> = o
+            .steps
+            .windows(2)
+            .flat_map(|w| {
+                let upper = &w[1];
+                w[0].iter().filter(in_call).flat_map(move |&a| upper.iter().filter(in_call).map(move |&b| (a, b)))
+            })
+            .map(|(a, b)| Below { lower: Target::Device(a), upper: Target::Device(b) }.retarget(&cell_of))
+            .collect();
+        let worst = batch.iter().map(|b| b.overlap_nm(layout)).max().unwrap_or(i32::MIN);
+        let (status, _) = verdict(&batch, layout, worst as f32);
+        out.push((k as u16, status, worst));
+    }
+    out
+}
+
+// ---- private ----
 
 /// The intent set drawing exactly `members`, else [`NO_INTENT`].
 fn intent_of(problem: &annotator::Problem, members: &[DeviceId]) -> ConstraintId {

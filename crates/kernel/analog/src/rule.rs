@@ -59,6 +59,8 @@ pub enum RuleKind {
     Environment,
     /// [`crate::placement::OrientationSet`]: parallel channels, equal Φ.
     OrientationSet,
+    /// [`crate::placement::Below`]: each step of a vertical `Order` below the next.
+    Order,
 }
 
 /// One piece of analog theory: a small `Copy` value that scores itself against

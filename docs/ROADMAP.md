@@ -58,7 +58,12 @@ and typed fields for the `pdk_data` tables.
 - **M2, started.** Floorplan library (targets, symmetric row stack, glue row
   with gaps from facing shapes and the fin-deck gate lattice); the engine
   takes the row stack from the annotator's mirror pairs on planar decks, else
-  the glue row; fingers folded to the tap reach. `ota` clean on sky130. The
+  the glue row; fingers folded to the tap reach. Rows follow the annotator's
+  vertical `Order`s (sidecar, then EXT-28 current chains; `steps[0]` at the
+  bottom; H orders do not bind rows), each scored after placement as a
+  floorplan claim by `analog::placement::Below`; a user order the rows break
+  is a coded `floorplan` refusal, an extracted one a violated claim. `ota`
+  stacks tail, pair, load from the bottom. `ota` clean on sky130. The
   block harness (`engine/src/interface.rs`, 1.0's interface format): boundary
   pins routed and labelled as LVS ports; with a die, each call takes its
   smallest variant that fits. `tt_ota` and `ota_constrained` clean on sky130
@@ -71,7 +76,7 @@ and typed fields for the `pdk_data` tables.
   non-exact (sky130 `ota` vout1/vout2 4.949/4.562 fF); star branches are not
   R-balanced (4.3-4.5 Ω, one extra cut in drawn access) and carry no ΔR
   budget (no op point reaches the engine); an unreached pin reports no row
-  (#13); the stage `Order` for rows (#11); `tt_ota`, `ota_constrained` on
+  (#13); `tt_ota`, `ota_constrained` on
   asap7.
 
 ## Known gaps (kept current)
