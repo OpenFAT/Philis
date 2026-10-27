@@ -17,6 +17,15 @@ pub struct Isolation {
     pub min_distance_nm: i32,
 }
 
+/// Charbon §8.3.1 (L3382–3399): an injector equidistant from both halves of a differential pair
+/// couples a common-mode disturbance only. Cost-only (no threshold in the source).
+#[derive(Clone, Copy)]
+pub struct SubstrateBalance {
+    pub aggressor: Target,
+    pub a: Target,
+    pub b: Target,
+}
+
 impl Rule for Isolation {
     type On = Layout;
     /// `(shortfall / min_distance)²` (PLC-18: dimensionless).
@@ -43,15 +52,6 @@ impl Rule for Isolation {
         let floor = self.min_distance_nm as f32;
         crate::rule::over(floor - l.edge_gap(self.a, self.b), floor)
     }
-}
-
-/// Charbon §8.3.1 (L3382–3399): an injector equidistant from both halves of a differential pair
-/// couples a common-mode disturbance only. Cost-only (no threshold in the source).
-#[derive(Clone, Copy)]
-pub struct SubstrateBalance {
-    pub aggressor: Target,
-    pub a: Target,
-    pub b: Target,
 }
 
 impl Rule for SubstrateBalance {

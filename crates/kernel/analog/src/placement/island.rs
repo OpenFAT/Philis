@@ -16,16 +16,6 @@ pub struct SymmetryIsland {
     pub touch_nm: i32,
 }
 
-/// `a` and `b` share an edge: strictly overlapping projections on one axis and
-/// an edge distance ≤ `touch_nm` on the other (a corner contact is not
-/// adjacency, so this is not `Layout::edge_gap`, which is 0 there).
-fn adjacent(l: &Layout, a: Target, b: Target, touch_nm: i32) -> bool {
-    let (ax, ay, aw, ah) = l.bbox(a);
-    let (bx, by, bw, bh) = l.bbox(b);
-    let (dx, dy) = ((ax - bx).abs(), (ay - by).abs());
-    (dx < aw + bw && dy - (ah + bh) <= touch_nm) || (dy < ah + bh && dx - (aw + bw) <= touch_nm)
-}
-
 /// Connected components of `members` under [`adjacent`]; `0` with no members.
 #[must_use]
 pub fn components(l: &Layout, members: &[Target], touch_nm: i32) -> u32 {
@@ -42,12 +32,6 @@ pub fn components(l: &Layout, members: &[Target], touch_nm: i32) -> u32 {
     roots.sort_unstable();
     roots.dedup();
     roots.len() as u32
-}
-
-impl SymmetryIsland {
-    fn extra(&self, l: &Layout) -> u32 {
-        components(l, &self.members, self.touch_nm).saturating_sub(1)
-    }
 }
 
 impl RuleBatch<Layout> for SymmetryIsland {
@@ -78,6 +62,24 @@ impl RuleBatch<Layout> for SymmetryIsland {
         for t in &mut self.members {
             *t = t.retarget(cell_of);
         }
+    }
+}
+
+// ---- private ----
+
+/// `a` and `b` share an edge: strictly overlapping projections on one axis and
+/// an edge distance ≤ `touch_nm` on the other (a corner contact is not
+/// adjacency, so this is not `Layout::edge_gap`, which is 0 there).
+fn adjacent(l: &Layout, a: Target, b: Target, touch_nm: i32) -> bool {
+    let (ax, ay, aw, ah) = l.bbox(a);
+    let (bx, by, bw, bh) = l.bbox(b);
+    let (dx, dy) = ((ax - bx).abs(), (ay - by).abs());
+    (dx < aw + bw && dy - (ah + bh) <= touch_nm) || (dy < ah + bh && dx - (aw + bw) <= touch_nm)
+}
+
+impl SymmetryIsland {
+    fn extra(&self, l: &Layout) -> u32 {
+        components(l, &self.members, self.touch_nm).saturating_sub(1)
     }
 }
 

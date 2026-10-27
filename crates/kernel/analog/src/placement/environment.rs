@@ -24,6 +24,31 @@ pub struct Surroundings {
     pub ose_range_nm: f32,
 }
 
+/// Every matched pair's [`Surroundings`], measured once per placed layout.
+/// State-free (the numbers are precomputed), so it reports on any stage.
+#[derive(Clone, Debug, Default)]
+pub struct Environment(pub Vec<Surroundings>);
+
+/// Per cell, per variant, in the macro's own frame: its bbox, n-well rects
+/// and diff rects.
+#[derive(Debug, Default)]
+pub struct EnvGeo {
+    pub bbox: Vec<Vec<Rect>>,
+    pub wells: Vec<Vec<Vec<Rect>>>,
+    pub diffs: Vec<Vec<Vec<Rect>>>,
+}
+
+/// Every matched pair's [`Surroundings`], re-measured on each layout it is
+/// asked about: the placement-tier batch (PLC-29), so gp/dp see WPE/OSE in Θ.
+#[derive(Clone, Debug)]
+pub struct LiveEnvironment {
+    /// `(member a, member b, cell of a, cell of b)`.
+    pub pairs: Vec<(DeviceId, DeviceId, u16, u16)>,
+    pub geo: std::sync::Arc<EnvGeo>,
+    pub wpe_min_nm: f32,
+    pub ose_range_nm: f32,
+}
+
 impl Surroundings {
     /// Spent fraction, the worst of: a member's well edge nearer than
     /// `wpe_min_nm`; the members' WPE distances (within ten times it)
@@ -48,11 +73,6 @@ impl Surroundings {
     }
 }
 
-/// Every matched pair's [`Surroundings`], measured once per placed layout.
-/// State-free (the numbers are precomputed), so it reports on any stage.
-#[derive(Clone, Debug, Default)]
-pub struct Environment(pub Vec<Surroundings>);
-
 impl<S> RuleBatch<S> for Environment {
     fn cost(&self, _: &S) -> f32 {
         self.0.iter().filter_map(Surroundings::usage).sum()
@@ -75,26 +95,6 @@ impl<S> RuleBatch<S> for Environment {
     fn worst_usage(&self, _: &S) -> Option<f32> {
         self.0.iter().filter_map(Surroundings::usage).reduce(f32::max)
     }
-}
-
-/// Per cell, per variant, in the macro's own frame: its bbox, n-well rects
-/// and diff rects.
-#[derive(Debug, Default)]
-pub struct EnvGeo {
-    pub bbox: Vec<Vec<Rect>>,
-    pub wells: Vec<Vec<Vec<Rect>>>,
-    pub diffs: Vec<Vec<Vec<Rect>>>,
-}
-
-/// Every matched pair's [`Surroundings`], re-measured on each layout it is
-/// asked about: the placement-tier batch (PLC-29), so gp/dp see WPE/OSE in Θ.
-#[derive(Clone, Debug)]
-pub struct LiveEnvironment {
-    /// `(member a, member b, cell of a, cell of b)`.
-    pub pairs: Vec<(DeviceId, DeviceId, u16, u16)>,
-    pub geo: std::sync::Arc<EnvGeo>,
-    pub wpe_min_nm: f32,
-    pub ose_range_nm: f32,
 }
 
 impl LiveEnvironment {

@@ -46,31 +46,6 @@ pub struct MatchedSet {
     pub sigma_rand_override: Option<f32>,
 }
 
-/// Unit moments of one member plus its weighted LOD sum (`Σw·lod`, `Σw` over
-/// units with a finite `lod`) and, when `hot`, its weighted rise `Σw·rise(u)`
-/// (mK·weight; 0 otherwise).
-///
-/// ponytail: O(units·cells) per pair; the plan's 7-point stencil bounds it at
-/// 7·cells but is 50 % low within ~L of a heater (card m2-analog-matching-3).
-fn member(l: &Layout, d: DeviceId, hot: bool) -> (crate::matching::moments::Sums, f64, f64, f64) {
-    let (mut lw, mut w, mut t) = (0.0f64, 0.0f64, 0.0f64);
-    let s = sums(
-        l.units
-            .of_device(l, d)
-            .inspect(|u| {
-                if u.lod.is_finite() {
-                    lw += u.weight as f64 * f64::from(u.lod);
-                    w += u.weight as f64;
-                }
-                if hot {
-                    t += u.weight as f64 * f64::from(l.rise_at_point_mc(u.x, u.y));
-                }
-            })
-            .map(Pt::from),
-    );
-    (s, lw, w, t)
-}
-
 impl MatchedSet {
     /// A non-MOS set (MAT-10): `areas_um2` are the members' netlist areas
     /// (EXT-20's), `cell_of` empty, no `g_m/I`. The ledger is in % for R/C,
@@ -376,6 +351,33 @@ impl crate::rule::RuleBatch<Layout> for MatchedSet {
             }
         }
     }
+}
+
+// ---- private ----
+
+/// Unit moments of one member plus its weighted LOD sum (`Σw·lod`, `Σw` over
+/// units with a finite `lod`) and, when `hot`, its weighted rise `Σw·rise(u)`
+/// (mK·weight; 0 otherwise).
+///
+/// ponytail: O(units·cells) per pair; the plan's 7-point stencil bounds it at
+/// 7·cells but is 50 % low within ~L of a heater (card m2-analog-matching-3).
+fn member(l: &Layout, d: DeviceId, hot: bool) -> (crate::matching::moments::Sums, f64, f64, f64) {
+    let (mut lw, mut w, mut t) = (0.0f64, 0.0f64, 0.0f64);
+    let s = sums(
+        l.units
+            .of_device(l, d)
+            .inspect(|u| {
+                if u.lod.is_finite() {
+                    lw += u.weight as f64 * f64::from(u.lod);
+                    w += u.weight as f64;
+                }
+                if hot {
+                    t += u.weight as f64 * f64::from(l.rise_at_point_mc(u.x, u.y));
+                }
+            })
+            .map(Pt::from),
+    );
+    (s, lw, w, t)
 }
 
 /// A sky130 nfet current pair `(a, b)`: 2 × 20 µm², `Eta(0.3)`, tol 5 nm.

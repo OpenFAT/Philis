@@ -28,29 +28,6 @@ pub struct DtiBand {
     pub seed_isolate: bool,
 }
 
-impl DtiBand {
-    /// Committed side; an unsized `Layout::branch` reads as share.
-    #[inline]
-    fn isolating(self, l: &Layout) -> bool {
-        l.branch.get(self.branch.0 as usize).copied().unwrap_or(false)
-    }
-
-    /// Distance, nm, to the committed side's interval.
-    fn miss(self, l: &Layout) -> f32 {
-        let gap = l.edge_gap(self.a, self.b);
-        if self.isolating(l) {
-            (self.d_dti_nm as f32 - gap).max(0.0)
-        } else {
-            (gap - self.s_max_nm as f32).max(0.0)
-        }
-    }
-
-    /// Band width, nm, floored at 1.
-    fn band(self) -> f32 {
-        (self.d_dti_nm - self.s_max_nm).max(1) as f32
-    }
-}
-
 impl Rule for DtiBand {
     type On = Layout;
     /// `(miss / band)²`, miss = distance to the committed side's interval,
@@ -86,6 +63,31 @@ impl Rule for DtiBand {
     }
     fn branch(self) -> Option<(BranchId, bool)> {
         Some((self.branch, self.seed_isolate))
+    }
+}
+
+// ---- private ----
+
+impl DtiBand {
+    /// Committed side; an unsized `Layout::branch` reads as share.
+    #[inline]
+    fn isolating(self, l: &Layout) -> bool {
+        l.branch.get(self.branch.0 as usize).copied().unwrap_or(false)
+    }
+
+    /// Distance, nm, to the committed side's interval.
+    fn miss(self, l: &Layout) -> f32 {
+        let gap = l.edge_gap(self.a, self.b);
+        if self.isolating(l) {
+            (self.d_dti_nm as f32 - gap).max(0.0)
+        } else {
+            (gap - self.s_max_nm as f32).max(0.0)
+        }
+    }
+
+    /// Band width, nm, floored at 1.
+    fn band(self) -> f32 {
+        (self.d_dti_nm - self.s_max_nm).max(1) as f32
     }
 }
 

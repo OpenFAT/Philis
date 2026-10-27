@@ -14,17 +14,6 @@ pub struct Utilization {
     pub u_min: f32,
 }
 
-impl Utilization {
-    /// Footprint over the allowed footprint (`1.0` = at the floor).
-    fn used(&self, l: &Layout) -> f32 {
-        let cells: f64 = (0..l.x.len()).map(|i| 4.0 * f64::from(l.hw[i]) * f64::from(l.hh[i])).sum();
-        if cells <= 0.0 || self.u_min <= 0.0 {
-            return 0.0;
-        }
-        (l.footprint_nm2() * f64::from(self.u_min) / cells) as f32
-    }
-}
-
 impl RuleBatch<Layout> for Utilization {
     /// Excess footprint, as a fraction of the allowed one.
     fn cost(&self, l: &Layout) -> f32 {
@@ -47,6 +36,19 @@ impl RuleBatch<Layout> for Utilization {
     }
     fn worst_usage(&self, l: &Layout) -> Option<f32> {
         Some(self.used(l))
+    }
+}
+
+// ---- private ----
+
+impl Utilization {
+    /// Footprint over the allowed footprint (`1.0` = at the floor).
+    fn used(&self, l: &Layout) -> f32 {
+        let cells: f64 = (0..l.x.len()).map(|i| 4.0 * f64::from(l.hw[i]) * f64::from(l.hh[i])).sum();
+        if cells <= 0.0 || self.u_min <= 0.0 {
+            return 0.0;
+        }
+        (l.footprint_nm2() * f64::from(self.u_min) / cells) as f32
     }
 }
 

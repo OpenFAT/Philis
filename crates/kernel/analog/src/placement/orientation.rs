@@ -34,34 +34,6 @@ pub struct OrientationSet {
     pub cell_of: Vec<u16>,
 }
 
-impl OrientationSet {
-    fn cell(&self, d: DeviceId) -> u32 {
-        u32::from(self.cell_of.get(d.0 as usize).copied().unwrap_or(d.0))
-    }
-
-    /// `0.0` = satisfied, `> 0` = violated, `None` = unknown.
-    fn residual_of(&self, l: &Layout) -> Option<f32> {
-        let s: Vec<_> = self.members.iter().map(|&d| sums(l.units.of_device(l, d).map(Pt::from))).collect();
-        if s.iter().any(|m| m.n == 0) {
-            return None;
-        }
-        Some(match self.check {
-            OrientCheck::Axis => {
-                let has = |a| s.iter().any(|m| m.axis == a);
-                f32::from(u8::from(has(Axis::Mixed) || (has(Axis::H) && has(Axis::V))))
-            }
-            OrientCheck::Phi => {
-                if s[1..].iter().all(|m| phi_equal(&s[0], m)) {
-                    0.0
-                } else {
-                    let p0 = s[0].phi();
-                    s[1..].iter().map(|m| m.phi()).map(|p| (p0.0 - p.0).abs() + (p0.1 - p.1).abs()).fold(0.0, f64::max) as f32
-                }
-            }
-        })
-    }
-}
-
 impl crate::rule::RuleBatch<Layout> for OrientationSet {
     fn cost(&self, l: &Layout) -> f32 {
         self.residual_of(l).unwrap_or(0.0)
@@ -98,6 +70,36 @@ impl crate::rule::RuleBatch<Layout> for OrientationSet {
         if self.violations(l) > 0 {
             self.touched(out);
         }
+    }
+}
+
+// ---- private ----
+
+impl OrientationSet {
+    fn cell(&self, d: DeviceId) -> u32 {
+        u32::from(self.cell_of.get(d.0 as usize).copied().unwrap_or(d.0))
+    }
+
+    /// `0.0` = satisfied, `> 0` = violated, `None` = unknown.
+    fn residual_of(&self, l: &Layout) -> Option<f32> {
+        let s: Vec<_> = self.members.iter().map(|&d| sums(l.units.of_device(l, d).map(Pt::from))).collect();
+        if s.iter().any(|m| m.n == 0) {
+            return None;
+        }
+        Some(match self.check {
+            OrientCheck::Axis => {
+                let has = |a| s.iter().any(|m| m.axis == a);
+                f32::from(u8::from(has(Axis::Mixed) || (has(Axis::H) && has(Axis::V))))
+            }
+            OrientCheck::Phi => {
+                if s[1..].iter().all(|m| phi_equal(&s[0], m)) {
+                    0.0
+                } else {
+                    let p0 = s[0].phi();
+                    s[1..].iter().map(|m| m.phi()).map(|p| (p0.0 - p.0).abs() + (p0.1 - p.1).abs()).fold(0.0, f64::max) as f32
+                }
+            }
+        })
     }
 }
 

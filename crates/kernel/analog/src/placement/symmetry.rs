@@ -34,6 +34,11 @@ pub struct Symmetry {
     pub mode: SymMode,
 }
 
+/// Mirror pairs of one differential stage, sharing **one** axis. Per-pair
+/// projection would let each pair drift onto its own line; choosing the shared
+/// axis needs every pair at once.
+pub struct SymmetryGroup(pub Vec<Symmetry>);
+
 impl Rule for Symmetry {
     type On = Layout;
     /// `((|ex| + |ey|) / L_ref)²` with `ex = xa + xb − 2·axis`, `ey = ya − yb`,
@@ -92,65 +97,6 @@ impl Rule for Symmetry {
         }
     }
 }
-
-impl Symmetry {
-    /// Mirror-equation error `(xa + xb − 2·axis, ya − yb)`.
-    fn error(self, l: &Layout) -> (i32, i32) {
-        let (ax, ay) = l.centre(self.a);
-        let (bx, by) = l.centre(self.b);
-        (ax + bx - 2 * l.axis_x(self.axis), ay - by)
-    }
-
-    /// Distinct partners drawn alike (PLC-03), the orient related by `mode`
-    /// (PLC-21). A column too short to hold either index reads as equal.
-    fn same_shape(self, l: &Layout) -> bool {
-        let Some((ia, ib)) = self.indices(l) else { return true };
-        fn eq<T: PartialEq>(v: &[T], a: usize, b: usize) -> bool {
-            v.get(a).zip(v.get(b)).is_none_or(|(a, b)| a == b)
-        }
-        let orient_ok = l.orient.get(ia).zip(l.orient.get(ib)).is_none_or(|(&oa, &ob)| {
-            ob == match self.mode {
-                SymMode::Perfect => oa,
-                SymMode::Mirror => oa.then(crate::base::Orient::Mx180),
-            }
-        });
-        ia == ib || (l.hw[ia] == l.hw[ib] && l.hh[ia] == l.hh[ib] && eq(&l.variant, ia, ib) && orient_ok)
-    }
-
-    /// Device indices when both targets are in-range devices. `ia == ib` is
-    /// allowed: a pair collapsed into one macro degenerates to "centre on axis".
-    fn indices(self, l: &Layout) -> Option<(usize, usize)> {
-        let (Target::Device(da), Target::Device(db)) = (self.a, self.b) else {
-            return None;
-        };
-        let (ia, ib) = (da.0 as usize, db.0 as usize);
-        (ia < l.x.len() && ib < l.x.len()).then_some((ia, ib))
-    }
-
-    /// Place the pair at `axis ∓ half` on one row. Snapping `axis` and `half`
-    /// independently keeps both partners on-grid and their sum exactly `2·axis`.
-    fn mirror_about(self, l: &mut Layout, axis: i32, g: i32) {
-        let Some((ia, ib)) = self.indices(l) else { return };
-        let d = snap_to(l.x[ib], g) - snap_to(l.x[ia], g);
-        // Ceiling of |d|/2 on the grid, sign kept: a projected pair never moves closer.
-        let half = d.signum() * ((d.abs() + 2 * g - 1) / (2 * g)) * g;
-        l.x[ia] = axis - half;
-        l.x[ib] = axis + half;
-        let my = snap_to((l.y[ia] + l.y[ib]) / 2, g);
-        l.y[ia] = my;
-        l.y[ib] = my;
-    }
-
-    fn midpoint_x(self, l: &Layout, g: i32) -> Option<i32> {
-        let (ia, ib) = self.indices(l)?;
-        Some((snap_to(l.x[ia], g) + snap_to(l.x[ib], g)) / 2)
-    }
-}
-
-/// Mirror pairs of one differential stage, sharing **one** axis. Per-pair
-/// projection would let each pair drift onto its own line; choosing the shared
-/// axis needs every pair at once.
-pub struct SymmetryGroup(pub Vec<Symmetry>);
 
 impl RuleBatch<Layout> for SymmetryGroup {
     fn cost(&self, l: &Layout) -> f32 {
@@ -218,6 +164,62 @@ impl RuleBatch<Layout> for SymmetryGroup {
                 *slot = axis;
             }
         }
+    }
+}
+
+// ---- private ----
+
+impl Symmetry {
+    /// Mirror-equation error `(xa + xb − 2·axis, ya − yb)`.
+    fn error(self, l: &Layout) -> (i32, i32) {
+        let (ax, ay) = l.centre(self.a);
+        let (bx, by) = l.centre(self.b);
+        (ax + bx - 2 * l.axis_x(self.axis), ay - by)
+    }
+
+    /// Distinct partners drawn alike (PLC-03), the orient related by `mode`
+    /// (PLC-21). A column too short to hold either index reads as equal.
+    fn same_shape(self, l: &Layout) -> bool {
+        let Some((ia, ib)) = self.indices(l) else { return true };
+        fn eq<T: PartialEq>(v: &[T], a: usize, b: usize) -> bool {
+            v.get(a).zip(v.get(b)).is_none_or(|(a, b)| a == b)
+        }
+        let orient_ok = l.orient.get(ia).zip(l.orient.get(ib)).is_none_or(|(&oa, &ob)| {
+            ob == match self.mode {
+                SymMode::Perfect => oa,
+                SymMode::Mirror => oa.then(crate::base::Orient::Mx180),
+            }
+        });
+        ia == ib || (l.hw[ia] == l.hw[ib] && l.hh[ia] == l.hh[ib] && eq(&l.variant, ia, ib) && orient_ok)
+    }
+
+    /// Device indices when both targets are in-range devices. `ia == ib` is
+    /// allowed: a pair collapsed into one macro degenerates to "centre on axis".
+    fn indices(self, l: &Layout) -> Option<(usize, usize)> {
+        let (Target::Device(da), Target::Device(db)) = (self.a, self.b) else {
+            return None;
+        };
+        let (ia, ib) = (da.0 as usize, db.0 as usize);
+        (ia < l.x.len() && ib < l.x.len()).then_some((ia, ib))
+    }
+
+    /// Place the pair at `axis ∓ half` on one row. Snapping `axis` and `half`
+    /// independently keeps both partners on-grid and their sum exactly `2·axis`.
+    fn mirror_about(self, l: &mut Layout, axis: i32, g: i32) {
+        let Some((ia, ib)) = self.indices(l) else { return };
+        let d = snap_to(l.x[ib], g) - snap_to(l.x[ia], g);
+        // Ceiling of |d|/2 on the grid, sign kept: a projected pair never moves closer.
+        let half = d.signum() * ((d.abs() + 2 * g - 1) / (2 * g)) * g;
+        l.x[ia] = axis - half;
+        l.x[ib] = axis + half;
+        let my = snap_to((l.y[ia] + l.y[ib]) / 2, g);
+        l.y[ia] = my;
+        l.y[ib] = my;
+    }
+
+    fn midpoint_x(self, l: &Layout, g: i32) -> Option<i32> {
+        let (ia, ib) = self.indices(l)?;
+        Some((snap_to(l.x[ia], g) + snap_to(l.x[ib], g)) / 2)
     }
 }
 

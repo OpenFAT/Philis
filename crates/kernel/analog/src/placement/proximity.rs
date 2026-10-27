@@ -14,17 +14,6 @@ pub struct Proximity {
     pub max_distance_nm: i32,
 }
 
-impl Proximity {
-    /// Euclidean edge-to-edge gap, nm (`0` when touching or overlapping).
-    fn gap(self, l: &Layout) -> f32 {
-        let ((ax, ay), (aw, ah)) = (l.centre(self.a), l.extent(self.a));
-        let ((bx, by), (bw, bh)) = (l.centre(self.b), l.extent(self.b));
-        let gx = ((ax - bx).abs() - aw - bw).max(0) as f32;
-        let gy = ((ay - by).abs() - ah - bh).max(0) as f32;
-        gx.hypot(gy)
-    }
-}
-
 impl Rule for Proximity {
     type On = Layout;
     /// `(excess / max_distance)²`, excess = gap past `max_distance_nm` (PLC-18: dimensionless).
@@ -52,6 +41,19 @@ impl Rule for Proximity {
     }
     fn retarget(self, cell_of: &[u16]) -> Self {
         Self { a: self.a.retarget(cell_of), b: self.b.retarget(cell_of), ..self }
+    }
+}
+
+// ---- private ----
+
+impl Proximity {
+    /// Euclidean edge-to-edge gap, nm (`0` when touching or overlapping).
+    fn gap(self, l: &Layout) -> f32 {
+        let ((ax, ay), (aw, ah)) = (l.centre(self.a), l.extent(self.a));
+        let ((bx, by), (bw, bh)) = (l.centre(self.b), l.extent(self.b));
+        let gx = ((ax - bx).abs() - aw - bw).max(0) as f32;
+        let gy = ((ay - by).abs() - ah - bh).max(0) as f32;
+        gx.hypot(gy)
     }
 }
 
