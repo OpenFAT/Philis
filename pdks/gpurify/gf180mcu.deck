@@ -1,4 +1,4 @@
-# vendored from GPurify 11b557802a65c043eb5ab898b529f30c19b819c9 pdks/gf180mcu.deck; Philis edits are marked "# PHILIS:"
+# vendored from GPurify 64965421c86730dfc2d06ce1df2a7d4c87330162 pdks/gf180mcu.deck; Philis edits are marked "# PHILIS:"
 # GF180MCU: GlobalFoundries 0.18 um 3.3 V / 5 V / 6 V MCU process, open PDK.
 #
 # Stack this deck describes: 1P6M, 9 kA MetalTop, MIM option B (MiM between
@@ -572,7 +572,10 @@ rule EM.14.4_CO em_current_density(contact; max_density: 2.09mA/um, max_current_
 rule LU.9_10 supply_short(ntap, ptap)
 rule floating_nwell floating_well(nwell, ntap)
 rule floating_lvpwell floating_well(lvpwell_in_dn, pcomp_lvp)
-rule floating_gate floating_gate(; labels_are_ports: false)
+# PHILIS: a labelled net is a port driven from outside the block (Philis 1.0
+# exempted ports by its own net extraction); false again once GPurify's
+# intent file names the ports (Q61).
+rule floating_gate floating_gate(; labels_are_ports: true)
 rule tie_high_low warning tie_high_low()
 rule multiple_drivers multiple_drivers(; max: 1)
 rule ir_drop ir_drop()
@@ -609,6 +612,10 @@ connect label metal4_label names metal4
 connect label metal5_label names metal5
 connect label metaltop_label names metaltop_con
 
+# Not a foundry number: the parameter tolerance GPurify compared every deck
+# at before decks stated one. A foundry LVS deck's own tolerances replace it.
+lvs tolerance default relative 2%
+
 # --- Devices [KL gf180mcu.lvs; model names DRM 69, SPEC LV 03/06/07] ---
 device mos nfet_03v3_g model "nfet_03v3" terminals [poly2_con, sd, sd]
 device mos pfet_03v3_g model "pfet_03v3" terminals [poly2_con, sd, sd]
@@ -641,6 +648,16 @@ device resistor rm2_r model "rm2" terminals [metal2_con, metal2_con]
 device resistor rm3_r model "rm3" terminals [metal3_con, metal3_con]
 device resistor tm9k_r model "tm9k" terminals [metaltop_con, metaltop_con]
 
+# --- Matching: no line ---
+# No public source states a coefficient the `matching` statement carries.
+# The model documentation (google/gf180mcu-pdk @ df0f549,
+# docs/analog/model_parameters/LV/LV_9_4.rst to LV_9_6.rst) plots sigma(dVtlin),
+# sigma(dIdsat), sigma(dRS), sigma(dIb) and sigma(dVbe) against 1/sqrt(W*L) and
+# states no slope. The ngspice model ([KL]'s repository, models/ngspice/
+# sm141064.ngspice) states the MOS par_vth of a pair over an effective area
+# (L - 0.15 um, W + 0.1 um for the 3.3 V devices), not the drawn one, and its
+# resistors' par_r are commented out, with mis_r = 0.
+
 # --- Parasitic stack ---
 # thickness: [SPEC 3] typical (MetalTop 9 kA 1.0025 um, M1..M5 0.55, Poly 0.2);
 #   diffusion and cut thickness and every height: [MAG] `height` lines.
@@ -666,6 +683,9 @@ pex via4 thickness 600nm height 5230nm sheet 4.5ohm dielectric 4 area_cap 0aF/um
 pex metal5 thickness 550nm height 5830nm sheet 0.09ohm dielectric 4 area_cap 5.798aF/um2 fringe_cap 30.386aF/um
 pex via5_nomim thickness 900nm height 6380nm sheet 4.5ohm dielectric 4 area_cap 0aF/um2 fringe_cap 0aF/um
 pex metaltop_con thickness 1002.5nm height 7280nm sheet 0.04ohm dielectric 4 area_cap 4.8793aF/um2 fringe_cap 9.595aF/um
+# Not a foundry number: lateral coupling is looked for within ten times each
+# conductor's thickness, the reach GPurify used before decks stated one.
+extraction rcc coupling_halo 10
 
 # --- Presence rules ---
 rule LPW.12 forbidden(lvpwell and nwell)

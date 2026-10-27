@@ -75,9 +75,10 @@ fn mos<M: MosModel>(model: M, nf: i64) -> Mos<M> {
 }
 
 /// Known failures by deck, compared as names (AGENTS.md: an unexpected pass
-/// fails until its marker goes). asap7: LISD has no sourced resistance, so
-/// PEX refuses (ROADMAP, known gaps; unblocked by the ASAP7 Calibre PEX deck).
-const KNOWN: &[(&str, &str)] = &[("asap7", "engine/pex: refused: layer LISD: no pex row gives this conductor a positive sheet resistance (0)")];
+/// fails until its marker goes). asap7: LIG has no sourced resistance in
+/// GPurify 2.0's deck (its middle of line is sourced since GPurify#85 but
+/// LIG is not), so PEX refuses (ROADMAP, known gaps).
+const KNOWN: &[(&str, &str)] = &[("asap7", "engine/pex: refused, layer LIG: no pex row gives this conductor a positive sheet resistance (0)")];
 
 /// One-finger: the device signs off against its own schematic with exactly
 /// its deck's known failures, every device compared by LVS.

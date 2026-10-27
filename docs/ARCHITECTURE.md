@@ -17,7 +17,7 @@ owner's skeleton of 2026-10-25.
 | crate | owns | depends on |
 |---|---|---|
 | `kernel/analog` | ids, tables, geometry (1.0 `pnr_core` folded in, Q36); `Rule`, `RuleBatch`, requirements; `intent` with `Confidence` added; matching math (moments, mismatch, patterns); claim scoring | nothing |
-| `kernel/verify` (Q36, Q55, Q59) | the thin adapter over GPurify: `CompiledDeck` from `gpurify::pdks` plus `DeckBuilder` overrides, typed rule queries, store from shapes, `run_checks`, coverage; `AnalogNumbers` for the rows GPurify has no statement for | analog |
+| `kernel/verify` (Q36, Q59, Q61) | the decks (`pdks/gpurify/<pdk>.deck`: GPurify's at the pinned rev plus `# PHILIS:` edits) and their typed rule queries; sign-off by running the `gpurify` binary per stage and parsing its JSON into `Signoff` and `Coverage`; the foundry engines; `pdk_data` for the numbers no deck statement carries | analog |
 | `kernel/substrate3` | the fork of Substrate2 with `atoll` and `sky130` (Q35); typed PDKs for sky130, gf180mcu, ihp_sg13g2, asap7 generated from decks; capability traits (`TRAITS.md`); device blocks (1.0 `cells`) as tiles on all four PDKs (Q8, Q27); set recipes and their ladders (Q1, Q19); signoff adapter | analog, verify |
 | `backend/placement` | floorplan recipes: symmetric row stack, array (Q21); glue row (Q20); targets solver (Q22); free-form placer (1.0 `gp`, `dp`) | analog, substrate3 |
 | `backend/routing` | routing recipes: mirror pair, star common node, shield, keepout (Q23); negotiated router (1.0 `gr`, `dr`); EM width, antenna repair | analog, substrate3 |

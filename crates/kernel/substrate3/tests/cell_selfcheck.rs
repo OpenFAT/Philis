@@ -218,9 +218,8 @@ fn every_variant_extracts_unambiguously() {
     // `run_lvs(..).reason` check watched for (implantless or double-implanted
     // channels). The count itself is not pinned here — how many fingers merge
     // into how many devices is LVS's job, not the generator's.
-    let mut checker = verify::Checker::new(&pdk, false).expect("deck loads");
     for (label, m) in all_variants(&pdk) {
-        assert!(checker.device_count(&m.shapes).is_some(), "{label}: a device must extract without aborting");
+        assert!(verify::device_count(&m.shapes, &pdk).is_some(), "{label}: a device must extract without aborting");
     }
 }
 

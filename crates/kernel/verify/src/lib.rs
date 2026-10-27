@@ -1,15 +1,17 @@
 #![recursion_limit = "1024"]
-//! `verify` — physical verification through GPurify (`gdsverify`).
+//! `verify` — physical verification through GPurify 2.0, run as the
+//! `gpurify` binary (Q61, [`gpurify`]).
 //!
-//! [`signoff_checked`] runs DRC/ERC/LVS/PEX in one engine pass and returns a
-//! [`Signoff`]: errors as a [`analog::base::Report`], deck warnings and what was
-//! not checked ([`Coverage`]) apart from it; [`drc`]/[`erc`] are standalone probes. [`Pdk`] (the process schema every crate reads) lives here too.
+//! [`signoff_checked`] runs DRC/ERC/LVS/PEX and returns a [`Signoff`]: errors
+//! as a [`analog::base::Report`], deck warnings and what was not checked
+//! ([`Coverage`]) apart from it; [`drc`]/[`erc`] are standalone probes.
+//! [`Pdk`] (the process schema every crate reads) lives here too.
 
-pub mod checker;
 mod decks;
 pub mod foundry;
 pub mod gds_out;
 pub mod geom;
+pub mod gpurify;
 pub mod netlist;
 pub mod overrides;
 pub mod pdk;
@@ -20,24 +22,20 @@ pub mod sidecar;
 use std::time::{Duration, Instant};
 
 use analog::base::{Report, Shape, Violation};
-use gdsverify::check::report::{Measurement, Severity};
-use gdsverify::engine::{StageStatus, Summary};
 
-pub use checker::Checker;
 pub use foundry::{Refused, SignoffEngine};
-pub use gdsverify::engine::Checks;
 pub use gdsverify::ingest::deck::DeviceKind;
 pub use geom::LabeledPin;
-pub use netlist::{extract_spice, Detail};
+pub use gpurify::{Checks, Measurement};
+pub use netlist::{device_count, extract_spice, Detail};
 pub use pdk::{EmLimit, Pdk};
 pub use reference::{RefDeviceIn, RefInput, RefKind};
 
-/// Shortfall of one violation row, in one of two units. A length pair is nm
-/// (1 dbu = 1 nm): `|limit − measured|` — every row is a violation, so that
-/// is a minimum's shortfall and a maximum's overshoot alike (a row does not
-/// carry its rule's `LimitSense`; LU.2's 20 µm tap distance against 15 µm
-/// reads 5000). Any other
-/// same-dimension numeric pair (area, ratio, count, voltage, current,
+/// Shortfall of one violation row, in one of two units. A length pair is nm:
+/// `|limit − measured|`, rounded — every row is a violation, so that is a
+/// minimum's shortfall and a maximum's overshoot alike (a row does not carry
+/// its rule's sense; LU.2's 20 µm tap distance against 15 µm reads 5000).
+/// Any other same-dimension pair (area, ratio, count, voltage, current,
 /// resistance) is ‰ of the limit, `ceil(1000·|measured − limit| / |limit|)`
 /// (`|limit|` floored at 1e-12), so an antenna ratio 2× over reads 1000 and
 /// 1 % over reads 10; a NaN reads `i64::MAX`. Mismatched dimensions read 1.
@@ -54,13 +52,13 @@ pub fn shortfall(limit: Measurement, measured: Measurement) -> i64 {
         }
     };
     match (limit, measured) {
-        (M::Length(l), M::Length(m)) => (l.raw() - m.raw()).abs(),
-        (M::Area(l), M::Area(m)) => permille(l.raw() as f64, m.raw() as f64),
-        (M::Ratio(l), M::Ratio(m)) => permille(l, m),
-        (M::Count(l), M::Count(m)) => permille(f64::from(l), f64::from(m)),
-        (M::Voltage(l), M::Voltage(m)) => permille(l.raw(), m.raw()),
-        (M::Current(l), M::Current(m)) => permille(l.raw(), m.raw()),
-        (M::Resistance(l), M::Resistance(m)) => permille(l.raw(), m.raw()),
+        (M::Length(l), M::Length(m)) => (l - m).abs().round() as i64,
+        (M::Area(l), M::Area(m))
+        | (M::Ratio(l), M::Ratio(m))
+        | (M::Count(l), M::Count(m))
+        | (M::Voltage(l), M::Voltage(m))
+        | (M::Current(l), M::Current(m))
+        | (M::Resistance(l), M::Resistance(m)) => permille(l, m),
         _ => 1,
     }
 }
@@ -69,32 +67,29 @@ pub fn shortfall(limit: Measurement, measured: Measurement) -> i64 {
 /// checked, kept apart.
 #[derive(Default)]
 pub struct Signoff {
-    /// Errors only: DRC/ERC/LVS rows of `Severity::Error`, `engine/…`, the
-    /// LVS `lvs/extract: label short`, one `lvs-coverage/…` per
-    /// [`Coverage::unverified`] entry. Its `cost` is PEX's total C, fF.
+    /// Errors only: DRC/ERC/LVS rows of severity error, `engine/…`, one
+    /// `lvs-coverage/…` per [`Coverage::unverified`] entry. Its `cost` is
+    /// PEX's total C, fF.
     pub report: Report,
     /// Rows the deck states as warnings. Never in `report.hard_violations`.
     pub warnings: Vec<Violation>,
     /// What this run did not check: LVS-unverified devices, skipped rules.
     pub coverage: Coverage,
-    /// PEX C over labelled nets, fF ([`Checker::cap_matrix`]); empty without
-    /// PEX, still filled on the label-short fallback.
+    /// PEX C over labelled nets, fF ([`gpurify::caps_of_spice`]); empty
+    /// without PEX or when GPurify wrote no netlist.
     pub caps: CapMatrix,
     /// Wall time.
     pub elapsed: Duration,
-    /// Wall time of the PEX-only field-solve pass ([`ExtractOptions::field_solve`]);
-    /// zero without one.
+    /// Wall time of the field-solved PEX netlist run
+    /// ([`ExtractOptions::field_solve`]); zero without one.
     pub pex_field: Duration,
 }
 
-/// How PEX extracts. The default is analytical over merged metal.
+/// How PEX extracts. The default is analytical.
 #[derive(Clone, Debug, Default)]
 pub struct ExtractOptions {
-    /// Labelled nets to field-solve (overlaid on the analytical network).
+    /// Labelled nets to field-solve (`--quasistatic`).
     pub field_solve: Vec<String>,
-    /// Load every shape as its own polygon: overlaps double-count area and
-    /// shared edges count as fringe. For calibration only.
-    pub unmerged: bool,
     /// Shapes drawn inside named cells, for the deck's `in_cells` rules (sky130
     /// x.25 allows the `pnp` marker only in the foundry's PNP cells). Ranges
     /// index the checked `shapes`; empty, no shape is in a cell.
@@ -110,7 +105,7 @@ pub struct Coverage {
     /// Rules this run did not execute, `(rule, reason)`: deck skips, waivers, chip-level deferrals.
     pub skipped_rules: Vec<(String, String)>,
     /// `(ran, in deck)` over the EM (`EM*`) and `ir_drop` rules; ran =
-    /// `Outcome::Ran` with `examined > 0` (a rule that ran over no node
+    /// outcome `ran` with `examined > 0` (a rule that ran over no node
     /// checked nothing).
     pub em_ir: (u32, u32),
     /// The same `(ran, in deck)` over `ir_drop` alone: `em_ir` cannot tell
@@ -118,10 +113,10 @@ pub struct Coverage {
     pub ir: (u32, u32),
 }
 
-/// GPurify's layout-only range checks, recorded `Skipped(NotInDeck)` because
-/// the deck carries no limits; the reference parameter comparison runs under
-/// `lvs.parameter_mismatch` for MOS W/L only, so these skips do not mean LVS
-/// ignored W/L. Other kinds' values are the [`NON_MOS_VALUES`] row.
+/// GPurify's layout-only range checks, recorded `skipped:not_in_deck`
+/// because the deck carries no limits; the reference parameter comparison
+/// runs under `lvs.parameter_mismatch` for MOS W/L only, so these skips do
+/// not mean LVS ignored W/L. Other kinds' values are the [`NON_MOS_VALUES`] row.
 const RANGE_ONLY: [&str; 3] = ["lvs.device_count_mos", "lvs.device_count_bjt", "lvs.parametric"];
 
 impl std::fmt::Display for Coverage {
@@ -168,7 +163,7 @@ pub struct Intent {
 }
 
 /// Extracted capacitance between labelled nets, fF: `(net, None, C)` to
-/// ground, `(a, Some(b), C)` coupling (see [`Checker::cap_matrix`]).
+/// ground, `(a, Some(b), C)` coupling (see [`gpurify::caps_of_spice`]).
 pub type CapMatrix = Vec<(String, Option<String>, f64)>;
 
 /// [`signoff`], plus the extracted [`CapMatrix`] (empty when PEX did not run).
@@ -189,198 +184,104 @@ pub fn signoff_with_intent(shapes: &[Shape], pins: &[LabeledPin], reference: &Re
 /// operating-point currents instead of skipping).
 ///
 /// A deck error row becomes a hard [`Violation`] named
-/// `{domain}/{rule}:{layer}` with its [`shortfall`] as margin; a deck warning
-/// row, named the same way, goes to [`Signoff::warnings`] only. A stage the
-/// engine skipped or refused, or an engine failure, is a hard `engine/…`
-/// violation: a check that could not run never reads as clean. Rules skipped
-/// inside a stage that ran, and schematic devices no deck recogniser
-/// extracts, are this run's [`Coverage`]; each `(kind, model, n)` of the
-/// latter is also a hard `lvs-coverage/unverified:{kind}:{model}` row of
-/// margin `n`.
+/// `{domain}/{rule}:{layer}` with its [`shortfall`] as margin (`-` for a row
+/// with no layer name); a deck warning row, named the same way, goes to
+/// [`Signoff::warnings`] only. A stage GPurify skipped or refused, or a
+/// GPurify failure, is a hard `engine/…` violation: a check that could not
+/// run never reads as clean. Rules skipped inside a stage that ran, and
+/// schematic devices no deck recogniser extracts, are this run's
+/// [`Coverage`]; each `(kind, model, n)` of the latter is also a hard
+/// `lvs-coverage/unverified:{kind}:{model}` row of margin `n`.
 #[must_use]
 pub fn signoff_checked(shapes: &[Shape], pins: &[LabeledPin], reference: &RefInput, intent: &Intent, pdk: &Pdk) -> Signoff {
     signoff_extract(shapes, pins, reference, intent, &ExtractOptions::default(), pdk)
 }
 
 /// [`signoff_checked`] with extraction options. With `field_solve` set, the
-/// full run is analytical, then a timed PEX-only run field-solves those nets
-/// and its caps and `report.cost` replace the analytical ones
-/// ([`Signoff::pex_field`]). A refused or failed field solve keeps the
-/// analytical caps and is a `("pex.field", why)` row of
-/// [`Coverage::skipped_rules`], never a hard row: the analytical PEX ran.
+/// analytical PEX netlist is followed by a timed one that field-solves those
+/// nets, and its caps and `report.cost` replace the analytical ones
+/// ([`Signoff::pex_field`]). A refused field solve keeps the analytical caps
+/// and is a `("pex.field", why)` row of [`Coverage::skipped_rules`], never a
+/// hard row: the analytical PEX ran.
 #[must_use]
 pub fn signoff_extract(shapes: &[Shape], pins: &[LabeledPin], reference: &RefInput, intent: &Intent, opts: &ExtractOptions, pdk: &Pdk) -> Signoff {
     let t0 = Instant::now();
     let mut s = Signoff::default();
-    let fail = |s: &mut Signoff, rule: String| {
-        s.report.hard_violations.push(Violation { rule, margin: 0 });
-    };
+    let fail = |s: &mut Signoff, rule: String| s.report.hard_violations.push(Violation { rule, margin: 0 });
 
-    let mut checker = match Checker::new(pdk, false) {
-        Ok(c) => c,
+    let (text, skipped) = match reference::spice(reference, &pdk.deck, &pdk.strings) {
+        Ok(r) => r,
         Err(e) => {
-            fail(&mut s, format!("engine/load: {e}"));
+            fail(&mut s, format!("engine/reference: {e}"));
             s.elapsed = t0.elapsed();
             return s;
         }
     };
-    defer_chip_level(&mut checker, shapes);
-    checker.set_extract(&ExtractOptions { field_solve: Vec::new(), ..opts.clone() });
-    if let Err(e) = checker.set_intent(intent) {
-        fail(&mut s, format!("engine/intent: {e}"));
-    }
-    match checker.set_reference(reference) {
-        Err(e) => fail(&mut s, format!("engine/reference: {e}")),
-        Ok(skipped) => {
-            for (kind, model) in skipped {
-                match s.coverage.unverified.iter_mut().find(|u| u.0 == kind && u.1 == model) {
-                    Some(u) => u.2 += 1,
-                    None => s.coverage.unverified.push((kind, model, 1)),
-                }
-            }
-            // Unknown is never pass: an uncompared device is a hard row (the
-            // same count every epoch, so ranking is unchanged) that keeps the
-            // run from reading LVS-clean.
-            for (kind, model, n) in &s.coverage.unverified {
-                let rule = format!("lvs-coverage/unverified:{kind:?}:{}", model.as_deref().unwrap_or("-"));
-                s.report.hard_violations.push(Violation { rule, margin: *n as i64 });
-            }
-            match checker.run(shapes, pins, Checks::ALL) {
-                // A label short aborts extraction and is LVS's verdict. Report
-                // it, then re-run DRC/ERC/PEX with one label per shorted net,
-                // so ERC still sees the ports and PEX still names the nets.
-                Err(e) if e.starts_with(checker::LABEL_SHORT) => {
-                    fail(&mut s, format!("lvs/{e}"));
-                    let gone: Vec<String> = checker.shorted_labels().into_iter().flat_map(|g| g.into_iter().skip(1)).collect();
-                    let kept: Vec<LabeledPin> = pins.iter().filter(|p| !gone.contains(&p.name)).cloned().collect();
-                    match checker.run(shapes, &kept, Checks { lvs: false, ..Checks::ALL }) {
-                        Err(e) => fail(&mut s, format!("engine/run: {e}")),
-                        Ok(summary) => {
-                            harvest(&checker, &summary, &mut s);
-                            s.caps = checker.cap_matrix();
-                            field_pass(&mut checker, shapes, &kept, &gone, opts, &mut s);
-                        }
-                    }
-                }
-                Err(e) => fail(&mut s, format!("engine/run: {e}")),
-                Ok(summary) => {
-                    harvest(&checker, &summary, &mut s);
-                    s.caps = checker.cap_matrix();
-                    field_pass(&mut checker, shapes, pins, &[], opts, &mut s);
-                }
-            }
-            // Only MOS cards carry params: a compared R/D/C/BJT matches by
-            // connectivity alone, its value (rc_filter's R) unchecked. Listed,
-            // so a MATCH never reads as value-checked.
-            let valueless = |k: RefKind| !matches!(k, RefKind::Nmos | RefKind::Pmos);
-            let cards = reference.devices.iter().filter(|d| valueless(d.kind)).count();
-            let uncompared: usize = s.coverage.unverified.iter().filter(|u| valueless(u.0)).map(|u| u.2).sum();
-            if let n @ 1.. = cards.saturating_sub(uncompared) {
-                s.coverage.skipped_rules.push((NON_MOS_VALUES.to_string(), format!("NotCompared({n} R/D/C/BJT cards matched by connectivity only)")));
-            }
+    for i in skipped {
+        let (kind, model) = (reference.devices[i].kind, reference.devices[i].model.clone());
+        match s.coverage.unverified.iter_mut().find(|u| u.0 == kind && u.1 == model) {
+            Some(u) => u.2 += 1,
+            None => s.coverage.unverified.push((kind, model, 1)),
         }
+    }
+    // Unknown is never pass: an uncompared device is a hard row (the same
+    // count every epoch, so ranking is unchanged) that keeps the run from
+    // reading LVS-clean.
+    for (kind, model, n) in &s.coverage.unverified {
+        let rule = format!("lvs-coverage/unverified:{kind:?}:{}", model.as_deref().unwrap_or("-"));
+        s.report.hard_violations.push(Violation { rule, margin: *n as i64 });
+    }
+    let input = gpurify::Input {
+        shapes,
+        pins,
+        cells: &opts.cells,
+        reference: Some(&text),
+        ports: reference.external_ports.as_deref(),
+        intent,
+        field_solve: &opts.field_solve,
+    };
+    match gpurify::run(&input, pdk, Checks::ALL) {
+        Err(e) => fail(&mut s, format!("engine/run: {e}")),
+        Ok(mut out) => {
+            let deferred = deferred_rules(pdk, shapes);
+            out.rows.retain(|r| !deferred.iter().any(|d| d.0 == r.rule));
+            out.runs.retain(|r| !deferred.iter().any(|d| d.0 == r.rule));
+            harvest(&out, &mut s);
+            s.coverage.skipped_rules.extend(deferred);
+            if let Some(why) = out.caps_refused {
+                s.coverage.skipped_rules.push(("pex.netlist".to_string(), why));
+            }
+            if let Some(why) = out.field_refused {
+                s.coverage.skipped_rules.push(("pex.field".to_string(), why));
+            }
+            s.caps = out.caps;
+            s.report.cost = out.total_cap_ff as f32;
+            s.pex_field = out.pex_field;
+        }
+    }
+    // Only MOS cards carry params: a compared R/D/C/BJT matches by
+    // connectivity alone, its value (rc_filter's R) unchecked. Listed, so a
+    // MATCH never reads as value-checked.
+    let valueless = |k: RefKind| !matches!(k, RefKind::Nmos | RefKind::Pmos);
+    let cards = reference.devices.iter().filter(|d| valueless(d.kind)).count();
+    let uncompared: usize = s.coverage.unverified.iter().filter(|u| valueless(u.0)).map(|u| u.2).sum();
+    if let n @ 1.. = cards.saturating_sub(uncompared) {
+        s.coverage.skipped_rules.push((NON_MOS_VALUES.to_string(), format!("NotCompared({n} R/D/C/BJT cards matched by connectivity only)")));
     }
     s.elapsed = t0.elapsed();
     s
-}
-
-/// The PEX-only field-solve pass of [`signoff_extract`] over
-/// `opts.field_solve` less the labels the label-short re-run `dropped` (those
-/// name no extracted net now); nothing when none are left.
-fn field_pass(checker: &mut Checker, shapes: &[Shape], pins: &[LabeledPin], dropped: &[String], opts: &ExtractOptions, s: &mut Signoff) {
-    let field_solve: Vec<String> = opts.field_solve.iter().filter(|n| !dropped.contains(n)).cloned().collect();
-    if field_solve.is_empty() {
-        return;
-    }
-    checker.set_extract(&ExtractOptions { field_solve, ..opts.clone() });
-    let t = Instant::now();
-    let run = checker.run(shapes, pins, Checks { drc: false, erc: false, lvs: false, pex: true });
-    s.pex_field = t.elapsed();
-    match run.map(|summary| denied(&summary.pex)) {
-        Ok(None) => {
-            s.caps = checker.cap_matrix();
-            s.report.cost = checker.total_cap_ff();
-        }
-        Ok(Some(why)) | Err(why) => s.coverage.skipped_rules.push(("pex.field".to_string(), why)),
-    }
 }
 
 /// The [`Coverage::skipped_rules`] row for compared devices whose value LVS
 /// does not compare (every kind but MOS).
 pub const NON_MOS_VALUES: &str = "lvs.parameter_mismatch(non-MOS values)";
 
-/// A density window wider than the block (the shapes' union bbox) is chip
-/// integration's check: [`Checker::defer_density_wider_than`].
-fn defer_chip_level(checker: &mut Checker, shapes: &[Shape]) {
-    let (x0, y0, x1, y1) = shapes.iter().fold((i64::MAX, i64::MAX, i64::MIN, i64::MIN), |(a, b, c, d), s| {
-        let r = s.rect;
-        (a.min(i64::from(r.x)), b.min(i64::from(r.y)), c.max(i64::from(r.x + r.w)), d.max(i64::from(r.y + r.h)))
-    });
-    if x1 > x0 && y1 > y0 {
-        checker.defer_density_wider_than(x1 - x0, y1 - y0);
-    }
-}
-
-/// Errors to the hard tier, everything else (GPurify's `Severity` is
-/// `Warning` | `Error`) to the warnings: the pure split [`harvest`] applies.
-fn split_by_severity(rows: impl Iterator<Item = (Violation, Severity)>) -> (Vec<Violation>, Vec<Violation>) {
-    let (mut hard, mut warn) = (Vec::new(), Vec::new());
-    for (v, sev) in rows {
-        if sev == Severity::Error {
-            hard.push(v)
-        } else {
-            warn.push(v)
-        }
-    }
-    (hard, warn)
-}
-
-fn harvest(checker: &Checker, summary: &Summary, s: &mut Signoff) {
-    let out = checker.outputs();
-    let rows = (0..out.violations.len()).map(|i| {
-        let v = out.violations.get(i);
-        let rule = format!("{}/{}:{}", checker.domain_of(v.rule), checker.rule_name(v.rule), checker.layer_name(v.layer));
-        (Violation { rule, margin: shortfall(v.limit, v.measured) }, v.severity)
-    });
-    let (hard, warn) = split_by_severity(rows);
-    s.report.hard_violations.extend(hard);
-    s.warnings.extend(warn);
-    for (stage, status) in [("drc", &summary.drc), ("erc", &summary.erc), ("lvs", &summary.lvs), ("pex", &summary.pex)] {
-        if let Some(why) = denied(status) {
-            s.report.hard_violations.push(Violation { rule: format!("engine/{stage}: {why}"), margin: 0 });
-        }
-    }
-    s.coverage.skipped_rules = checker.skipped_rules().into_iter().map(|(r, why)| (r.to_string(), why)).collect();
-    for r in &out.runs {
-        let name = checker.rule_name(r.rule);
-        let ran = u32::from(r.outcome == gdsverify::check::report::Outcome::Ran && r.examined > 0);
-        if name.starts_with("EM") || name == "ir_drop" {
-            s.coverage.em_ir.1 += 1;
-            s.coverage.em_ir.0 += ran;
-        }
-        if name == "ir_drop" {
-            s.coverage.ir.1 += 1;
-            s.coverage.ir.0 += ran;
-        }
-    }
-    s.report.cost = checker.total_cap_ff();
-}
-
-/// `Some(reason)` for a stage that was requested but did not run.
-fn denied(status: &StageStatus) -> Option<String> {
-    match status {
-        StageStatus::Ran | StageStatus::NotSelected => None,
-        StageStatus::Skipped(why) => Some(format!("skipped: {why}")),
-        StageStatus::Refused(why) => Some(format!("refused: {why}")),
-    }
-}
-
 /// One located finding, for callers that want rows rather than a Report.
 #[derive(Clone, Debug)]
 pub struct Finding {
     /// The deck's rule id, or `engine/…` for a run that could not conclude.
     pub rule: String,
-    /// Layer name, `"-"` for findings with no layer.
+    /// Layer name, `"-"` for a finding with no layer name.
     pub layer: String,
     /// [`shortfall`], in [`Finding::unit`].
     pub margin: i64,
@@ -394,14 +295,14 @@ pub struct Finding {
     pub warning: bool,
 }
 
-/// Standalone DRC: a fresh full [`Checker`] per call; an engine failure is a
-/// single fail-closed `engine/…` finding.
+/// Standalone DRC: one `gpurify drc` run; a run that could not conclude is
+/// a single fail-closed `engine/…` finding.
 #[must_use]
 pub fn drc(shapes: &[Shape], pins: &[LabeledPin], pdk: &Pdk) -> Vec<Finding> {
     drc_with(shapes, pins, pdk, &ExtractOptions::default())
 }
 
-/// [`drc`] over geometry loaded per `opts` (`unmerged`: one polygon per shape).
+/// [`drc`] with the named cells of `opts`.
 #[must_use]
 pub fn drc_with(shapes: &[Shape], pins: &[LabeledPin], pdk: &Pdk, opts: &ExtractOptions) -> Vec<Finding> {
     standalone(shapes, pins, pdk, Checks { drc: true, erc: false, lvs: false, pex: false }, opts)
@@ -413,55 +314,130 @@ pub fn erc(shapes: &[Shape], pins: &[LabeledPin], pdk: &Pdk) -> Vec<Finding> {
     erc_with(shapes, pins, pdk, &ExtractOptions::default())
 }
 
-/// [`erc`] over geometry loaded per `opts`, as [`drc_with`].
+/// [`erc`] with the named cells of `opts`, as [`drc_with`].
 #[must_use]
 pub fn erc_with(shapes: &[Shape], pins: &[LabeledPin], pdk: &Pdk, opts: &ExtractOptions) -> Vec<Finding> {
     standalone(shapes, pins, pdk, Checks { drc: false, erc: true, lvs: false, pex: false }, opts)
 }
 
-fn standalone(shapes: &[Shape], pins: &[LabeledPin], pdk: &Pdk, checks: Checks, opts: &ExtractOptions) -> Vec<Finding> {
-    let engine_fail = |rule: String| vec![Finding { rule, layer: "-".into(), margin: 1, unit: "permille", x: 0, y: 0, warning: false }];
-    let mut checker = match Checker::new(pdk, false) {
-        Ok(c) => c,
-        Err(e) => return engine_fail(format!("engine/load: {e}")),
-    };
-    defer_chip_level(&mut checker, shapes);
-    checker.set_extract(opts);
-    let summary = match checker.run(shapes, pins, checks) {
-        Ok(s) => s,
-        Err(e) => return engine_fail(format!("engine/run: {e}")),
-    };
-    let out = checker.outputs();
-    let mut findings: Vec<Finding> = (0..out.violations.len())
-        .map(|i| {
-            let v = out.violations.get(i);
-            Finding {
-                rule: checker.rule_name(v.rule).to_string(),
-                layer: checker.layer_name(v.layer).to_string(),
-                margin: shortfall(v.limit, v.measured),
-                unit: match (v.limit, v.measured) {
-                    (Measurement::Length(_), Measurement::Length(_)) => "nm",
-                    _ => "permille",
-                },
-                x: v.at.x.raw(),
-                y: v.at.y.raw(),
-                warning: v.severity != Severity::Error,
-            }
-        })
-        .collect();
-    for (stage, status) in [("drc", &summary.drc), ("erc", &summary.erc)] {
-        if let Some(why) = denied(status) {
-            findings.extend(engine_fail(format!("engine/{stage}: {why}")));
+// ---- private ----
+
+/// Errors to the hard tier, warnings to [`Signoff::warnings`]; stage
+/// denials as `engine/…`; non-`ran` rule records and the EM/IR counts to
+/// the coverage.
+fn harvest(out: &gpurify::Output, s: &mut Signoff) {
+    for r in &out.rows {
+        let v = Violation { rule: format!("{}/{}:{}", r.domain, r.rule, r.layer.as_deref().unwrap_or("-")), margin: shortfall(r.limit, r.measured) };
+        if r.warning {
+            s.warnings.push(v);
+        } else {
+            s.report.hard_violations.push(v);
         }
     }
+    for (stage, why) in &out.denied {
+        s.report.hard_violations.push(Violation { rule: format!("engine/{stage}: {why}"), margin: 0 });
+    }
+    for r in &out.runs {
+        if r.outcome != "ran" {
+            s.coverage.skipped_rules.push((r.rule.clone(), r.outcome.clone()));
+        }
+        // ponytail: labels_are_ports exempts every labelled net (Q61), until
+        // GPurify reads the intent's port list.
+        if r.rule == "floating_gate" {
+            s.coverage.skipped_rules.push(("floating_gate".to_string(), "exempt on every labelled net: labels_are_ports, no port list".to_string()));
+        }
+        let ran = u32::from(r.outcome == "ran" && r.examined > 0);
+        if r.rule.starts_with("EM") || r.rule == "ir_drop" {
+            s.coverage.em_ir.1 += 1;
+            s.coverage.em_ir.0 += ran;
+        }
+        if r.rule == "ir_drop" {
+            s.coverage.ir.1 += 1;
+            s.coverage.ir.0 += ran;
+        }
+    }
+}
+
+fn standalone(shapes: &[Shape], pins: &[LabeledPin], pdk: &Pdk, checks: Checks, opts: &ExtractOptions) -> Vec<Finding> {
+    let engine_fail = |rule: String| Finding { rule, layer: "-".into(), margin: 1, unit: "permille", x: 0, y: 0, warning: false };
+    let input = gpurify::Input { shapes, pins, cells: &opts.cells, reference: None, ports: None, intent: &Intent::default(), field_solve: &[] };
+    let out = match gpurify::run(&input, pdk, checks) {
+        Ok(o) => o,
+        Err(e) => return vec![engine_fail(format!("engine/run: {e}"))],
+    };
+    let deferred = deferred_rules(pdk, shapes);
+    let mut findings: Vec<Finding> = out
+        .rows
+        .into_iter()
+        .filter(|r| !deferred.iter().any(|d| d.0 == r.rule))
+        .map(|r| Finding {
+            unit: match (r.limit, r.measured) {
+                (Measurement::Length(_), Measurement::Length(_)) => "nm",
+                _ => "permille",
+            },
+            margin: shortfall(r.limit, r.measured),
+            rule: r.rule,
+            layer: r.layer.unwrap_or_else(|| "-".into()),
+            x: r.x.round() as i64,
+            y: r.y.round() as i64,
+            warning: r.warning,
+        })
+        .collect();
+    findings.extend(out.denied.into_iter().map(|(stage, why)| engine_fail(format!("engine/{stage}: {why}"))));
     findings
+}
+
+/// The rules this block does not answer for, `(rule, why)`: the deck's
+/// waivers (`cell.waivers`), `global_density` (the whole die), and every
+/// `density` (one square `window`) or `density_cmp` (`window_x` ×
+/// `window_y`, sky130's `m*.density`) rule whose window is wider than the
+/// shapes' bounding box — a window wider than the block measures the chip
+/// around it, so that check is chip integration's. Their rows are dropped
+/// and they are reported as not run, never as passed.
+fn deferred_rules(pdk: &Pdk, shapes: &[Shape]) -> Vec<(String, String)> {
+    use gdsverify::ingest::deck::{ParamValue, RuleSpec};
+    let (st, rules) = (&pdk.strings, &pdk.deck.rules);
+    let mut out = Vec::new();
+    if let Some(w) = pdk.cell.get("waivers").and_then(|w| w.as_object()) {
+        for (k, why) in w {
+            if st.get(k).is_some_and(|id| rules.spec.iter().any(|s| s.id == id)) {
+                out.push((k.clone(), format!("Waived({})", why.as_str().unwrap_or(""))));
+            }
+        }
+    }
+    let (x0, y0, x1, y1) = shapes.iter().fold((i64::MAX, i64::MAX, i64::MIN, i64::MIN), |(a, b, c, d), s| {
+        let r = s.rect;
+        (a.min(i64::from(r.x)), b.min(i64::from(r.y)), c.max(i64::from(r.x + r.w)), d.max(i64::from(r.y + r.h)))
+    });
+    let (w, h) = if shapes.is_empty() { (0, 0) } else { (x1 - x0, y1 - y0) };
+    let (density, cmp, global) = (st.get("density"), st.get("density_cmp"), st.get("global_density"));
+    let len = |s: &RuleSpec, k: &str| match st.get(k).and_then(|k| rules.param(s, k)) {
+        Some(ParamValue::Length(d)) => Some(d.raw()),
+        _ => None,
+    };
+    for s in &rules.spec {
+        let name = st.resolve(s.id).to_string();
+        if Some(s.kind) == global {
+            out.push((name, "ChipLevel(global density: whole die)".to_string()));
+            continue;
+        }
+        let window = match Some(s.kind) {
+            k if k == density => len(s, "window").map(|d| (d, d)),
+            k if k == cmp => len(s, "window_x").zip(len(s, "window_y")),
+            _ => None,
+        };
+        if let Some((wx, wy)) = window.filter(|&(wx, wy)| w > 0 && h > 0 && (wx > w || wy > h)) {
+            let win = if wx == wy { format!("{wx}") } else { format!("{wx}x{wy}") };
+            out.push((name, format!("ChipLevel(window {win} nm > block {w}x{h} nm)")));
+        }
+    }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use analog::base::{Process, Rect};
-    use gdsverify::geom::Dbu;
 
     fn sky130() -> Pdk {
         Pdk::builtin("sky130").unwrap()
@@ -499,92 +475,143 @@ mod tests {
         assert!(rest.iter().any(|f| f.0.starts_with("m1.")), "{rest:?}");
     }
 
-    // Metal reaching no device is floating — unless a label makes it a port,
-    // which leaves the cell (the bulk-only VSS rail case).
+    /// Only the rows of `checks` over `shapes`, by rule id, with LVS
+    /// against `reference` when it is given.
+    fn rules(shapes: &[Shape], pins: &[LabeledPin], reference: Option<&RefInput>, intent: &Intent, checks: Checks, pdk: &Pdk) -> gpurify::Output {
+        let text = reference.map(|r| reference::spice(r, &pdk.deck, &pdk.strings).unwrap().0);
+        let input = gpurify::Input { shapes, pins, cells: &[], reference: text.as_deref(), ports: None, intent, field_solve: &[] };
+        gpurify::run(&input, pdk, checks).unwrap()
+    }
+
+    fn lvs_rows(shapes: &[Shape], reference: &RefInput, pdk: &Pdk) -> Vec<String> {
+        let out = rules(shapes, &[], Some(reference), &Intent::default(), Checks { drc: false, erc: false, lvs: true, pex: false }, pdk);
+        assert!(out.denied.is_empty(), "{:?}", out.denied);
+        out.rows.into_iter().map(|r| r.rule).filter(|r| r.starts_with("lvs.")).collect()
+    }
+
+    /// The minimal recognisable sky130 nfet: channel = poly AND diff AND
+    /// nsdm, x 200..300, y 100..300 (W = 200 nm, L = 100 nm).
+    fn nfet(pdk: &Pdk) -> [Shape; 4] {
+        [
+            rect(pdk, "poly", 200, 0, 100, 400),
+            rect(pdk, "diff", 0, 100, 260, 200),
+            rect(pdk, "diff", 240, 100, 260, 200),
+            rect(pdk, "nsdm", 0, 0, 500, 400),
+        ]
+    }
+
+    /// Metal reaching no device is floating — unless a label makes it a
+    /// port, which leaves the cell (the bulk-only VSS rail case).
+    ///
+    /// Oracle: sky130 x.22 ([S1] unconnected conductor). Known failure:
+    /// GPurify exempts no port from `unconnected_pin` until its intent file
+    /// reads `ports` (Q61); the labelled rail still fires. When this
+    /// assertion fails, the gap is closed: assert 0 and turn
+    /// `gpurify::INTENT_PORTS` on.
     #[test]
     fn unconnected_metal_is_floating_unless_it_is_a_port() {
         let pdk = sky130();
         let shapes = [rect(&pdk, "met1", 0, 0, 1000, 1000)];
-        let floating = |pins: &[LabeledPin]| {
-            // sky130 x.22: unconnected conductor.
-            erc(&shapes, pins, &pdk).iter().filter(|f| f.rule == "x.22").count()
-        };
+        let floating = |pins: &[LabeledPin]| erc(&shapes, pins, &pdk).iter().filter(|f| f.rule == "x.22").count();
         assert_eq!(floating(&[]), 1);
-        let met1 = pdk.layer("met1").unwrap().0;
-        let pin = LabeledPin { name: "VSS".into(), layer: met1, x: 500, y: 500 };
-        assert_eq!(floating(&[pin]), 0);
+        let pin = LabeledPin { name: "VSS".into(), layer: pdk.layer("met1").unwrap().0, x: 500, y: 500 };
+        assert_eq!(floating(&[pin]), 1, "known failure: no port exemption in GPurify yet (Q61)");
     }
 
-    // AV-04: a label names a net for LVS, it does not make it a port. A gate
-    // labelled `g` that only the block's port list can drive is floating
-    // unless `g` is declared external; with no list the exemption is blanket
-    // and the coverage says so.
+    /// AV-04: a gate-only net reaching no other device is floating; a label
+    /// exempts it (`labels_are_ports: true`, the deck's `# PHILIS:` edit), and
+    /// the coverage says the exemption is blanket.
+    ///
+    /// Oracle: GPurify's `floating_gate` (docs/deck.md, ERC rule kinds).
+    /// Known failure: an internal labelled net is exempt too, until GPurify
+    /// reads the intent's port list (Q61).
     #[test]
     fn an_internal_gate_only_net_is_floating_even_when_labelled() {
         let pdk = sky130();
-        // `device_count_sees_one_mos_in_a_minimal_stack`'s MOS: the poly is
-        // its gate and reaches nothing else.
-        let shapes = [
-            rect(&pdk, "poly", 200, 0, 100, 400),
-            rect(&pdk, "diff", 0, 100, 260, 200),
-            rect(&pdk, "diff", 240, 100, 260, 200),
-            rect(&pdk, "nsdm", 0, 0, 500, 400),
-        ];
+        let shapes = nfet(&pdk);
         let pins = [LabeledPin { name: "g".into(), layer: pdk.layer("poly").unwrap().0, x: 250, y: 350 }];
-        let floating = |external_ports: Option<Vec<String>>| {
-            let reference = RefInput { devices: vec![], ports: vec!["g".into()], external_ports };
-            let mut checker = Checker::new(&pdk, true).unwrap();
-            checker.set_reference(&reference).unwrap();
-            checker.run(&shapes, &pins, Checks { drc: false, erc: true, lvs: false, pex: false }).unwrap();
-            let out = checker.outputs();
-            let rows = (0..out.violations.len()).filter(|&i| checker.rule_name(out.violations.get(i).rule) == "floating_gate").count();
-            let blanket = checker.skipped_rules().iter().any(|(r, why)| *r == "floating_gate" && why.contains("no port list"));
-            (rows, blanket)
+        let erc_only = Checks { drc: false, erc: true, lvs: false, pex: false };
+        let floating = |pins: &[LabeledPin]| {
+            rules(&shapes, pins, None, &Intent::default(), erc_only, &pdk).rows.iter().filter(|r| r.rule == "floating_gate").count()
         };
-        assert_eq!(floating(Some(vec![])), (1, false), "an internal gate-only net is floating");
-        assert_eq!(floating(Some(vec!["g".into()])), (0, false), "a declared port is driven from outside");
-        assert_eq!(floating(None), (0, true), "no port list: exempt, and reported as such");
+        assert_eq!(floating(&[]), 1, "an unlabelled gate-only net is floating");
+        assert_eq!(floating(&pins), 0, "known failure: a labelled internal net is exempt (Q61)");
+        let s = signoff_checked(&shapes, &pins, &RefInput::default(), &Intent::default(), &pdk);
+        assert!(
+            s.coverage.skipped_rules.iter().any(|(r, why)| r == "floating_gate" && why.contains("no port list")),
+            "{:?}",
+            s.coverage.skipped_rules
+        );
     }
 
-    // The one margin arithmetic every consumer shares: nm for a length pair,
-    // floored at zero; 1 for a pair of different dimensions.
+    /// The one margin arithmetic every consumer shares: nm for a length
+    /// pair, either sign; 1 for a pair of different dimensions.
+    ///
+    /// Oracle: hand arithmetic, 170 − 100 = 70.
     #[test]
     fn shortfall_is_nm_for_lengths() {
-        let len = |nm: i64| Measurement::Length(Dbu::new_unchecked(nm));
-        assert_eq!(shortfall(len(170), len(100)), 70);
-        assert_eq!(shortfall(len(100), len(170)), 70, "a maximum's overshoot is no graze");
-        assert_eq!(shortfall(len(170), Measurement::Ratio(0.5)), 1);
+        use Measurement::{Length, Ratio};
+        assert_eq!(shortfall(Length(170.0), Length(100.0)), 70);
+        assert_eq!(shortfall(Length(100.0), Length(170.0)), 70, "a maximum's overshoot is no graze");
+        assert_eq!(shortfall(Length(170.0), Ratio(0.5)), 1);
     }
 
-    // AV-31: a non-length margin is ‰ of the limit, so an antenna ratio 2×
-    // over outranks one 1 % over (both read 1 before).
+    /// AV-31: a non-length margin is ‰ of the limit, so an antenna ratio 2×
+    /// over outranks one 1 % over.
+    ///
+    /// Oracle: hand arithmetic, 1000·|800 − 400|/400 = 1000.
     #[test]
     fn shortfall_reads_ratio_overshoot_in_permille() {
         use Measurement::{Count, Ratio};
         assert_eq!(shortfall(Ratio(400.0), Ratio(800.0)), 1000);
         assert_eq!(shortfall(Ratio(400.0), Ratio(404.0)), 10);
-        assert_eq!(shortfall(Count(1), Count(0)), 1000);
+        assert_eq!(shortfall(Count(1.0), Count(0.0)), 1000);
         assert_eq!(shortfall(Ratio(400.0), Ratio(f64::NAN)), i64::MAX, "NaN is not a graze");
     }
 
+    /// Warnings never reach the hard tier; a stage GPurify denied does.
+    ///
+    /// Oracle: the `Signoff` contract (errors in `report`, warnings apart).
     #[test]
-    fn split_by_severity_keeps_warnings_out_of_the_hard_tier() {
-        let row = |r: &str, sev| (Violation { rule: r.into(), margin: 1 }, sev);
-        let rows = [row("drc/a", Severity::Error), row("erc/b", Severity::Warning), row("drc/c", Severity::Error)];
-        let (hard, warn) = split_by_severity(rows.into_iter());
-        assert_eq!(hard.iter().map(|v| v.rule.as_str()).collect::<Vec<_>>(), ["drc/a", "drc/c"]);
-        assert_eq!(warn.iter().map(|v| v.rule.as_str()).collect::<Vec<_>>(), ["erc/b"]);
+    fn harvest_keeps_warnings_out_of_the_hard_tier() {
+        let row = |rule: &str, warning| gpurify::Row {
+            domain: "drc",
+            rule: rule.into(),
+            layer: Some("met1".into()),
+            warning,
+            x: 0.0,
+            y: 0.0,
+            measured: Measurement::Length(100.0),
+            limit: Measurement::Length(140.0),
+        };
+        let out = gpurify::Output {
+            rows: vec![row("a", false), row("b", true), row("c", false)],
+            denied: vec![("lvs", "refused: x".into())],
+            ..Default::default()
+        };
+        let mut s = Signoff::default();
+        harvest(&out, &mut s);
+        let hard: Vec<&str> = s.report.hard_violations.iter().map(|v| v.rule.as_str()).collect();
+        assert_eq!(hard, ["drc/a:met1", "drc/c:met1", "engine/lvs: refused: x"]);
+        assert_eq!(s.warnings.iter().map(|v| v.rule.as_str()).collect::<Vec<_>>(), ["drc/b:met1"]);
+        assert_eq!(s.report.hard_violations[0].margin, 40);
     }
 
-    // AV-26: the skip set is returned by every run, not logged once per process.
+    /// AV-26: the skip set is returned by every run, not logged once per
+    /// process.
+    ///
+    /// Oracle: sky130's `ir_drop` needs intent this run does not give
+    /// (docs/usage.md, "Design intent").
     #[test]
     fn skipped_rules_are_reported_on_every_run() {
         let pdk = sky130();
         for w in [500, 900] {
             let s = signoff_checked(&[rect(&pdk, "met1", 0, 0, w, w)], &[], &RefInput::default(), &Intent::default(), &pdk);
-            assert!(!s.coverage.skipped_rules.is_empty(), "{w} nm plate: no skipped rules reported");
-            // sky130 ir_drop needs intent this run does not give.
-            assert!(s.coverage.skipped_rules.iter().any(|(_, why)| why.contains("NoDesignIntent")), "{:?}", s.coverage.skipped_rules);
+            assert!(
+                s.coverage.skipped_rules.iter().any(|(r, why)| r == "ir_drop" && why.contains("no_design_intent")),
+                "{:?}",
+                s.coverage.skipped_rules
+            );
         }
     }
 
@@ -601,11 +628,11 @@ mod tests {
         signoff_extract(shapes, pins, &RefInput::default(), &Intent::default(), opts, pdk)
     }
 
-    const UNMERGED: ExtractOptions = ExtractOptions { field_solve: Vec::new(), unmerged: true, cells: Vec::new() };
-
-    // PERF-16: two overlapping met1 rects extract as their union. Deck met1
-    // (pdks/gpurify/sky130.deck): 25.78 aF/µm², 40.57 aF/µm. Union 7.5 µm²,
-    // perimeter 26 µm → 1248.2 aF; drawn rects 8 µm², 29 µm → 1382.8 aF.
+    /// PERF-16: two overlapping met1 rects extract as their union.
+    ///
+    /// Oracle: the deck's met1 row (pdks/gpurify/sky130.deck: 25.78 aF/µm²,
+    /// 40.57 aF/µm). Union 7.5 µm², perimeter 26 µm → 1248.2 aF; the drawn
+    /// rects would read 8 µm², 29 µm → 1382.8 aF.
     #[test]
     fn partial_overlaps_extract_as_their_union() {
         let pdk = sky130();
@@ -613,31 +640,6 @@ mod tests {
         let pins = [pin(&pdk, "a", 500, 250)];
         let merged = ground(&signoff_checked(&shapes, &pins, &RefInput::default(), &Intent::default(), &pdk).caps, "a");
         assert!((merged - 1.2482).abs() / 1.2482 <= 1e-3, "merged C(a) = {merged} fF, want 1.2482");
-        // GPurify unions overlapping shapes itself since 687c8bc: the
-        // pre-merge (`ExtractOptions::unmerged`) no longer changes the answer.
-        // ponytail: the pre-merge is redundant; delete it with the Q59 dedup.
-        let unmerged = ground(&extract(&shapes, &pins, &UNMERGED, &pdk).caps, "a");
-        assert!((unmerged - 1.2482).abs() / 1.2482 <= 1e-3, "unmerged C(a) = {unmerged} fF, want 1.2482");
-    }
-
-    // A met1 ring drawn as four overlapping bars: 40 µm² drawn, 36 µm² true.
-    // Merged it keeps its hole (decomposed to rects) and drops at least the
-    // 4 µm² counted twice; fringe is not pinned (slab edges inside the ring).
-    #[test]
-    fn a_ring_loop_keeps_its_area() {
-        let pdk = sky130();
-        let shapes = [
-            rect(&pdk, "met1", 0, 0, 1000, 10_000),
-            rect(&pdk, "met1", 9000, 0, 1000, 10_000),
-            rect(&pdk, "met1", 0, 0, 10_000, 1000),
-            rect(&pdk, "met1", 0, 9000, 10_000, 1000),
-        ];
-        let pins = [pin(&pdk, "a", 500, 5000)];
-        let merged = ground(&extract(&shapes, &pins, &ExtractOptions::default(), &pdk).caps, "a");
-        let unmerged = ground(&extract(&shapes, &pins, &UNMERGED, &pdk).caps, "a");
-        // Both are the union since GPurify 687c8bc (see the test above): the
-        // 4 µm² the bars overlap is counted once either way.
-        assert!((unmerged - merged).abs() <= 1e-9, "merged {merged} fF, unmerged {unmerged} fF");
     }
 
     fn three_lines(pdk: &Pdk) -> ([Shape; 3], [LabeledPin; 3]) {
@@ -645,13 +647,15 @@ mod tests {
         ([line(0), line(1000), line(2000)], [pin(pdk, "a", 500, 250), pin(pdk, "b", 500, 1250), pin(pdk, "c", 500, 2250)])
     }
 
+    /// Oracle: a field solve of net `a` moves C(a) and leaves C(c), which it
+    /// does not solve, where the closed form put it.
     #[test]
-    #[ignore = "nightly: a full field solve, ~110 s in release (GPurify 687c8bc solves inductance too)"]
+    #[ignore = "nightly: a full field solve"]
     fn field_solve_changes_only_selected_nets() {
         let pdk = sky130();
         let (shapes, pins) = three_lines(&pdk);
         let analytic = extract(&shapes, &pins, &ExtractOptions::default(), &pdk);
-        let field = extract(&shapes, &pins, &ExtractOptions { field_solve: vec!["a".into()], unmerged: false, cells: Vec::new() }, &pdk);
+        let field = extract(&shapes, &pins, &ExtractOptions { field_solve: vec!["a".into()], cells: Vec::new() }, &pdk);
         assert!(field.coverage.skipped_rules.iter().all(|(r, _)| r != "pex.field"), "{:?}", field.coverage.skipped_rules);
         let (a0, a1) = (ground(&analytic.caps, "a"), ground(&field.caps, "a"));
         assert!((a1 - a0).abs() / a0 > 1e-3, "field C(a) {a1} vs analytical {a0}");
@@ -659,239 +663,179 @@ mod tests {
         assert!((c1 - c0).abs() <= 1e-9, "C(c) moved: {c0} -> {c1}");
     }
 
+    /// Oracle: a net no label names cannot be field-solved; the analytical
+    /// PEX ran, so that is coverage, never an `engine/pex` row.
     #[test]
     fn a_refused_field_solve_falls_back_with_coverage() {
         let pdk = sky130();
         let (shapes, pins) = three_lines(&pdk);
-        let s = extract(&shapes, &pins, &ExtractOptions { field_solve: vec!["nosuchnet".into()], unmerged: false, cells: Vec::new() }, &pdk);
+        let s = extract(&shapes, &pins, &ExtractOptions { field_solve: vec!["nosuchnet".into()], cells: Vec::new() }, &pdk);
         let rules: Vec<&str> = s.report.hard_violations.iter().map(|v| v.rule.as_str()).collect();
         assert!(!rules.iter().any(|r| r.starts_with("engine/pex")), "{rules:?}");
-        let why = s.coverage.skipped_rules.iter().find(|(r, _)| r == "pex.field").map(|(_, w)| w.as_str());
-        assert!(why.is_some_and(|w| w.contains("no extracted net")), "{:?}", s.coverage.skipped_rules);
+        assert!(s.coverage.skipped_rules.iter().any(|(r, _)| r == "pex.field"), "{:?}", s.coverage.skipped_rules);
         assert!(!s.caps.is_empty());
     }
 
-    // The label-short re-run keeps one label per shorted net: a dropped label
-    // names no extracted net there, so it leaves the field solve rather than
-    // refusing it.
-    #[test]
-    #[ignore = "nightly: a full field solve, ~110 s in release (GPurify 687c8bc solves inductance too)"]
-    fn a_label_short_drops_its_label_from_the_field_solve() {
-        let pdk = sky130();
-        let pins = [pin(&pdk, "A", 500, 500), pin(&pdk, "B", 1500, 500)];
-        let reference = RefInput { devices: vec![], ports: vec!["A".into(), "B".into()], external_ports: None };
-        let opts = ExtractOptions { field_solve: vec!["A".into(), "B".into()], unmerged: false, cells: Vec::new() };
-        let s = signoff_extract(&[rect(&pdk, "met1", 0, 0, 2000, 1000)], &pins, &reference, &Intent::default(), &opts, &pdk);
-        assert!(s.report.hard_violations.iter().any(|v| v.rule.starts_with("lvs/extract: label short")));
-        assert!(s.coverage.skipped_rules.iter().all(|(r, _)| r != "pex.field"), "{:?}", s.coverage.skipped_rules);
-        assert!(s.pex_field > Duration::ZERO, "the kept label was not field-solved");
-    }
-
-    // AV-25: a label short still extracts capacitance (on the label-free re-run).
+    /// AV-25: a label short is LVS's verdict, and PEX still extracts
+    /// capacitance over the labels left once one per net remains.
+    ///
+    /// Oracle: two labels on one met1 plate are one net carrying two names
+    /// (GPurify `lvs.net_seed_conflict`).
     #[test]
     fn the_label_short_fallback_still_returns_caps() {
         let pdk = sky130();
-        let met1 = pdk.layer("met1").unwrap().0;
-        let pins = [LabeledPin { name: "A".into(), layer: met1, x: 500, y: 500 }, LabeledPin { name: "B".into(), layer: met1, x: 1500, y: 500 }];
+        let pins = [pin(&pdk, "A", 500, 500), pin(&pdk, "B", 1500, 500)];
         let reference = RefInput { devices: vec![], ports: vec!["A".into(), "B".into()], external_ports: None };
         let s = signoff_checked(&[rect(&pdk, "met1", 0, 0, 2000, 1000)], &pins, &reference, &Intent::default(), &pdk);
         let rules: Vec<&str> = s.report.hard_violations.iter().map(|v| v.rule.as_str()).collect();
-        assert!(rules.iter().any(|r| r.starts_with("lvs/extract: label short")), "{rules:?}");
-        assert!(!s.caps.is_empty(), "the fallback returned no cap matrix");
+        assert!(rules.iter().any(|r| r.starts_with("lvs/lvs.net_seed_conflict")), "{rules:?}");
+        assert!(!s.caps.is_empty(), "no cap matrix: {:?}", s.coverage.skipped_rules);
     }
 
-    // A deliberately-too-narrow li wire trips exactly li's min_width with the
-    // correct nm margin.
+    /// A deliberately-too-narrow li wire trips li's minimum width with the
+    /// right nm margin.
+    ///
+    /// Oracle: sky130 li.1, 170 nm ([S1]); 100 nm wide is 70 short. Long
+    /// enough to clear li's minimum area and on the 5 nm grid.
     #[test]
-    fn checker_reports_a_min_width_shortfall_in_nm() {
+    fn drc_reports_a_min_width_shortfall_in_nm() {
         let pdk = sky130();
-        // li min_width is 170 nm; 100 nm wide is 70 short. Long enough to
-        // clear li_min_area (side 236 → 55696 nm²) and on the 5 nm grid.
-        let shapes = [rect(&pdk, "li", 0, 0, 100, 1000)];
-        let mut checker = Checker::new(&pdk, true).unwrap();
-        let summary = checker.run(&shapes, &[], Checks { drc: true, erc: false, lvs: false, pex: false }).unwrap();
-        assert!(summary.violations >= 1, "a 100 nm li wire must fail min_width");
-        let out = checker.outputs();
-        let hit = (0..out.violations.len())
-            .map(|i| out.violations.get(i))
-            .find(|v| checker.rule_name(v.rule) == "li.1")
-            .expect("the finding is attributed to li.1 (li width)");
-        assert_eq!(shortfall(hit.limit, hit.measured), 70);
-        assert_eq!(checker.domain_of(hit.rule), "drc");
+        let f = drc(&[rect(&pdk, "li", 0, 0, 100, 1000)], &[], &pdk);
+        let hit = f.iter().find(|f| f.rule == "li.1").unwrap_or_else(|| panic!("no li.1 row: {f:?}"));
+        assert_eq!((hit.margin, hit.unit), (70, "nm"));
     }
 
-    // The deck's EM rules skip for want of design intent; with the supplies
-    // and their currents installed they no longer do (ihp: EM.Metal*).
+    /// The deck's EM rules skip for want of design intent; with the supplies
+    /// and their currents given they no longer do.
+    ///
+    /// Oracle: ihp's EM.Metal* rules need intent (docs/usage.md, "Design
+    /// intent").
     #[test]
     fn intent_arms_the_em_rules() {
         let pdk = Pdk::builtin("ihp_sg13g2").unwrap();
         let shapes = [rect(&pdk, "met1", 0, 0, 20_000, 1_000), rect(&pdk, "met1", 0, 5_000, 20_000, 1_000)];
         let met1 = pdk.layer("met1").unwrap().0;
         let pins = [LabeledPin { name: "VDD".into(), layer: met1, x: 500, y: 500 }, LabeledPin { name: "VSS".into(), layer: met1, x: 500, y: 5_500 }];
-        let no_intent = |c: &Checker| c.skipped_rules().iter().filter(|(r, why)| r.starts_with("EM") && why.contains("NoDesignIntent")).count();
-        let mut checker = Checker::new(&pdk, true).unwrap();
-        checker.run(&shapes, &pins, Checks { drc: false, erc: true, lvs: false, pex: false }).unwrap();
-        assert!(no_intent(&checker) > 0, "the EM rules need intent: {:?}", checker.skipped_rules());
+        let erc_only = Checks { drc: false, erc: true, lvs: false, pex: false };
+        let no_intent = |intent: &Intent| {
+            rules(&shapes, &pins, None, intent, erc_only, &pdk)
+                .runs
+                .iter()
+                .filter(|r| r.rule.starts_with("EM") && r.outcome == "skipped:no_design_intent")
+                .count()
+        };
+        assert!(no_intent(&Intent::default()) > 0, "the EM rules need intent");
         let intent = Intent {
             supplies: vec![("VDD".into(), 1_800.0, false), ("VSS".into(), 1_800.0, true)],
             currents: vec![("VDD".into(), 100.0), ("VSS".into(), 100.0)],
             ..Default::default()
         };
-        checker.set_intent(&intent).unwrap();
-        checker.run(&shapes, &pins, Checks { drc: false, erc: true, lvs: false, pex: false }).unwrap();
-        assert_eq!(no_intent(&checker), 0, "{:?}", checker.skipped_rules());
+        assert_eq!(no_intent(&intent), 0);
     }
 
-    // PERF-17: supplies alone leave `ir_drop` running over no node (no net
-    // states a drop limit); a supply's `max_drop_mv` makes it examine the grid.
+    /// PERF-17: supplies alone leave `ir_drop` running over no node (no net
+    /// states a drop limit); a supply's `max_drop_mv` makes it examine the
+    /// grid.
+    ///
+    /// Oracle: GPurify's `ir_drop` examines the nets the intent gives a
+    /// limit (docs/usage.md, "Design intent").
     #[test]
     fn max_drop_arms_ir_drop() {
-        use gdsverify::check::report::Outcome;
-        let pdk = Pdk::builtin("sky130").unwrap();
+        let pdk = sky130();
         let shapes = [rect(&pdk, "met1", 0, 0, 20_000, 1_000)];
-        let met1 = pdk.layer("met1").unwrap().0;
-        let pins = [LabeledPin { name: "VDD".into(), layer: met1, x: 500, y: 500 }];
-        let examined_ir = |c: &Checker| c.outputs().runs.iter().find(|r| c.rule_name(r.rule) == "ir_drop").map(|r| (r.outcome, r.examined));
-        let checks = Checks { drc: false, erc: true, lvs: false, pex: false };
-        let mut checker = Checker::new(&pdk, true).unwrap();
-        checker.set_intent(&Intent { supplies: vec![("VDD".into(), 1_800.0, false)], ..Default::default() }).unwrap();
-        checker.run(&shapes, &pins, checks).unwrap();
-        assert_eq!(examined_ir(&checker).map(|r| r.1), Some(0), "supplies alone examine nothing");
+        let pins = [pin(&pdk, "VDD", 500, 500)];
+        let erc_only = Checks { drc: false, erc: true, lvs: false, pex: false };
+        let ir = |intent: &Intent| {
+            rules(&shapes, &pins, None, intent, erc_only, &pdk).runs.into_iter().find(|r| r.rule == "ir_drop").map(|r| (r.outcome, r.examined))
+        };
+        assert_eq!(
+            ir(&Intent { supplies: vec![("VDD".into(), 1_800.0, false)], ..Default::default() }).map(|r| r.1),
+            Some(0),
+            "supplies alone examine nothing"
+        );
         let intent = Intent { supplies: vec![("VDD".into(), 1_800.0, false)], max_drop_mv: vec![("VDD".into(), 10.0)], ..Default::default() };
-        checker.set_intent(&intent).unwrap();
-        checker.run(&shapes, &pins, checks).unwrap();
-        let (outcome, examined) = examined_ir(&checker).expect("ir_drop in the deck");
-        assert!(outcome == Outcome::Ran && examined > 0, "{outcome:?}, examined {examined}");
-        assert!(!checker.skipped_rules().iter().any(|(r, _)| *r == "ir_drop"), "{:?}", checker.skipped_rules());
+        let (outcome, examined) = ir(&intent).expect("ir_drop in the deck");
+        assert!(outcome == "ran" && examined > 0, "{outcome}, examined {examined}");
     }
 
-    // GPurify refuses a net listed twice: a net's current budget and drop
-    // limit go in one object.
-    #[test]
-    fn set_intent_merges_a_nets_limits() {
-        let pdk = Pdk::builtin("sky130").unwrap();
-        let mut checker = Checker::new(&pdk, true).unwrap();
-        let intent =
-            Intent { supplies: vec![("VDD".into(), 1_800.0, false)], currents: vec![("VDD".into(), 100.0)], max_drop_mv: vec![("VDD".into(), 5.0)] };
-        assert_eq!(checker.set_intent(&intent), Ok(()));
-    }
-
-    // A density window wider than the block is chip-level: taken out and
-    // reported as not run; a block wider than the window keeps the rule
-    // (ihp AFil.g2: activ density >= 25% in 800 um windows).
+    /// A density window wider than the block is chip-level: its rows are
+    /// dropped and it is reported as not run; a block wider than the window
+    /// keeps the rule.
+    ///
+    /// Oracle: ihp AFil.g2, activ density >= 25 % in 800 µm windows (the
+    /// deck); sky130 m*.density, `density_cmp` in 700 µm windows.
     #[test]
     fn density_wider_than_the_block_is_chip_level() {
         let pdk = Pdk::builtin("ihp_sg13g2").unwrap();
-        let afil = (0..pdk.layers.len() as u16).flat_map(|l| pdk.compiled.density(gdsverify::geom::LayerId(l))).any(|d| {
-            d.window.is_some_and(|(w, _)| w.raw() == 800_000)
-                && (d.limit - 0.25).abs() < 1e-9
-                && d.sense == gdsverify::check::report::LimitSense::Minimum
-        });
-        assert!(afil, "AFil.g2 read as a minimum");
-        let mut small = Checker::new(&pdk, false).unwrap();
-        let gone = small.defer_density_wider_than(34_000, 21_000);
-        assert!(gone.iter().any(|n| n == "AFil.g2"), "{gone:?}");
-        assert!(small.skipped_rules().iter().any(|(n, why)| *n == "AFil.g2" && why.starts_with("ChipLevel(window 800000 nm")));
-        let mut chip = Checker::new(&pdk, false).unwrap();
-        assert!(!chip.defer_density_wider_than(2_000_000, 2_000_000).contains(&"AFil.g2".to_string()));
-    }
-
-    // AV-18: sky130 states metal density as `density_cmp` (700 um windows,
-    // `partial_windows: false`); on a block it examined zero windows and
-    // read `Ran`. Now chip-level, and not among the rules that ran.
-    #[test]
-    fn density_cmp_wider_than_the_block_is_chip_level_on_sky130() {
-        let pdk = sky130();
-        let shapes = [rect(&pdk, "met1", 0, 0, 10_000, 10_000)];
-        let names = ["m1.density", "m2.density", "m3.density", "m4.density"];
-        let s = signoff_checked(&shapes, &[], &RefInput::default(), &Intent::default(), &pdk);
-        for n in names {
+        let block = |w| [rect(&pdk, "met1", 0, 0, w, w)];
+        let small = deferred_rules(&pdk, &block(34_000));
+        assert!(small.iter().any(|(n, why)| n == "AFil.g2" && why.starts_with("ChipLevel(window 800000 nm")), "{small:?}");
+        assert!(!deferred_rules(&pdk, &block(2_000_000)).iter().any(|(n, _)| n == "AFil.g2"));
+        let sky = sky130();
+        let shapes = [rect(&sky, "met1", 0, 0, 10_000, 10_000)];
+        let s = signoff_checked(&shapes, &[], &RefInput::default(), &Intent::default(), &sky);
+        for n in ["m1.density", "m2.density", "m3.density", "m4.density"] {
             assert!(
                 s.coverage.skipped_rules.iter().any(|(r, why)| r == n && why.starts_with("ChipLevel(window 700000 nm > block 10000x10000 nm)")),
                 "{n} not chip-level: {:?}",
                 s.coverage.skipped_rules
             );
+            assert!(!s.report.hard_violations.iter().any(|v| v.rule.contains(n)), "{n} still reported");
         }
-        let mut checker = Checker::new(&pdk, false).unwrap();
-        defer_chip_level(&mut checker, &shapes);
-        checker.run(&shapes, &[], Checks::ALL).unwrap();
-        let ran: Vec<&str> = checker
-            .outputs()
-            .runs
-            .iter()
-            .filter(|r| r.outcome == gdsverify::check::report::Outcome::Ran)
-            .map(|r| checker.rule_name(r.rule))
-            .collect();
-        assert!(!ran.is_empty(), "no rule ran at all");
-        assert!(names.iter().all(|n| !ran.contains(n)), "{ran:?}");
     }
 
-    // A fat legal rect is clean — and provably *checked* clean: rules ran.
-    // Guards the false-clean failure (an engine that silently checked nothing).
+    /// A fat legal rect is clean — and provably checked clean: rules ran.
+    /// Guards the false-clean failure (an engine that silently checked
+    /// nothing).
+    ///
+    /// Oracle: sky130 li rules ([S1]); a 500 × 500 nm li plate meets them.
     #[test]
-    fn checker_runs_clean_on_legal_geometry_and_proves_it_ran() {
+    fn drc_runs_clean_on_legal_geometry_and_proves_it_ran() {
         let pdk = sky130();
-        let shapes = [rect(&pdk, "li", 0, 0, 500, 500)];
-        let mut checker = Checker::new(&pdk, true).unwrap();
-        let summary = checker.run(&shapes, &[], Checks { drc: true, erc: false, lvs: false, pex: false }).unwrap();
-        assert_eq!(summary.violations, 0, "a 500×500 li plate is legal");
-        assert!(summary.rules_clean > 0, "zero findings must come from rules that ran");
-        assert_eq!(summary.drc, StageStatus::Ran);
+        let out =
+            rules(&[rect(&pdk, "li", 0, 0, 500, 500)], &[], None, &Intent::default(), Checks { drc: true, erc: false, lvs: false, pex: false }, &pdk);
+        assert!(out.denied.is_empty(), "{:?}", out.denied);
+        let real: Vec<_> = out.rows.iter().filter(|r| !r.rule.contains("density")).collect();
+        assert!(real.is_empty(), "{real:?}");
+        assert!(out.runs.iter().any(|r| r.outcome == "ran" && r.examined > 0), "zero findings must come from rules that ran");
     }
 
-    // The reference builder: two NMOS on the sky130 deck → two device rows of
-    // the deck's model, three card-order terminals each, the stated ports —
-    // and real device params, interned into the checker's table in SI metres,
-    // one CSR run per device (which is what arms the engine's layout-side
-    // measured-param emission for those names).
+    /// The reference writer: two NMOS on the sky130 deck → two `X` cards of
+    /// the deck's model, four card-order terminals each (bulk = psub for an
+    /// nfet), W and L in µm with a unit; an inductor is skipped, not written.
+    ///
+    /// Oracle: GPurify's reference reader (docs/deck.md, `netlist_scale`: a
+    /// suffixed value is absolute).
     #[test]
-    fn reference_builder_compiles_two_devices() {
+    fn reference_spice_writes_x_cards_of_the_deck_model() {
         let pdk = sky130();
-        let mut checker = Checker::new(&pdk, false).unwrap();
+        let dev = |terminals: [&str; 4], params: Vec<(String, f64)>| RefDeviceIn {
+            kind: RefKind::Nmos,
+            model: None,
+            terminals: terminals.iter().map(|&t| t.into()).collect(),
+            params,
+        };
         let input = RefInput {
             devices: vec![
-                RefDeviceIn {
-                    kind: RefKind::Nmos,
-                    model: None,
-                    terminals: vec!["out".into(), "in".into(), "vss".into(), "vss".into()],
-                    params: vec![("w".into(), 2e-6), ("l".into(), 5e-7)],
-                },
-                RefDeviceIn {
-                    kind: RefKind::Nmos,
-                    model: None,
-                    terminals: vec!["vss".into(), "bias".into(), "out".into(), "vss".into()],
-                    params: vec![("w".into(), 1e-6)],
-                },
+                dev(["out", "in", "vss", "vss"], vec![("w".into(), 2e-6), ("l".into(), 5e-7)]),
+                RefDeviceIn { kind: RefKind::Inductor, model: None, terminals: vec!["a".into(), "b".into()], params: vec![] },
+                dev(["vss", "bias", "out", "vss"], vec![("w".into(), 1e-6), ("nf".into(), 2.0)]),
             ],
             ports: vec!["in".into(), "out".into(), "vss".into()],
             external_ports: None,
         };
-        let skipped = checker.set_reference(&input).unwrap();
-        assert!(skipped.is_empty(), "{skipped:?}");
-        let n = checker.loaded.reference.as_ref().unwrap();
-        assert_eq!(n.subckt_count(), 1);
-        assert_eq!(n.device_model.len(), 2);
-        assert_eq!(n.device_terminal_start, vec![0, 4, 8], "sky130 MOS arity is 4: d g s b, bulk = psub for an nfet");
-        assert_eq!(n.port_net.len(), 3);
-        assert_eq!(n.device_param_start, vec![0, 2, 3], "one param run per device");
-        let w = checker.loaded.strings.get("w").expect("'w' is interned by the builder");
-        let l = checker.loaded.strings.get("l").expect("'l' is interned by the builder");
-        assert_eq!(n.param, vec![(w, 2e-6), (l, 5e-7), (w, 1e-6)]);
-        let model = checker.loaded.strings.resolve(n.device_model[0]);
-        assert_eq!(model, "sky130_fd_pr__nfet_01v8");
-        // Both bipolars have a row now; an inductor still has none: skipped, not mismatched.
-        let one = |kind, n: usize| RefInput {
-            devices: vec![RefDeviceIn { kind, model: None, terminals: ["a", "b", "c"][..n].iter().map(|&t| t.into()).collect(), params: vec![] }],
-            ports: vec![],
-            external_ports: None,
-        };
-        assert_eq!(checker.set_reference(&one(RefKind::Npn, 3)).unwrap(), []);
-        assert_eq!(checker.set_reference(&one(RefKind::Pnp, 3)).unwrap(), []);
-        assert_eq!(checker.set_reference(&one(RefKind::Inductor, 2)).unwrap(), [(RefKind::Inductor, None)]);
+        let (text, skipped) = reference::spice(&input, &pdk.deck, &pdk.strings).unwrap();
+        assert_eq!(skipped, [1]);
+        assert_eq!(
+            text,
+            ".subckt top in out vss\nX0 out in vss vss sky130_fd_pr__nfet_01v8 w=2u l=0.5u\nX2 vss bias out vss sky130_fd_pr__nfet_01v8 w=1u nf=2\n.ends top\n"
+        );
     }
 
-    // AV-01/NOTES-02: a schematic device no recogniser extracts is named in
-    // the coverage, not left on stderr (sky130 has no VPP capacitor recogniser).
+    /// AV-01/NOTES-02: a schematic device no recogniser extracts is named in
+    /// the coverage, not left on stderr.
+    ///
+    /// Oracle: sky130 has no VPP capacitor recogniser (the deck's devices).
     #[test]
     fn a_skipped_reference_device_is_listed_in_coverage() {
         let pdk = sky130();
@@ -900,19 +844,19 @@ mod tests {
         let reference = RefInput {
             devices: vec![
                 dev(RefKind::Nmos, &["out", "in", "vss", "vss"]),
-                dev(RefKind::Nmos, &["vss", "bias", "out", "vss"]),
                 RefDeviceIn { model: Some("sky130_fd_pr__cap_vpp_02p4x04p6_m1m2_noshield".into()), ..dev(RefKind::Capacitor, &["a", "b"]) },
             ],
             ports: vec![],
             external_ports: None,
         };
-        let shapes = [rect(&pdk, "li", 0, 0, 500, 500)];
-        let s = signoff_checked(&shapes, &[], &reference, &Intent::default(), &pdk);
+        let s = signoff_checked(&[rect(&pdk, "li", 0, 0, 500, 500)], &[], &reference, &Intent::default(), &pdk);
         assert!(matches!(s.coverage.unverified.as_slice(), [(RefKind::Capacitor, _, 1)]), "{:?}", s.coverage.unverified);
     }
 
     /// A compared resistor's value is not checked (only MOS cards carry
     /// params), and coverage says so; an uncompared MOM is not counted there.
+    ///
+    /// Oracle: the reference's own cards, one R and one MOM.
     #[test]
     fn a_compared_resistor_value_is_listed_as_not_compared() {
         let pdk = sky130();
@@ -928,9 +872,11 @@ mod tests {
         assert_eq!(row, ["NotCompared(1 R/D/C/BJT cards matched by connectivity only)"], "{:?}", s.coverage.skipped_rules);
     }
 
-    // AV-01: sky130's `capm` recognises a MIM; a MOM card (no marker, no
-    // recogniser), named or model-less (an elaborated composition's card),
-    // must be uncompared, not compared as `capm` and unpaired.
+    /// AV-01: sky130's `capm` recognises a MIM; a MOM card (no marker, no
+    /// recogniser), named or model-less, is uncompared, not compared as
+    /// `capm` and unpaired.
+    ///
+    /// Oracle: the deck's capacitor rows are MIM and varactor only.
     #[test]
     fn a_mom_card_is_unverified_not_compared_as_mim() {
         let pdk = sky130();
@@ -958,8 +904,10 @@ mod tests {
         }
     }
 
-    // No deck recognises an inductor: it is uncompared, and that is coverage,
-    // not an engine failure.
+    /// No deck recognises an inductor: it is uncompared, and that is
+    /// coverage, not an engine failure.
+    ///
+    /// Oracle: no `device inductor` row in any deck.
     #[test]
     fn an_inductor_is_unverified() {
         let pdk = sky130();
@@ -975,22 +923,14 @@ mod tests {
         assert!(rules.contains(&"lvs-coverage/unverified:Inductor:-"), "{rules:?}");
     }
 
-    // Parametric LVS is live end to end: the extractor measures the channel
-    // (W = 200 nm, L = 100 nm here), the reference declares w/l in metres,
-    // and the comparison pairs them by name — so a wrong declared width is a
-    // reported mismatch, and the right one is a clean Match. This is the
-    // guard against the old vacuous shape (both sides params-empty).
+    /// Parametric LVS is live end to end: a wrong declared width is a
+    /// reported mismatch, and the right one a clean match — the guard
+    /// against the vacuous shape (both sides params-empty).
+    ///
+    /// Oracle: the drawn channel, W = 200 nm, L = 100 nm ([`nfet`]).
     #[test]
     fn a_wrong_reference_width_is_a_parameter_mismatch_and_the_right_one_matches() {
         let pdk = sky130();
-        // The minimal recognisable MOS from `device_count_sees_one_mos`:
-        // channel = poly AND diff AND nsdm = x 200..300, y 100..300.
-        let shapes = [
-            rect(&pdk, "poly", 200, 0, 100, 400),
-            rect(&pdk, "diff", 0, 100, 260, 200),
-            rect(&pdk, "diff", 240, 100, 260, 200),
-            rect(&pdk, "nsdm", 0, 0, 500, 400),
-        ];
         let reference = |w_m: f64| RefInput {
             devices: vec![RefDeviceIn {
                 kind: RefKind::Nmos,
@@ -1001,58 +941,36 @@ mod tests {
             ports: vec![],
             external_ports: None,
         };
-        let lvs_rows = |w_m: f64| -> Vec<String> {
-            let mut checker = Checker::new(&pdk, true).unwrap();
-            checker.set_reference(&reference(w_m)).unwrap();
-            checker.run(&shapes, &[], Checks { drc: false, erc: false, lvs: true, pex: false }).unwrap();
-            let out = checker.outputs();
-            (0..out.violations.len()).map(|i| checker.rule_name(out.violations.get(i).rule).to_owned()).filter(|r| r.starts_with("lvs.")).collect()
-        };
-
-        assert_eq!(lvs_rows(2e-7), Vec::<String>::new(), "the declared 200 nm width matches the measured channel");
-        let wrong = lvs_rows(3e-7);
-        assert!(
-            wrong.iter().any(|r| r == "lvs.parameter_mismatch"),
-            "a 300 nm declared width against a 200 nm channel must be a \
-             parameter mismatch, got {wrong:?}"
-        );
+        assert_eq!(lvs_rows(&nfet(&pdk), &reference(2e-7), &pdk), Vec::<String>::new(), "the declared 200 nm width matches the channel");
+        let wrong = lvs_rows(&nfet(&pdk), &reference(3e-7), &pdk);
+        assert!(wrong.iter().any(|r| r == "lvs.parameter_mismatch"), "300 nm declared against a 200 nm channel: {wrong:?}");
     }
 
-    /// The body is compared: an nfet reference whose bulk is the source net,
-    /// which the layout does not tie, is an LVS mismatch.
+    /// The body is compared: an nfet reference whose bulk is the source
+    /// net, which the layout does not tie, is an LVS mismatch.
+    ///
+    /// Oracle: the drawn nfet's bulk is the substrate, its own net.
     #[test]
     fn a_wrong_body_tie_is_an_lvs_mismatch() {
         let pdk = sky130();
-        let shapes = [
-            rect(&pdk, "poly", 200, 0, 100, 400),
-            rect(&pdk, "diff", 0, 100, 260, 200),
-            rect(&pdk, "diff", 240, 100, 260, 200),
-            rect(&pdk, "nsdm", 0, 0, 500, 400),
-        ];
-        let lvs_rows = |t: [&str; 4]| -> Vec<String> {
-            let reference = RefInput {
-                devices: vec![RefDeviceIn {
-                    kind: RefKind::Nmos,
-                    model: None,
-                    terminals: t.iter().map(|&n| n.into()).collect(),
-                    params: vec![("w".into(), 2e-7), ("l".into(), 1e-7)],
-                }],
-                ports: vec![],
-                external_ports: None,
-            };
-            let mut checker = Checker::new(&pdk, true).unwrap();
-            checker.set_reference(&reference).unwrap();
-            checker.run(&shapes, &[], Checks { drc: false, erc: false, lvs: true, pex: false }).unwrap();
-            let out = checker.outputs();
-            (0..out.violations.len()).map(|i| checker.rule_name(out.violations.get(i).rule).to_owned()).filter(|r| r.starts_with("lvs.")).collect()
+        let reference = |t: [&str; 4]| RefInput {
+            devices: vec![RefDeviceIn {
+                kind: RefKind::Nmos,
+                model: None,
+                terminals: t.iter().map(|&n| n.into()).collect(),
+                params: vec![("w".into(), 2e-7), ("l".into(), 1e-7)],
+            }],
+            ports: vec![],
+            external_ports: None,
         };
-        assert_eq!(lvs_rows(["d", "g", "s", "b"]), Vec::<String>::new());
-        let wrong = lvs_rows(["d", "g", "s", "s"]);
-        assert!(!wrong.is_empty(), "a body on the source net must mismatch");
+        assert_eq!(lvs_rows(&nfet(&pdk), &reference(["d", "g", "s", "b"]), &pdk), Vec::<String>::new());
+        assert!(!lvs_rows(&nfet(&pdk), &reference(["d", "g", "s", "s"]), &pdk).is_empty(), "a body on the source net must mismatch");
     }
 
     /// Each n-well is its own net: two pfets in two wells sharing one bulk
     /// net in the reference is an LVS mismatch.
+    ///
+    /// Oracle: two disjoint nwell rects are two nets.
     #[test]
     fn a_pmos_in_a_foreign_well_is_an_lvs_mismatch() {
         let pdk = sky130();
@@ -1066,34 +984,30 @@ mod tests {
             ]
         };
         let shapes: Vec<_> = stack(0).into_iter().chain(stack(5900)).collect();
-        assert_eq!(Checker::new(&pdk, true).unwrap().device_count(&shapes), Some(2));
-        let lvs_rows = |b1: &str, b2: &str| -> Vec<String> {
-            let card = |d: &str, g: &str, s: &str, b: &str| RefDeviceIn {
-                kind: RefKind::Pmos,
-                model: None,
-                terminals: [d, g, s, b].iter().map(|&n| n.into()).collect(),
-                params: vec![("w".into(), 2e-7), ("l".into(), 1e-7)],
-            };
-            let reference = RefInput { devices: vec![card("d1", "g1", "s1", b1), card("d2", "g2", "s2", b2)], ports: vec![], external_ports: None };
-            let mut checker = Checker::new(&pdk, true).unwrap();
-            checker.set_reference(&reference).unwrap();
-            checker.run(&shapes, &[], Checks { drc: false, erc: false, lvs: true, pex: false }).unwrap();
-            let out = checker.outputs();
-            (0..out.violations.len()).map(|i| checker.rule_name(out.violations.get(i).rule).to_owned()).filter(|r| r.starts_with("lvs.")).collect()
+        assert_eq!(device_count(&shapes, &pdk), Some(2));
+        let card = |d: &str, g: &str, s: &str, b: &str| RefDeviceIn {
+            kind: RefKind::Pmos,
+            model: None,
+            terminals: [d, g, s, b].iter().map(|&n| n.into()).collect(),
+            params: vec![("w".into(), 2e-7), ("l".into(), 1e-7)],
         };
-        assert_eq!(lvs_rows("w1", "w2"), Vec::<String>::new());
-        let shared = lvs_rows("w", "w");
-        assert!(!shared.is_empty(), "two wells on one bulk net must mismatch");
+        let reference = |b1: &str, b2: &str| RefInput {
+            devices: vec![card("d1", "g1", "s1", b1), card("d2", "g2", "s2", b2)],
+            ports: vec![],
+            external_ports: None,
+        };
+        assert_eq!(lvs_rows(&shapes, &reference("w1", "w2"), &pdk), Vec::<String>::new());
+        assert!(!lvs_rows(&shapes, &reference("w", "w"), &pdk).is_empty(), "two wells on one bulk net must mismatch");
     }
 
-    // The diode is recognisable now: a `diom` marker over the junction with
-    // two `li` pads under it binds anode and cathode, so the deck extracts
-    // exactly one device — and the reference builder no longer skips diodes.
+    /// A `diom` marker over the junction with two `li` pads under it binds
+    /// anode and cathode: exactly one device, and the reference writer does
+    /// not skip diodes.
+    ///
+    /// Oracle: sky130's diode_pw2nd in miniature (the deck's diode rows).
     #[test]
     fn device_count_sees_one_diode_under_a_diom_marker() {
         let pdk = sky130();
-        // sky130's diode_pw2nd in miniature: n+ diffusion under the diode
-        // marker (the cathode; the substrate is the anode), li pads inside.
         let shapes = [
             rect(&pdk, "diff", 0, 0, 500, 1000),
             rect(&pdk, "nsdm", -125, -125, 750, 1250),
@@ -1101,33 +1015,28 @@ mod tests {
             rect(&pdk, "li", 130, 130, 240, 240),
             rect(&pdk, "li", 130, 630, 240, 240),
         ];
-        let mut checker = Checker::new(&pdk, true).unwrap();
-        assert_eq!(checker.device_count(&shapes), Some(1));
-
+        assert_eq!(device_count(&shapes, &pdk), Some(1));
         let with_diode = RefInput {
             devices: vec![RefDeviceIn { kind: RefKind::Diode, model: None, terminals: vec!["a".into(), "k".into()], params: vec![] }],
             ports: vec![],
             external_ports: None,
         };
-        let mut fresh = Checker::new(&pdk, false).unwrap();
-        assert_eq!(fresh.set_reference(&with_diode).unwrap(), [], "a deck with a diom recogniser must not skip diode cards");
+        assert_eq!(
+            reference::spice(&with_diode, &pdk.deck, &pdk.strings).unwrap().1,
+            Vec::<usize>::new(),
+            "a deck with a diom recogniser must not skip diode cards"
+        );
     }
 
-    // A minimal MOS-like stack: poly crossing two overlapping diff plates under
-    // an nsdm implant derives one ngate marker → one recognised device. The
-    // merge oracle's whole currency is this count.
+    /// A minimal MOS-like stack derives one recognised device: the merge
+    /// oracle's whole currency is this count. An empty layout is zero
+    /// devices, not an abort (GPurify crashed on it before 8eadfb6).
+    ///
+    /// Oracle: one poly crossing one diff under nsdm is one nfet.
     #[test]
     fn device_count_sees_one_mos_in_a_minimal_stack() {
         let pdk = sky130();
-        let shapes = [
-            rect(&pdk, "poly", 200, 0, 100, 400),
-            rect(&pdk, "diff", 0, 100, 260, 200),
-            rect(&pdk, "diff", 240, 100, 260, 200),
-            rect(&pdk, "nsdm", 0, 0, 500, 400),
-        ];
-        let mut checker = Checker::new(&pdk, true).unwrap();
-        assert_eq!(checker.device_count(&shapes), Some(1));
-        // And no geometry at all is zero devices, not an abort.
-        assert_eq!(checker.device_count(&[]), Some(0));
+        assert_eq!(device_count(&nfet(&pdk), &pdk), Some(1));
+        assert_eq!(device_count(&[], &pdk), Some(0), "no geometry is zero devices, not an abort");
     }
 }

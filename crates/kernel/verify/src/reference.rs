@@ -1,23 +1,26 @@
-//! The LVS reference netlist, compiled from plain [`RefInput`] (verify cannot
-//! depend on `frontend/library`) into gdsverify's SoA [`Netlist`].
+//! The LVS reference netlist: plain [`RefInput`] (verify cannot depend on
+//! `frontend/library`) → the SPICE text `gpurify lvs --reference` reads
+//! (Q61), one `X` card per device calling its deck model.
 //!
-//! - **Terminals are in SPICE card order** — gdsverify assigns roles by
+//! - **Terminals are in SPICE card order** — GPurify assigns roles by
 //!   position: MOS `d g s [b]` (bulk only if the recogniser declares 4),
 //!   BJT `c b e`, R/C/D `a b`.
-//! - **Params are SI** (metres). Interning a param name is what makes the
-//!   layout side emit its measured value, so a name on one side only is an
-//!   `lvs.undeclared_param`. A device with params never parallel-merges, so the
-//!   caller must expand m/nf to one card per drawn finger.
+//! - **Params are SI** (metres). A param named on one side only is an
+//!   `lvs.undeclared_param`. The caller expands m/nf to one card per drawn
+//!   finger.
 //! - **Kinds the deck cannot recognise are skipped** (returned by index):
 //!   the layout extracts none, so keeping them would mismatch unconditionally.
 //!   The caller counts them as LVS-unverified ([`crate::Coverage`]), never as
 //!   matched. A MOM capacitor (no deck recognises one: a comb draws each
 //!   electrode as many polygons and `DeviceRecognition` binds one polygon per
 //!   terminal), a BJT on a deck without one, and every inductor are the cases.
+//!
+//! Contents:
+//! - `pub enum RefKind`, `pub struct RefDeviceIn`, `pub struct RefInput`
+//! - `pub fn spice(input: &RefInput, deck: &Deck, strings: &StrTable) -> Result<(String, Vec<usize>), String>`
 
 use gdsverify::ingest::deck::{Deck, DeviceKind};
-use gdsverify::ingest::netlist::{Netlist, RefNetId, SubcktId};
-use gdsverify::ingest::{StrId, StrTable};
+use gdsverify::ingest::StrTable;
 
 /// A schematic device kind, polarity included (recognisers are per-polarity).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,39 +65,19 @@ pub struct RefInput {
     pub external_ports: Option<Vec<String>>,
 }
 
-/// Compile `input` into a one-subckt (`"top"`) [`Netlist`], interning into the
-/// **checker's** `strings` so reference and layout names share one id space.
-/// Returns the netlist and the indices into `input.devices` of the devices
-/// skipped for want of a recogniser.
+/// `input` as the SPICE netlist GPurify's LVS reads: one `.subckt top
+/// <ports>`, one `X` card per device calling its deck recogniser's model,
+/// on every terminal the card states. A length (`w`, `l`, ...)
+/// is written in µm with a `u` suffix and an area in µm² with `p`, so the
+/// deck's `netlist_scale` cannot rescale it; any other value is written
+/// bare. Returns the text and the indices into `input.devices` of the
+/// devices skipped for want of a recogniser.
 ///
 /// # Errors
 /// A device whose terminals are fewer than its recogniser's arity.
-pub fn build(input: &RefInput, deck: &Deck, strings: &mut StrTable) -> Result<(Netlist, Vec<usize>), String> {
-    let mut n = Netlist::default();
-    n.subckt_name.push(strings.intern("top"));
-
-    // Deterministic net numbering: first-seen order over ports then devices.
-    let mut net_names: Vec<StrId> = Vec::new();
-    let net_of = |name: &str, strings: &mut StrTable, nets: &mut Vec<StrId>| -> RefNetId {
-        let id = strings.intern(name);
-        let at = nets.iter().position(|&existing| existing == id).unwrap_or_else(|| {
-            nets.push(id);
-            nets.len() - 1
-        });
-        RefNetId(at as u32)
-    };
-
-    n.subckt_port_start.push(0);
-    for port in &input.ports {
-        let net = net_of(port, strings, &mut net_names);
-        n.port_net.push(net);
-    }
-    n.subckt_port_start.push(n.port_net.len() as u32);
-
+pub fn spice(input: &RefInput, deck: &Deck, strings: &StrTable) -> Result<(String, Vec<usize>), String> {
+    let mut out = format!(".subckt top {}\n", input.ports.join(" "));
     let mut skipped = Vec::new();
-    n.subckt_device_start.push(0);
-    n.device_terminal_start.push(0);
-    n.device_param_start.push(0);
     for (index, dev) in input.devices.iter().enumerate() {
         let Some(row) = recogniser_for(dev, deck, strings) else {
             // No marker layer in this deck extracts this device from the
@@ -105,34 +88,30 @@ pub fn build(input: &RefInput, deck: &Deck, strings: &mut StrTable) -> Result<(N
         let arity = (deck.devices.terminal_start[row + 1] - deck.devices.terminal_start[row]) as usize;
         if dev.terminals.len() < arity {
             return Err(format!(
-                "reference device {index} ({:?}) states {} terminals, its deck recogniser \
-                 needs {arity}",
+                "reference device {index} ({:?}) states {} terminals, its deck recogniser needs {arity}",
                 dev.kind,
                 dev.terminals.len()
             ));
         }
-
-        n.device_model.push(deck.devices.model[row]);
-        n.device_kind.push(deck.devices.kind[row]);
-        for name in &dev.terminals[..arity] {
-            let net = net_of(name, strings, &mut net_names);
-            n.terminal_net.push(net);
+        // Every card terminal: GPurify reads a MOS's bulk off the card even
+        // where the deck extracts none.
+        out.push_str(&format!("X{index} {} {}", dev.terminals.join(" "), strings.resolve(deck.devices.model[row])));
+        for (name, v) in &dev.params {
+            match name.as_str() {
+                // Rounded to the pm: no float noise past the nm grid.
+                "w" | "l" | "ps" | "pd" | "pe" | "perim" => out.push_str(&format!(" {name}={}u", (v * 1e12).round() / 1e6)),
+                "area" | "as" | "ad" | "ae" => out.push_str(&format!(" {name}={}p", v * 1e12)),
+                _ => out.push_str(&format!(" {name}={v}")),
+            }
         }
-        n.device_terminal_start.push(n.terminal_net.len() as u32);
-        for (name, value) in &dev.params {
-            n.param.push((strings.intern(name), *value));
-        }
-        n.device_param_start.push(n.param.len() as u32);
+        out.push('\n');
     }
-    n.subckt_device_start.push(n.device_model.len() as u32);
-
-    n.net_name = net_names;
-    n.net_subckt = vec![SubcktId(0); n.net_name.len()];
-
-    debug_assert_eq!(n.subckt_count(), 1);
-    debug_assert_eq!(n.device_param_start.last().copied().unwrap_or(0) as usize, n.param.len(), "the param CSR's terminator and its rows disagree");
-    Ok((n, skipped))
+    out.push_str(".ends top\n");
+    debug_assert!(skipped.windows(2).all(|w| w[0] < w[1]), "skipped indices ascend");
+    Ok((out, skipped))
 }
+
+// ---- private ----
 
 /// The deck recogniser row for one schematic device, `None` when the deck has
 /// no marker for its kind/polarity. Polarity is read off the marker layer name

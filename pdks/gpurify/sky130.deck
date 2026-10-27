@@ -1,4 +1,4 @@
-# vendored from GPurify 11b557802a65c043eb5ab898b529f30c19b819c9 pdks/sky130.deck; Philis edits are marked "# PHILIS:"
+# vendored from GPurify 64965421c86730dfc2d06ce1df2a7d4c87330162 pdks/sky130.deck; Philis edits are marked "# PHILIS:"
 # SkyWater SKY130 (sky130A, 5-metal Al back end)
 #
 # Sources. Every number below comes from one of these; the tag after a rule
@@ -39,6 +39,13 @@
 #   [S11] Cadence's SKY130 Pegasus DRC deck v0.0_2.12 and its rule manual dated 2025-07-22
 #        (Sky130_DRM_July_22_2025.pdf; Cadence Public License 1.0, released without NDA),
 #        read from neu-ucb-tvip/tvip-analog-workspace at commit 956db25, Sky130_DRC/
+#   [S12] The same volare build's resistor models, sky130A/libs.ref/sky130_fd_pr/spice/
+#        sky130_fd_pr__res_high_po.model.spice (line 31) and
+#        sky130_fd_pr__res_xhigh_po.model.spice (line 42): `body_pelgrom`, applied as
+#        res_match = body_pelgrom/sqrt(w*l*mult) times sky130_fd_pr__res_high_po__slope_spectre,
+#        which the statistics block of sky130A/libs.tech/ngspice/
+#        sky130_fd_pr__model__linear.model.spice varies as a mismatch, "dist=gauss std=1.0"
+#        (ngspice holds it at 0): one resistor body's σ(R)/R over its drawn W·L in µm²
 #
 # Rule ids are the manual's: nwell.1, licon.5a, m1.4. The n+/p+ implant rules,
 # which the manual groups as "n/psd.x", are nsd.x and psd.x here, as [S3] names them.
@@ -137,8 +144,10 @@ layer pwell_label = gds(64, 59)
 # docs/xcheck/sky130.tsv) checks no grid on it. No rule reads it.
 ignore gds(122, 16)
 layer pwell_drawing = gds(64, 44)
-# The cell outline, which a macro's area is read from.
+# The cell outline, which a macro's area is read from, and the die every
+# density divides by.
 layer prBoundary = gds(235, 4)
+boundary prBoundary
 
 # Conductors. A resistor body is cut out of the layer it is drawn on, so the
 # two heads of a resistor are two nets.
@@ -301,6 +310,8 @@ rule lvtn.9 space(lvtn, hvtp) >= 380nm
 # (exclude coincident edges)", as [S11] Include/lvtn.drc.pvl lines 40-44
 # selects the wells; an lvtn off every such well is not measured.
 layer nwell_novar = nwell.outside(var_channel)
+# PHILIS: GPurify measures an inner no host covers as 0 (a violation), so
+# the lvtn off every such well (an LVT nfet) is selected out here.
 rule lvtn.10 enclosure(lvtn.interacting(nwell_novar), nwell_novar, noncoincident) >= 380nm
 rule lvtn.12 space(lvtn, nwell_ce) >= 380nm
 rule lvtn.13 area(lvtn) >= 0.265um2
@@ -617,8 +628,14 @@ rule nwell.4 floating_well(nwell, ntap_licon)
 # n-tap shares a net with p-type nodes by design (a mirror's base, a
 # diode-connected substrate PNP at VSS).
 rule supply_short supply_short(ntap, ptap, pmos_well)
-rule soft_connection soft_connection(ntap, ptap, nwell, pwell_iso)
-rule floating_gate floating_gate(; labels_are_ports: false)
+# PHILIS: psub is soft too. GPurify keeps a global layer in the hard
+# connectivity (its docs say it drops it), so a supply tied to the substrate
+# through ptap read as two pieces, its source strap and the substrate.
+rule soft_connection soft_connection(ntap, ptap, nwell, pwell_iso, psub)
+# PHILIS: a labelled net is a port driven from outside the block (Philis 1.0
+# exempted ports by its own net extraction); false again once GPurify's
+# intent file names the ports (Q61).
+rule floating_gate floating_gate(; labels_are_ports: true)
 rule tie_high_low warning tie_high_low()
 rule ir_drop ir_drop()
 rule multiple_drivers multiple_drivers(; max: 1)
@@ -705,7 +722,15 @@ connect label met5 names met5
 connect label met5_label names met5
 connect label met5_pin names met5
 
+# Not a foundry number: the parameter tolerance GPurify compared every deck
+# at before decks stated one. A foundry LVS deck's own tolerances replace it.
+lvs tolerance default relative 2%
+
 # --- Devices [S5], [S7]. MOS terminals: gate, source, drain, bulk ---
+# A reference netlist's X card calling an sky130_fd_pr model writes a bare
+# W and L in um, `XM1 d g s b sky130_fd_pr__nfet_01v8 W=0.42 L=0.15`, as the
+# models take them ([S7]'s device sizes are in um): a bare area is in um2.
+netlist_scale 1um
 # An nfet's bulk is the substrate, or the isolated p-well inside dnwell: two
 # rows per model, and the one whose bulk the gate sits on binds.
 device mos nfet_01v8 model "sky130_fd_pr__nfet_01v8" terminals [poly_c, nsd, nsd, psub]
@@ -748,6 +773,16 @@ device capacitor cap2m model "sky130_fd_pr__cap_mim_m3_2" terminals [met5, met4]
 device capacitor cap_var_lvt model "sky130_fd_pr__cap_var_lvt" terminals [poly_c, ntap]
 device capacitor cap_var_hvt model "sky130_fd_pr__cap_var_hvt" terminals [poly_c, ntap]
 device capacitor cap_var_5v model "sky130_fd_pr__cap_var" terminals [poly_c, ntap]
+
+# --- Matching [S12] ---
+# The models state one resistor body's σ, so the lines are `single`. Not
+# stated: any MOS coefficient (the models vary vth0, voff, toxe, nfactor, lint
+# and wint, each with a slope per bin, so no one A_VT or A_beta is stated), the
+# resistor heads' mismatch (head_pelgrom, over (W + 0.525 um) times the contact rows),
+# and k_A, since the deck declares no bipolar device.
+matching "sky130_fd_pr__res_high_po" single ar 3.552%·um    # [S12] res_high_po body_pelgrom = 0.03552
+matching "sky130_fd_pr__res_xhigh_po" single ar 3.47%·um    # [S12] res_xhigh_po body_pelgrom = 0.0347
+
 # VPP capacitors have no marker: Magic's sky130 techfile represents them
 # "only by script-generated subcells" and recognises them by cell name, so
 # LVS compares each placement by its pins (catalog LVS-067). The schematic
@@ -797,6 +832,9 @@ pex rbody_high_po thickness 180nm height 326.2nm sheet 317.3885ohm dielectric 3.
 # PHILIS: sheet = rsheet of sky130_fd_pr__res_xhigh_po (VOL/../libs.ref/sky130_fd_pr/spice/sky130_fd_pr__res_xhigh_po.model.spice:27);
 # geometry columns = poly_c
 pex rbody_xhigh_po thickness 180nm height 326.2nm sheet 2000ohm dielectric 3.9 area_cap 106.13aF/um2 fringe_cap 55.27aF/um
+# Not a foundry number: lateral coupling is looked for within ten times each
+# conductor's thickness, the reach GPurify used before decks stated one.
+extraction rcc coupling_halo 10
 
 # --- Presence rules [S1] ---
 # A straddle is the part of a shape on the other layer touching its part off it.

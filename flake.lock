@@ -54,17 +54,17 @@
     "gpurify": {
       "flake": false,
       "locked": {
-        "lastModified": 1793124668,
-        "narHash": "sha256-9OVTB7/Jz/h9+POCy3phy+exGkVYb0QtN7xXZmBIkwY=",
+        "lastModified": 1793133962,
+        "narHash": "sha256-/USZHROCxUKZyMFPYiaFuI4ak7CxySfvFZAar/FpWTc=",
         "owner": "OmarSiwy",
         "repo": "GPurify",
-        "rev": "71537e0852a7aadfdaec52763c3303c21e4119c5",
+        "rev": "64965421c86730dfc2d06ce1df2a7d4c87330162",
         "type": "github"
       },
       "original": {
         "owner": "OmarSiwy",
         "repo": "GPurify",
-        "rev": "71537e0852a7aadfdaec52763c3303c21e4119c5",
+        "rev": "64965421c86730dfc2d06ce1df2a7d4c87330162",
         "type": "github"
       }
     },

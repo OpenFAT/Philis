@@ -583,8 +583,7 @@ mod tests {
     /// that is also a routing metal, is an `Err` from `routing_stack`, never a panic.
     #[test]
     fn a_bad_stack_is_an_error_not_a_panic() {
-        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../pdks/");
-        let deck = std::fs::read_to_string(format!("{root}gpurify/sky130.deck")).unwrap();
+        let deck = Pdk::builtin("sky130").unwrap().source;
         let good = verify::pdk_data::cell("sky130").unwrap();
         let mut sidecar = good.clone();
         sidecar["layers"]["routing_vias"].as_array_mut().unwrap().retain(|v| v != "via4");

@@ -1,9 +1,7 @@
-//! Philis's edits to GPurify's shipped decks, as [`DeckBuilder`] overrides
-//! (Q59): the upstream text is the pinned dependency's own
-//! (`gdsverify::pdks::*`, byte for byte GPurify's `pdks/`), and each edit
-//! below is one that 1.0 made by hand in a vendored copy under a
-//! `# PHILIS:` comment. Each carries that comment's reason; an edit leaves
-//! here once GPurify ships it (inventory: `docs/ref/research/deck-overrides.md`).
+//! Philis's edits to GPurify 1.0's shipped decks, as [`DeckBuilder`]
+//! overrides (Q59): the deck [`crate::Pdk`]'s rule queries read until GPurify
+//! 2.0's deck dump replaces them (Q61). Sign-off runs the vendored 2.0 decks
+//! (`pdks/gpurify/`), which carry the same edits under `# PHILIS:` lines.
 
 use crate::pdk::nm_grid;
 use gdsverify::check::deck::{print, rules, DeckBuilder, LayerExpr, LayerRef};
@@ -181,30 +179,6 @@ fn stricter_margins(name: &str, d: &mut DeckBuilder<'_>) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use gdsverify::ingest::deck::DeckSource;
-
-    /// Every list of a deck source in one order, so two decks that state the
-    /// same things in a different order compare equal. ponytail: sorts by
-    /// `Debug` text; the order the builder appends in (layers, rules,
-    /// devices last) is the only difference it has to absorb.
-    fn canon(text: &str) -> DeckSource {
-        fn sort<T: std::fmt::Debug>(v: &mut [T]) {
-            v.sort_by_cached_key(|x| format!("{x:?}"));
-        }
-        let mut strings = StrTable::default();
-        let deck = gdsverify::check::deck::compile(text, nm_grid(), &mut strings).expect("deck compiles");
-        let mut s = deck.source(&strings);
-        sort(&mut s.layers);
-        sort(&mut s.derived);
-        sort(&mut s.rules);
-        sort(&mut s.connectivity.conductors);
-        sort(&mut s.connectivity.vias);
-        sort(&mut s.devices);
-        sort(&mut s.pex);
-        s
-    }
-
     /// ASAP7 ACTIVE.S.2A's control: two device actives (each under a gate)
     /// 38 nm apart side by side fail it, 92 nm apart pass, and LISD across
     /// the break (one net) waives it; stacked 38 nm apart vertically, the
@@ -224,16 +198,5 @@ mod tests {
         bridged.push(r("lisd", 50, 0, 78, 81));
         assert_eq!(hits(&bridged), 0, "LISD across the break");
         assert_eq!(hits(&[device(0, 0), device(0, 81 + 38)].concat()), 0, "stacked");
-    }
-
-    /// The override-built deck states exactly what 1.0's hand-edited
-    /// vendored deck does: every layer, rule, connection, device and pex row.
-    #[test]
-    fn overrides_equal_the_edited_decks() {
-        for (name, edited) in crate::decks::DECKS {
-            let pdk = name.trim_end_matches(".deck");
-            let built = deck_text(pdk).unwrap_or_else(|e| panic!("{e}"));
-            assert_eq!(canon(&built), canon(edited), "{pdk}: overrides differ from pdks/{name}");
-        }
     }
 }

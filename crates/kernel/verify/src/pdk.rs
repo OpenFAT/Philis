@@ -1660,14 +1660,16 @@ mod tests {
     }
 
     /// Line 1 of each vendored deck names the GPurify commit it was copied
-    /// from, which must be the rev `Cargo.lock` pins (build.rs
+    /// from, which must be the rev `flake.lock` pins (build.rs
     /// `GPURIFY_REV`): a lockfile bump without re-vendoring the decks fails.
+    ///
+    /// Oracle: `flake.lock`'s `gpurify` input.
     #[test]
     fn vendored_decks_name_their_origin() {
         let rev = env!("GPURIFY_REV");
         for (name, text) in crate::decks::DECKS {
             let first = text.lines().next().unwrap_or_default();
-            assert!(first.starts_with(&format!("# vendored from GPurify {rev}")), "{name}: line 1 is {first:?}, Cargo.lock pins {rev}");
+            assert!(first.starts_with(&format!("# vendored from GPurify {rev}")), "{name}: line 1 is {first:?}, flake.lock pins {rev}");
         }
     }
 

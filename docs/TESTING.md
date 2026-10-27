@@ -32,7 +32,7 @@ with a coded diagnostic.
 | bug class | oracle | layer | tier |
 |---|---|---|---|
 | geometry violates a claim (asymmetry, centroid off, unequal environment) | `RuleBatch` in `kernel/analog`, computed from drawn geometry independently of the recipe (Q2, Q40) | seeded-violation test per claim kind: clean tile, inject one defect, exactly that claim fails | merge |
-| geometry DRC- or ERC-dirty | GPurify in-process on the real decks (certificate check) | conformance matrix: every recipe × proof PDK × parameter grid (Q28) | merge (sky130, asap7); nightly (gf180mcu, ihp) |
+| geometry DRC- or ERC-dirty | GPurify (the `gpurify` binary, Q61) on the real decks (certificate check) | conformance matrix: every recipe × proof PDK × parameter grid (Q28) | merge (sky130, asap7); nightly (gf180mcu, ihp) |
 | GPurify deck gap | foundry KLayout, magic, netgen on the same GDS (differential), in process through `verify::SignoffEngine` | `engine/tests/foundry.rs`, `substrate3/tests/sky130_inverter.rs` (`signoff_xcheck.py` from 1.0 kept for its PEX calibration) | nightly |
 | LVS mismatch | GPurify against the LVS reference built from what was drawn (merge); KLayout LVS and netgen against the same reference (nightly) | acceptance fixtures | merge, nightly |
 | claim met in geometry but broken by parasitics (lead C, path R) | extracted network from GPurify PEX (Q29) | acceptance fixtures: differential pairs' lead C and path R equal within tolerance | merge |
@@ -93,7 +93,7 @@ proves nothing.
 | tier | budget | contents |
 |---|---|---|
 | local | < 10 s | `cargo fmt --check`, `cargo clippy`, unit and small-iteration property tests |
-| merge (required) | < 15 min | every unit, property and exhaustive test; conformance on sky130 and asap7; acceptance fixtures through both modes with in-process signoff; fuzz corpus replay; seeded reproducibility; `deps.rs` |
+| merge (required) | < 15 min | every unit, property and exhaustive test; conformance on sky130 and asap7; acceptance fixtures through both modes with GPurify signoff; fuzz corpus replay; seeded reproducibility; `deps.rs` |
 | nightly | hours | foundry cross-check; gf180mcu and ihp conformance; long fuzz; printer round-trip; high-iteration properties; perf trend |
 | release | unbounded | exit criteria below on the release commit |
 
