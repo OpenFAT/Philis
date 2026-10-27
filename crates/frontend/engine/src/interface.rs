@@ -88,14 +88,19 @@ impl Interface {
     }
 }
 
-/// A pin resolved against the netlist and the deck: its net, and its metal's
-/// index in `pdk.routing_metals`.
+/// A pin resolved against the netlist and the deck: its net, its metal's
+/// index in `pdk.routing_metals`, and its size, nm: `along` its edge (the
+/// given width, at least its metal's via pad and `min_width`) and `inward`
+/// (the least of the pad, `min_width` and `min_area / along`: pin access
+/// lands a cut on it).
 pub(crate) struct Bound {
     net: NetId,
     metal: usize,
+    along: i32,
+    inward: i32,
 }
 
-/// Each pin's net and metal.
+/// Each pin's net, metal and size.
 ///
 /// # Errors
 /// `interface`: a pin on a net that is not a top-cell port, or on a layer
@@ -106,48 +111,48 @@ pub(crate) fn bind(i: &Interface, flat: &Flat, pdk: &Pdk) -> Result<Vec<Bound>, 
     if !off.is_empty() {
         return Err(refuse("interface", format!("pins on non-port nets {off:?}")));
     }
+    let g = i64::from(pdk.grid.max(1));
+    let up = |v: i64| ((v + g - 1).div_euclid(g) * g) as i32;
+    let vias = pdk.routing_vias();
+    // The via pad on metal `k`: the larger of the cut below's and above's.
+    let pad = |k: usize| vias.get(k).map_or(0, |v| v.2).max(k.checked_sub(1).and_then(|j| vias.get(j)).map_or(0, |v| v.3));
     i.pins
         .iter()
         .map(|p| {
             let metal = pdk.routing_metals.iter().position(|&m| pdk.layers.iter().any(|(n, l)| *l == m && *n == p.layer));
             let metal = metal.ok_or_else(|| refuse("interface", format!("pin `{}`: `{}` is not a routing metal of the deck", p.net, p.layer)))?;
-            Ok(Bound { net: port(&p.net).expect("checked above"), metal })
+            let id = pdk.routing_metals[metal].0;
+            let least = pad(metal).max(pdk.min_width(id).unwrap_or(0));
+            let along = up(i64::from(p.width_nm.unwrap_or(0).max(least)));
+            let area = pdk.min_area(id).map_or(0, |a| (a + i64::from(along) - 1) / i64::from(along));
+            Ok(Bound { net: port(&p.net).expect("checked above"), metal, along, inward: up(i64::from(least).max(area)) })
         })
         .collect()
 }
 
+/// How far in from each die edge the block must keep, nm: the deepest pin
+/// and two routing pitches for the wires that reach it.
+pub(crate) fn reach(bound: &[Bound], pdk: &Pdk) -> i32 {
+    bound.iter().map(|b| b.inward).max().unwrap_or(0) + 2 * crate::route::routing_stack(pdk, None).map_or(0, |s| s.p0)
+}
+
 /// The boundary pin macros, in world coordinates (past the layout's rows, so
 /// `place_macros` leaves them as drawn): the die centred on the placed
-/// block's bbox, each pin `width` along its edge and inward the least of its
-/// metal's via pad, `min_width` and `min_area / width` (pin access lands a
-/// cut on it), with the deck's via stack at its centre down to the lowest
-/// routed metal's pad — the one pin `dr` sees and climbs from.
+/// block's bbox, each pin at its side and fraction, with the deck's via
+/// stack at its centre down to the lowest routed metal's pad — the one pin
+/// `dr` sees and climbs from.
 ///
 /// # Errors
-/// `interface`: the block plus the pins' reach does not fit in the die.
+/// `interface`: the block does not fit in the die [`reach`] from its edges.
 pub(crate) fn boundary(i: &Interface, bound: &[Bound], placed: &[Macro], pdk: &Pdk) -> Result<Vec<Macro>, Refusal> {
     let g = pdk.grid.max(1);
-    let up = |v: i64| ((v + i64::from(g) - 1).div_euclid(i64::from(g)) * i64::from(g)) as i32;
     let snap = |v: i32| v.div_euclid(g) * g;
     let metals = &pdk.routing_metals;
     let vias = pdk.routing_vias();
-    // The via pad on metal `k`: the larger of the cut below's and above's.
-    let pad = |k: usize| vias.get(k).map_or(0, |v| v.2).max(k.checked_sub(1).and_then(|j| vias.get(j)).map_or(0, |v| v.3));
     let stack = crate::route::routing_stack(pdk, None).map_err(|e| refuse("interface", e))?;
     let floor = metals.iter().position(|&m| m == stack.layers[0]).expect("the routing stack is the deck's metals");
-    let size: Vec<(i32, i32)> = i
-        .pins
-        .iter()
-        .zip(bound)
-        .map(|(p, b)| {
-            let id = metals[b.metal].0;
-            let w = up(i64::from(p.width_nm.unwrap_or(0).max(pad(b.metal)).max(pdk.min_width(id).unwrap_or(0))));
-            let area = pdk.min_area(id).map_or(0, |a| (a + i64::from(w) - 1) / i64::from(w));
-            (w, up(i64::from(pad(b.metal).max(pdk.min_width(id).unwrap_or(0))).max(area)))
-        })
-        .collect();
     let block = placed.iter().map(|m| m.bbox).reduce(crate::union).unwrap_or_default();
-    let margin = size.iter().map(|s| s.1).max().unwrap_or(0) + 2 * stack.p0;
+    let margin = reach(bound, pdk);
     let (w, h) = i.die_nm.unwrap_or((block.w + 2 * margin, block.h + 2 * margin));
     if block.w + 2 * margin > w || block.h + 2 * margin > h {
         return Err(refuse(
@@ -155,20 +160,47 @@ pub(crate) fn boundary(i: &Interface, bound: &[Bound], placed: &[Macro], pdk: &P
             format!("the block ({} × {} nm) and its pins' reach ({margin} nm a side) do not fit the die ({w} × {h} nm)", block.w, block.h),
         ));
     }
+    let p0 = stack.p0.max(1);
     let die = Rect { x: snap(block.x + block.w / 2 - w / 2), y: snap(block.y + block.h / 2 - h / 2), w, h };
     Ok(i.pins
         .iter()
         .zip(bound)
-        .zip(&size)
-        .map(|((p, b), &(along, inward))| {
-            let at = |lo: i32, span: i32| snap(lo + (p.frac * span as f32) as i32 - along / 2).clamp(lo, lo + span - along);
-            let rect = match p.side {
-                Side::North => Rect { x: at(die.x, die.w), y: die.y + die.h - inward, w: along, h: inward },
-                Side::South => Rect { x: at(die.x, die.w), y: die.y, w: along, h: inward },
-                Side::East => Rect { x: die.x + die.w - inward, y: at(die.y, die.h), w: inward, h: along },
-                Side::West => Rect { x: die.x, y: at(die.y, die.h), w: inward, h: along },
+        .map(|(p, b)| {
+            let (along, inward) = (b.along, b.inward);
+            // The stack sits on a lattice node (`dr`'s at `k·p0 + p0/2`), so
+            // the trunk lands at the pad's centre: one ending part-way into
+            // the pad leaves a corner-to-corner neck under `min_width`. The
+            // pin runs from its edge in past the node by half its depth.
+            let node = |v: i32, lo: i32, hi: i32| {
+                let t = v.div_euclid(p0) * p0 + p0 / 2;
+                if t < lo {
+                    t + p0
+                } else if t > hi {
+                    t - p0
+                } else {
+                    t
+                }
             };
-            let (cx, cy) = (snap(rect.x + rect.w / 2), snap(rect.y + rect.h / 2));
+            let (x1, y1) = (die.x + die.w, die.y + die.h);
+            let span = |lo: i32, hi: i32| node(lo + (p.frac * (hi - lo) as f32) as i32, lo + along / 2, hi - along / 2);
+            let ((cx, cy), rect) = match p.side {
+                Side::North => {
+                    let (cx, cy) = (span(die.x, x1), node(y1 - inward / 2, i32::MIN, y1 - inward / 2));
+                    ((cx, cy), Rect { x: cx - along / 2, y: cy - inward / 2, w: along, h: y1 - cy + inward / 2 })
+                }
+                Side::South => {
+                    let (cx, cy) = (span(die.x, x1), node(die.y + inward / 2, die.y + inward / 2, i32::MAX));
+                    ((cx, cy), Rect { x: cx - along / 2, y: die.y, w: along, h: cy + inward / 2 - die.y })
+                }
+                Side::East => {
+                    let (cx, cy) = (node(x1 - inward / 2, i32::MIN, x1 - inward / 2), span(die.y, y1));
+                    ((cx, cy), Rect { x: cx - inward / 2, y: cy - along / 2, w: x1 - cx + inward / 2, h: along })
+                }
+                Side::West => {
+                    let (cx, cy) = (node(die.x + inward / 2, die.x + inward / 2, i32::MAX), span(die.y, y1));
+                    ((cx, cy), Rect { x: die.x, y: cy - along / 2, w: cx + inward / 2 - die.x, h: along })
+                }
+            };
             let square = |l: LayerId, s: i32| Shape { layer: l, rect: Rect { x: cx - s / 2, y: cy - s / 2, w: s, h: s } };
             let mut shapes = vec![Shape { layer: metals[b.metal], rect }];
             // The lowest cut is pin access's: `dr` draws it where its own

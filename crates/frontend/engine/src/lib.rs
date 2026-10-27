@@ -328,6 +328,13 @@ pub fn drawable_size(d: &Device, pdk: &Pdk) -> Result<(), Refusal> {
 /// # Errors
 /// A call no variant of its recipe can draw.
 pub fn build_tiles(calls: &RecipeCalls, problem: &annotator::Problem, flat: &Flat, pdk: &Pdk) -> Result<Vec<Macro>, Refusal> {
+    build_tiles_within(calls, problem, flat, pdk, None)
+}
+
+/// [`build_tiles`] for a die `max_w` wide inside its pins' reach: each call's
+/// least-area variant no wider, where one is (an Adjacent block may then fold
+/// into two rows); else its least-area one, and the harness refuses.
+fn build_tiles_within(calls: &RecipeCalls, problem: &annotator::Problem, flat: &Flat, pdk: &Pdk, max_w: Option<i32>) -> Result<Vec<Macro>, Refusal> {
     let ground = problem.net_classes.iter().find(|c| c.class == analog::metadata::NetClass::Ground).map(|c| c.net);
     (0..calls.len())
         .map(|i| {
@@ -341,15 +348,19 @@ pub fn build_tiles(calls: &RecipeCalls, problem: &annotator::Problem, flat: &Fla
             let process = mos.get();
             let drawn: Vec<Macro> = match mos_variants(calls.kind[i], flat, members, &constraints, process) {
                 Variants::Fin(vs) => vs.into_iter().map(|v| v.draw(&group, &constraints, process)).collect(),
-                Variants::Planar(vs, apart_too) => vs
-                    .into_iter()
-                    .map(|v| v.draw(&group, &constraints, process))
-                    .chain(apart_too.then(|| apart(members, &constraints, process, pdk)).flatten())
-                    .collect(),
+                Variants::Planar(mut vs, apart_too) => {
+                    if max_w.is_some() && calls.kind[i] == RecipeKind::MosAdjacent && !vs.is_empty() {
+                        vs.extend(Mosfet::enumerate(&group, &constraints, process).into_iter().filter(|v| v.style == Pattern::Single && v.rows == 2));
+                    }
+                    vs.into_iter()
+                        .map(|v| v.draw(&group, &constraints, process))
+                        .chain(apart_too.then(|| apart(members, &constraints, process, pdk)).flatten())
+                        .collect()
+                }
             };
             let mut m = drawn
                 .into_iter()
-                .min_by_key(|m| i64::from(m.bbox.w) * i64::from(m.bbox.h))
+                .min_by_key(|m| (max_w.is_some_and(|w| m.bbox.w > w), i64::from(m.bbox.w) * i64::from(m.bbox.h)))
                 .ok_or_else(|| refuse("no-recipe", format!("{}: no {:?} variant draws it", names(flat, members), calls.kind[i])))?;
             bind_pins(&mut m, flat, members, ground);
             join_members(&mut m, pdk);
@@ -839,7 +850,8 @@ fn run_calls_in(
 ) -> Result<Outcome, Refusal> {
     let bound = interface.map(|i| interface::bind(i, &netlist.flat, pdk)).transpose()?;
     netlist.flat.devices.iter().try_for_each(|d| drawable_size(d, pdk))?;
-    let tiles = build_tiles(&calls, problem, &netlist.flat, pdk)?;
+    let max_w = interface.zip(bound.as_deref()).and_then(|(i, b)| Some(i.die_nm?.0 - 2 * interface::reach(b, pdk)));
+    let tiles = build_tiles_within(&calls, problem, &netlist.flat, pdk, max_w)?;
     let mut tiles = tiles;
     let layout = floorplan::arrange_block(&mut tiles, &calls, problem, &netlist.flat, pdk)?;
     // The glue fill (if any) rides after the call tiles; claims read the calls.
