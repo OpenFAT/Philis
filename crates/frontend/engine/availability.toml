@@ -8,6 +8,10 @@ asap7 = false
 sky130 = true
 asap7 = true
 
+[MosRatioed]
+sky130 = true
+asap7 = true
+
 [MosInterdigitated]
 sky130 = true
 asap7 = false

@@ -151,6 +151,10 @@ pub fn claims_of(kind: RecipeKind) -> &'static [Promise] {
         // common-centroid, so the offset is reported. ponytail: R_s equality
         // has no scorer yet; it lands with the path-R claim (Q29).
         RecipeKind::MosInterdigitated => &[Promise::PhiEqual, Promise::EqualEnvironment, Promise::CentroidOffset],
+        // RECIPES.md: coincidence per member, equal unit; Φ equality as the
+        // MOD Current row's OrientationSet. ponytail: "no diffusion break"
+        // has no kernel/analog rule to score it; it lands with one.
+        RecipeKind::MosRatioed => &[Promise::Coincidence, Promise::UnitIdentity, Promise::PhiEqual, Promise::EqualEnvironment],
     }
 }
 
