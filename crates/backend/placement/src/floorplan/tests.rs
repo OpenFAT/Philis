@@ -189,6 +189,32 @@ fn mosfet(kind: DeviceKind, pdk: &verify::Pdk) -> Macro {
         .expect("a single-row variant")
 }
 
+/// Oracle: the sky130 deck through GPurify. Two NMOS tiles, whose facing
+/// shapes are diffusion, poly, li and met1, glue closer than the nwell's
+/// 1270 nm; two PMOS tiles keep their wells 1270 nm apart. Both DRC clean.
+#[test]
+fn only_facing_layers_set_the_gap_on_sky130() {
+    let pdk = verify::Pdk::builtin("sky130").expect("sky130 loads");
+    let spacing = Spacing::of(&pdk, &SKY130_ROLES);
+    let nwell = Process::layer(&pdk, "nwell").unwrap();
+    for (kind, wells) in [(DeviceKind::Nmos, false), (DeviceKind::Pmos, true)] {
+        let tiles = [mosfet(kind, &pdk), mosfet(kind, &pdk)];
+        let (f, _) = glue(&tiles, &pdk, &spacing, 10).unwrap();
+        let placed = place_macros(&tiles, &f.layout());
+        let shapes: Vec<Shape> = placed.iter().flat_map(|m| m.shapes.iter().copied()).collect();
+        let rules: Vec<String> = verify::drc(&shapes, &[], &pdk).into_iter().map(|f| f.rule).filter(|r| !r.ends_with("_density")).collect();
+        assert!(rules.is_empty(), "{kind:?}: {rules:?}");
+        let gap = f.x[1] - (f.x[0] + f.w[0]);
+        if wells {
+            let well = |m: &Macro| m.shapes.iter().filter(|s| s.layer == nwell).map(|s| s.rect).next().unwrap();
+            let (a, b) = (well(&placed[0]), well(&placed[1]));
+            assert!(b.x - (a.x + a.w) >= 1270, "{kind:?}: wells {} apart", b.x - (a.x + a.w));
+        } else {
+            assert!(gap < 1270, "{kind:?}: gap {gap}");
+        }
+    }
+}
+
 /// Oracle: the sky130 deck through GPurify. An NMOS beside a PMOS (its
 /// n-well facing the NMOS diffusion) glued at the facing gap is DRC clean,
 /// and the gap is narrower than the widest drawn-layer spacing (nwell,
