@@ -122,6 +122,8 @@ impl UnitLib {
     }
 }
 
+// ---- private ----
+
 /// A direction turns with the cell (a point about the origin, no shift).
 fn turn_dir(o: Orient, (x, y): (i8, i8)) -> (i8, i8) {
     let (x, y) = o.apply(i32::from(x), i32::from(y));

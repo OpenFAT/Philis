@@ -6,6 +6,40 @@ use crate::base::ids::NetId;
 /// `(cut, layer below, layer above)`: a cut and the two conductors it joins.
 pub type Join = (LayerId, LayerId, LayerId);
 
+/// A routed terminal and the DC current it draws from its net, µA
+/// (+ into the device); `None` = unknown.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Terminal {
+    pub at: Rect,
+    pub ua: Option<f32>,
+}
+
+/// A gate pin, the device it gates and that device's gate-oxide area.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GatePin {
+    pub at: Rect,
+    /// Schematic device id; `u32::MAX` = unknown.
+    pub dev: u32,
+    /// `W·L·m` of `dev`, nm²; `0` = unknown.
+    pub nm2: i64,
+}
+
+#[derive(Default, Clone)]
+pub struct Routes {
+    /// Drawn wire/via shapes per net, by [`NetId`].
+    pub wires: Vec<Vec<Shape>>,
+    /// Per net, the placed cells' metal its pins reach: drawn by the cells,
+    /// not the router, and scored with the wires where a rule reads the whole
+    /// conductor (antenna).
+    pub cell: Vec<Vec<Shape>>,
+    /// Per net, its gate pins: where the conductor meets a gate, and the
+    /// gate oxide behind it (a piece is charged only the gates it reaches).
+    pub gates: Vec<Vec<GatePin>>,
+    /// Per net, every pin `dr` routed to, absolute, with its DC current
+    /// (the electromigration rule's current sources and sinks).
+    pub terms: Vec<Vec<Terminal>>,
+}
+
 /// Two touching shapes conduct into each other: same layer, or one is a cut
 /// joining the other's layer. Metals on non-adjacent layers that overlap in xy
 /// do not.
@@ -39,40 +73,6 @@ pub fn open_components(shapes: &[Shape], joins: &[Join]) -> usize {
         }
     }
     parts.saturating_sub(1)
-}
-
-/// A routed terminal and the DC current it draws from its net, µA
-/// (+ into the device); `None` = unknown.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Terminal {
-    pub at: Rect,
-    pub ua: Option<f32>,
-}
-
-/// A gate pin, the device it gates and that device's gate-oxide area.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct GatePin {
-    pub at: Rect,
-    /// Schematic device id; `u32::MAX` = unknown.
-    pub dev: u32,
-    /// `W·L·m` of `dev`, nm²; `0` = unknown.
-    pub nm2: i64,
-}
-
-#[derive(Default, Clone)]
-pub struct Routes {
-    /// Drawn wire/via shapes per net, by [`NetId`].
-    pub wires: Vec<Vec<Shape>>,
-    /// Per net, the placed cells' metal its pins reach: drawn by the cells,
-    /// not the router, and scored with the wires where a rule reads the whole
-    /// conductor (antenna).
-    pub cell: Vec<Vec<Shape>>,
-    /// Per net, its gate pins: where the conductor meets a gate, and the
-    /// gate oxide behind it (a piece is charged only the gates it reaches).
-    pub gates: Vec<Vec<GatePin>>,
-    /// Per net, every pin `dr` routed to, absolute, with its DC current
-    /// (the electromigration rule's current sources and sinks).
-    pub terms: Vec<Vec<Terminal>>,
 }
 
 impl Routes {

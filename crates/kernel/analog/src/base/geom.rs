@@ -15,15 +15,6 @@ pub struct Rect {
     pub h: i32,
 }
 
-impl Rect {
-    /// Closed intervals on both axes: edge or corner contact counts, so two
-    /// abutting shapes on one conductor are connected.
-    #[must_use]
-    pub fn touches(&self, o: &Rect) -> bool {
-        self.x <= o.x + o.w && o.x <= self.x + self.w && self.y <= o.y + o.h && o.y <= self.y + self.h
-    }
-}
-
 /// How a placed cell is turned before stamping: the D4 group, the same eight
 /// transforms GDSII `SREF` encodes as `(angle, mirror_x)`. Which members are
 /// legal for a device is a constraint concern, not this type's.
@@ -39,6 +30,40 @@ pub enum Orient {
     Mx90,
     Mx180,
     Mx270,
+}
+
+/// One drawn rectangle on one layer — the atom of [`crate::base::Macro`] geometry.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Shape {
+    pub layer: LayerId,
+    pub rect: Rect,
+}
+
+/// A physical point where a net attaches to a macro — a routing entry point.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Pin {
+    pub name: String,
+    pub net: NetId,
+    pub at: Rect,
+    /// The layer the pin is drawn on (pin access must not guess it).
+    pub layer: LayerId,
+}
+
+/// Signal direction of a port.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Dir {
+    In,
+    Out,
+    InOut,
+}
+
+impl Rect {
+    /// Closed intervals on both axes: edge or corner contact counts, so two
+    /// abutting shapes on one conductor are connected.
+    #[must_use]
+    pub fn touches(&self, o: &Rect) -> bool {
+        self.x <= o.x + o.w && o.x <= self.x + self.w && self.y <= o.y + o.h && o.y <= self.y + self.h
+    }
 }
 
 impl Orient {
@@ -90,31 +115,6 @@ impl Orient {
         let (x1, y1) = self.apply(r.x + r.w, r.y + r.h);
         Rect { x: x0.min(x1), y: y0.min(y1), w: (x1 - x0).abs(), h: (y1 - y0).abs() }
     }
-}
-
-/// One drawn rectangle on one layer — the atom of [`crate::base::Macro`] geometry.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Shape {
-    pub layer: LayerId,
-    pub rect: Rect,
-}
-
-/// A physical point where a net attaches to a macro — a routing entry point.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Pin {
-    pub name: String,
-    pub net: NetId,
-    pub at: Rect,
-    /// The layer the pin is drawn on (pin access must not guess it).
-    pub layer: LayerId,
-}
-
-/// Signal direction of a port.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Dir {
-    In,
-    Out,
-    InOut,
 }
 
 #[cfg(test)]

@@ -13,6 +13,15 @@ pub struct Report {
     pub cost: f32,
 }
 
+/// One violated requirement.
+pub struct Violation {
+    /// Rule identity, e.g. `"spacing met1"`.
+    pub rule: String,
+    /// Severity (nm shortfall, or milli-budgets from [`Violation::from_residual`]).
+    /// `0` means boolean fail — and reads as satisfied to [`Report::lex`].
+    pub margin: i64,
+}
+
 impl Report {
     /// `(|V|, Σ Θ residual, PEX)`; derived tuple ordering gives tier precedence.
     #[must_use]
@@ -26,15 +35,6 @@ impl Report {
     pub fn feasible(&self) -> bool {
         self.hard_violations.is_empty() && self.budget_violations.is_empty()
     }
-}
-
-/// One violated requirement.
-pub struct Violation {
-    /// Rule identity, e.g. `"spacing met1"`.
-    pub rule: String,
-    /// Severity (nm shortfall, or milli-budgets from [`Violation::from_residual`]).
-    /// `0` means boolean fail — and reads as satisfied to [`Report::lex`].
-    pub margin: i64,
 }
 
 impl Violation {

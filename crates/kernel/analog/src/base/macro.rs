@@ -41,20 +41,6 @@ pub struct NamedCell {
     pub shapes: std::ops::Range<u32>,
 }
 
-impl Macro {
-    /// Grow `bbox` so its lower-left corner is on `lattice` and both extents are
-    /// multiples of `2·lattice`: then `hw`, `hh` and every placed corner are
-    /// lattice multiples (`place_macro` stamps the corner at `x − hw`). Shapes and
-    /// pins are unchanged; idempotent.
-    pub fn align_bbox(&mut self, lattice: i32) {
-        let l = lattice.max(1);
-        let (x0, y0) = (self.bbox.x.div_euclid(l) * l, self.bbox.y.div_euclid(l) * l);
-        let (x1, y1) = (self.bbox.x + self.bbox.w, self.bbox.y + self.bbox.h);
-        let up = |d: i32| (d + 2 * l - 1).div_euclid(2 * l) * 2 * l;
-        self.bbox = Rect { x: x0, y: y0, w: up(x1 - x0), h: up(y1 - y0) };
-    }
-}
-
 /// One extracted device member `owner` drew, as LVS will see it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Drawn {
@@ -127,6 +113,20 @@ pub struct Dummy {
     /// Channel width and length, nm.
     pub w: i32,
     pub l: i32,
+}
+
+impl Macro {
+    /// Grow `bbox` so its lower-left corner is on `lattice` and both extents are
+    /// multiples of `2·lattice`: then `hw`, `hh` and every placed corner are
+    /// lattice multiples (`place_macro` stamps the corner at `x − hw`). Shapes and
+    /// pins are unchanged; idempotent.
+    pub fn align_bbox(&mut self, lattice: i32) {
+        let l = lattice.max(1);
+        let (x0, y0) = (self.bbox.x.div_euclid(l) * l, self.bbox.y.div_euclid(l) * l);
+        let (x1, y1) = (self.bbox.x + self.bbox.w, self.bbox.y + self.bbox.h);
+        let up = |d: i32| (d + 2 * l - 1).div_euclid(2 * l) * 2 * l;
+        self.bbox = Rect { x: x0, y: y0, w: up(x1 - x0), h: up(y1 - y0) };
+    }
 }
 
 /// Stamp macro `m` at device `i`'s placed position: turn by `l.orient[i]`, then

@@ -14,6 +14,25 @@ use std::sync::OnceLock;
 
 pub use fearless_simd::{dispatch, prelude::*, Level};
 
+/// Borrowed box columns: centre `(x, y)`, half-extents `(hw, hh)`, nm. The
+/// shape [`crate::base::Layout`] already stores, so borrowing it is free.
+#[derive(Clone, Copy)]
+pub struct Boxes<'a> {
+    pub x: &'a [i32],
+    pub y: &'a [i32],
+    pub hw: &'a [i32],
+    pub hh: &'a [i32],
+}
+
+/// One box, same convention as [`Boxes`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Box4 {
+    pub x: i32,
+    pub y: i32,
+    pub hw: i32,
+    pub hh: i32,
+}
+
 /// Widest native `i32` vector across supported levels (AVX-512: 16 lanes).
 const MAX_LANES: usize = 16;
 
@@ -62,25 +81,6 @@ pub fn fold_i32<S: Simd, const K: usize, A>(
     acc
 }
 
-/// Borrowed box columns: centre `(x, y)`, half-extents `(hw, hh)`, nm. The
-/// shape [`crate::base::Layout`] already stores, so borrowing it is free.
-#[derive(Clone, Copy)]
-pub struct Boxes<'a> {
-    pub x: &'a [i32],
-    pub y: &'a [i32],
-    pub hw: &'a [i32],
-    pub hh: &'a [i32],
-}
-
-/// One box, same convention as [`Boxes`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Box4 {
-    pub x: i32,
-    pub y: i32,
-    pub hw: i32,
-    pub hh: i32,
-}
-
 /// `Σ_b ox·oy` over every box `b` whose clearance-inflated overlap with `q` is
 /// positive on both axes, nm². Exact (i64 products). Includes `q` itself if it
 /// is one of `boxes`; the caller subtracts that term.
@@ -88,6 +88,26 @@ pub struct Box4 {
 pub fn overlap_area(boxes: Boxes, q: Box4, clearance: i32) -> i64 {
     dispatch!(level(), simd => overlap_area_simd(simd, boxes, q, clearance))
 }
+
+/// `(min, max)` of `xs`; `None` when empty.
+#[must_use]
+pub fn min_max(xs: &[i32]) -> Option<(i32, i32)> {
+    if xs.is_empty() {
+        return None;
+    }
+    Some(dispatch!(level(), simd => min_max_simd(simd, xs)))
+}
+
+/// Append to `out` every row where `now` and `was` differ in any column,
+/// ascending.
+///
+/// # Panics
+/// If the columns differ in length.
+pub fn changed(now: Boxes, was: Boxes, out: &mut Vec<u32>) {
+    dispatch!(level(), simd => changed_simd(simd, now, was, out));
+}
+
+// ---- private ----
 
 #[inline(always)]
 fn overlap_area_simd<S: Simd>(simd: S, b: Boxes, q: Box4, clearance: i32) -> i64 {
@@ -113,15 +133,6 @@ fn overlap_area_simd<S: Simd>(simd: S, b: Boxes, q: Box4, clearance: i32) -> i64
     acc.reduce_sum()
 }
 
-/// `(min, max)` of `xs`; `None` when empty.
-#[must_use]
-pub fn min_max(xs: &[i32]) -> Option<(i32, i32)> {
-    if xs.is_empty() {
-        return None;
-    }
-    Some(dispatch!(level(), simd => min_max_simd(simd, xs)))
-}
-
 #[inline(always)]
 fn min_max_simd<S: Simd>(simd: S, xs: &[i32]) -> (i32, i32) {
     let (lo, hi) = fold_i32(
@@ -132,15 +143,6 @@ fn min_max_simd<S: Simd>(simd: S, xs: &[i32]) -> (i32, i32) {
         |(lo, hi), _, [v], valid| (lo.min(valid.select(v, lo)), hi.max(valid.select(v, hi))),
     );
     (lo.reduce_min(), hi.reduce_max())
-}
-
-/// Append to `out` every row where `now` and `was` differ in any column,
-/// ascending.
-///
-/// # Panics
-/// If the columns differ in length.
-pub fn changed(now: Boxes, was: Boxes, out: &mut Vec<u32>) {
-    dispatch!(level(), simd => changed_simd(simd, now, was, out));
 }
 
 #[inline(always)]

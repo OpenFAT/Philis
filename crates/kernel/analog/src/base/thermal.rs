@@ -43,6 +43,23 @@ pub fn rises_mc(l: &Layout, power_uw: &[i32]) -> Vec<i32> {
     (0..l.x.len()).map(|i| rise_at(l, power_uw, l.x[i], l.y[i]).round() as i32).collect()
 }
 
+impl Layout {
+    /// Recompute [`Layout::temp_mc`] from `power_uw` and current positions.
+    pub fn refresh_temps(&mut self) {
+        self.temp_mc = rises_mc(self, &self.power_uw);
+    }
+
+    /// Rise at `(x, y)` from every powered source at the **current**
+    /// positions (not the epoch-frozen `temp_mc`), milli-°C: what a trial
+    /// move can be priced on. O(n).
+    #[must_use]
+    pub fn rise_at_point_mc(&self, x: i32, y: i32) -> f32 {
+        rise_at(self, &self.power_uw, x, y)
+    }
+}
+
+// ---- private ----
+
 /// Rise at `(x, y)` from every source at the current positions, milli-°C.
 /// Inside a source's floor disc (its larger half-extent) the term is eq. 5.6
 /// for that source, so a device's own centre, or an overlapping neighbour
@@ -71,21 +88,6 @@ fn rise_at(l: &Layout, power_uw: &[i32], x: i32, y: i32) -> f32 {
         };
     }
     rise
-}
-
-impl Layout {
-    /// Recompute [`Layout::temp_mc`] from `power_uw` and current positions.
-    pub fn refresh_temps(&mut self) {
-        self.temp_mc = rises_mc(self, &self.power_uw);
-    }
-
-    /// Rise at `(x, y)` from every powered source at the **current**
-    /// positions (not the epoch-frozen `temp_mc`), milli-°C: what a trial
-    /// move can be priced on. O(n).
-    #[must_use]
-    pub fn rise_at_point_mc(&self, x: i32, y: i32) -> f32 {
-        rise_at(self, &self.power_uw, x, y)
-    }
 }
 
 #[cfg(test)]

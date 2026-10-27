@@ -45,52 +45,6 @@ pub struct MosSize {
     pub m: u32,
 }
 
-impl MosSize {
-    /// Per-finger width, nm (floor; the < nf nm residue is inside LVS's 2 % tolerance).
-    #[must_use]
-    pub fn w_finger_nm(self) -> i64 {
-        self.w_total_nm / i64::from(self.nf)
-    }
-
-    /// Drawn fingers = nf·m.
-    #[must_use]
-    pub fn fingers(self) -> u32 {
-        self.nf.saturating_mul(self.m)
-    }
-
-    /// W_total·L·m, µm².
-    #[must_use]
-    pub fn gate_area_um2(self) -> f64 {
-        (self.w_total_nm * self.l_nm) as f64 * 1e-6 * f64::from(self.m)
-    }
-}
-
-impl Device {
-    /// `None` for a non-MOS or when `w`/`l` is missing or ≤ 0 (never a silent
-    /// 0 µm²). `nf` and `m` default to 1 and read as at least 1; `multi` (the
-    /// HSPICE-style alias) multiplies into `m`.
-    #[must_use]
-    pub fn mos_size(&self) -> Option<MosSize> {
-        if !matches!(self.kind, DeviceKind::Nmos | DeviceKind::Pmos) {
-            return None;
-        }
-        let p = |k: &str| self.params.iter().find(|(n, _)| n == k).map(|&(_, v)| v);
-        let count = |k: &str| p(k).map_or(1, |v| v.clamp(1, i64::from(u32::MAX)) as u32);
-        Some(MosSize {
-            w_total_nm: p("w").filter(|&v| v > 0)?,
-            l_nm: p("l").filter(|&v| v > 0)?,
-            nf: count("nf"),
-            m: count("m").saturating_mul(count("multi")),
-        })
-    }
-
-    /// [`MosSize::gate_area_um2`], µm²; `0` when [`Device::mos_size`] is `None`.
-    #[must_use]
-    pub fn gate_area_um2(&self) -> f64 {
-        self.mos_size().map_or(0.0, MosSize::gate_area_um2)
-    }
-}
-
 /// One net (a wire connecting terminals).
 #[derive(Clone)]
 pub struct Net {
@@ -151,6 +105,52 @@ pub struct SourceCard {
     pub dc: Option<f64>,
     /// A `PULSE`/`PWL`/`SIN`/`EXP` waveform is present.
     pub waveform: bool,
+}
+
+impl MosSize {
+    /// Per-finger width, nm (floor; the < nf nm residue is inside LVS's 2 % tolerance).
+    #[must_use]
+    pub fn w_finger_nm(self) -> i64 {
+        self.w_total_nm / i64::from(self.nf)
+    }
+
+    /// Drawn fingers = nf·m.
+    #[must_use]
+    pub fn fingers(self) -> u32 {
+        self.nf.saturating_mul(self.m)
+    }
+
+    /// W_total·L·m, µm².
+    #[must_use]
+    pub fn gate_area_um2(self) -> f64 {
+        (self.w_total_nm * self.l_nm) as f64 * 1e-6 * f64::from(self.m)
+    }
+}
+
+impl Device {
+    /// `None` for a non-MOS or when `w`/`l` is missing or ≤ 0 (never a silent
+    /// 0 µm²). `nf` and `m` default to 1 and read as at least 1; `multi` (the
+    /// HSPICE-style alias) multiplies into `m`.
+    #[must_use]
+    pub fn mos_size(&self) -> Option<MosSize> {
+        if !matches!(self.kind, DeviceKind::Nmos | DeviceKind::Pmos) {
+            return None;
+        }
+        let p = |k: &str| self.params.iter().find(|(n, _)| n == k).map(|&(_, v)| v);
+        let count = |k: &str| p(k).map_or(1, |v| v.clamp(1, i64::from(u32::MAX)) as u32);
+        Some(MosSize {
+            w_total_nm: p("w").filter(|&v| v > 0)?,
+            l_nm: p("l").filter(|&v| v > 0)?,
+            nf: count("nf"),
+            m: count("m").saturating_mul(count("multi")),
+        })
+    }
+
+    /// [`MosSize::gate_area_um2`], µm²; `0` when [`Device::mos_size`] is `None`.
+    #[must_use]
+    pub fn gate_area_um2(&self) -> f64 {
+        self.mos_size().map_or(0.0, MosSize::gate_area_um2)
+    }
 }
 
 #[cfg(test)]
