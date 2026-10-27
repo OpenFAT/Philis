@@ -24,9 +24,13 @@ use crate::evidence::Evidence;
 /// [`analog::base::ids::NetId`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NetRole {
+    /// Anything not named or inferred as a rail or clock.
     Signal,
+    /// A positive rail, by name or as the bulk of PMOS devices.
     Supply,
+    /// A negative rail, by name or as the bulk of NMOS devices.
     Ground,
+    /// A clock, by name or by configuration.
     Clock,
 }
 
@@ -41,7 +45,9 @@ pub struct AnnotationConfig {
     pub do_not_use: HashSet<String>,
     /// Extra nets to force to each role (name match, case-insensitive).
     pub supply_nets: Vec<String>,
+    /// Extra nets forced to `Ground`.
     pub ground_nets: Vec<String>,
+    /// Extra nets forced to `Clock`.
     pub clock_nets: Vec<String>,
     /// Process numbers from the deck; `library::annotation` fills them.
     pub process: ProcessNumbers,
@@ -138,6 +144,7 @@ pub struct ProcessNumbers {
     pub ecgr_min_width_nm: Option<i32>,
     /// The process can draw an `Ecgr` / `Hcgr` (`cells::post_cell::drawable`).
     pub ecgr_drawable: bool,
+    /// The process can draw a hole-collecting ring.
     pub hcgr_drawable: bool,
     /// The process can draw a `Tub` (deep n-well; `cells::post_cell::drawable`).
     pub tub_drawable: bool,

@@ -218,7 +218,10 @@ mod tests {
         }
     }
 
-    fn minority(nl: &Netlist) -> (Vec<(String, Inject, &'static str)>, Vec<(&'static str, &'static str)>) {
+    /// Each tagged device's name, injection and reason.
+    type Tags = Vec<(String, Inject, &'static str)>;
+
+    fn minority(nl: &Netlist) -> (Tags, Vec<(&'static str, &'static str)>) {
         let p = crate::annotate(nl, &crate::AnnotationConfig::default());
         let mut missing = Vec::new();
         let tags = injectors(nl, &p.net_classes, None, crate::Policy::default().inj_series_ohm, &mut missing);

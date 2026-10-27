@@ -19,6 +19,7 @@ use analog::RuleBatch;
 use crate::{annotate, AnnotationConfig, Block, BlockKind};
 
 /// A FET with G,D,S,B terminals on the given net ids, W/L in nm.
+#[allow(clippy::too_many_arguments)] // one positional argument per SPICE field, as the card reads
 pub(crate) fn fet(name: &str, kind: DeviceKind, g: u16, d: u16, s: u16, b: u16, w: i64, l: i64) -> Device {
     Device {
         name: name.into(),
@@ -195,8 +196,7 @@ fn budget_rules_land_in_exactly_one_partition() {
     // feasibility frontier. Double-registration is a `clone` away, so it is asserted.
     let nl = ota();
     let p = annotate(&nl, &AnnotationConfig::default());
-    let arms: [(&str, &Vec<Box<dyn RuleBatch<analog::base::Routes>>>); 3] =
-        [("hard", &p.routing.hard), ("budget", &p.routing.budget), ("cost", &p.routing.cost)];
+    let arms = [("hard", &p.routing.hard), ("budget", &p.routing.budget), ("cost", &p.routing.cost)];
     for kind in ["Differential", "CrosstalkExclusion", "ParasiticBudget", "CouplingBudget"] {
         let hits: Vec<&str> = arms.iter().filter(|(_, a)| a.iter().any(|b| b.kind().ends_with(kind))).map(|(name, _)| *name).collect();
         assert_eq!(hits, ["budget"], "{kind} must be registered once, in `budget`");
@@ -273,15 +273,15 @@ fn dti_bands_are_one_hard_batch_with_dense_ids_seeded_share() {
     let mut cfg = AnnotationConfig::default();
     cfg.process.dti = Some((2_000, 1_000));
     let p = annotate(&ota(), &cfg);
-    let is_dti = |b: &Box<dyn RuleBatch<analog::base::Layout>>| b.kind().ends_with("DtiBand");
-    assert_eq!(p.placement.hard.iter().filter(|b| is_dti(b)).count(), 1, "one DtiBand batch, registered once at the end of placement()");
-    assert!(p.placement.cost.iter().any(is_dti), "the cost copy prices the flip");
-    assert!(!p.placement.budget.iter().any(is_dti), "a disjunction is never a budget");
+    let is_dti = |b: &dyn RuleBatch<analog::base::Layout>| b.kind().ends_with("DtiBand");
+    assert_eq!(p.placement.hard.iter().filter(|b| is_dti(b.as_ref())).count(), 1, "one DtiBand batch, registered once at the end of placement()");
+    assert!(p.placement.cost.iter().any(|b| is_dti(b.as_ref())), "the cost copy prices the flip");
+    assert!(!p.placement.budget.iter().any(|b| is_dti(b.as_ref())), "a disjunction is never a budget");
 
     // Dense, distinct, allocation order = emission order — the id contract that
     // keeps one pair's commitment from silently transferring to another.
     let mut seeds = Vec::new();
-    let dti = p.placement.hard.iter().find(|b| is_dti(b)).unwrap();
+    let dti = p.placement.hard.iter().find(|b| is_dti(b.as_ref())).unwrap();
     dti.branches(&mut seeds);
     assert!(seeds.len() >= 2, "the OTA has more than one matched pair: {seeds:?}");
     for (i, &(id, isolate)) in seeds.iter().enumerate() {

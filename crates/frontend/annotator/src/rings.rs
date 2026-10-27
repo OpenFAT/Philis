@@ -19,12 +19,15 @@ use analog::metadata::NetClassification;
 /// Which minority carrier a device injects into the substrate.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Carrier {
+    /// Electrons (an NMOS diffusion or NPN emitter in p-substrate).
     Electrons,
+    /// Holes (a PMOS diffusion in an n-well).
     Holes,
 }
 
 /// Plain per-device data, so the policy is table-testable without ports or a PDK.
 pub struct RingInputs<'a> {
+    /// The circuit, for device kinds and bulk nets.
     pub netlist: &'a Netlist,
     /// EXT-23 Switching/Capacitive/ImpactIonization; fallback: touches a Clock-class net.
     pub aggressor: &'a [bool],
@@ -32,6 +35,7 @@ pub struct RingInputs<'a> {
     pub victim: &'a [bool],
     /// EXT-23 MinorityElectron/MinorityHole; all `None` without ports.
     pub injector: &'a [Option<Carrier>],
+    /// The deck's substrate: on epi over low-resistivity substrate rings do not help.
     pub substrate: SubstrateKind,
     /// The victims' own ring return.
     pub quiet_ring_net: Option<NetId>,

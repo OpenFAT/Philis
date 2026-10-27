@@ -17,12 +17,19 @@ use crate::block::BlockKind;
 /// What a set does in the circuit: the evidence of last resort for its class.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SetRole {
+    /// A differential input pair: its offset is the circuit's.
     InputPair,
+    /// The load of an input pair: its mismatch refers to the input through the gain.
     LoadOfPair,
+    /// A bias mirror or a shared-bias group: a current error, Minimal by default.
     BiasMirror,
+    /// A bipolar ratioed pair: its ΔV_BE is the reference.
     BandgapCore,
+    /// A capacitor or resistor bank: its ratio is the code's linearity.
     DacBank,
+    /// A feedback divider or ratio: its ratio sets a gain.
     FeedbackRatio,
+    /// None of the above: the class falls back to the family default.
     Other,
 }
 
@@ -32,7 +39,9 @@ pub struct ClassCtx<'a> {
     pub user: Option<MatchClass>,
     /// 6σ target in the unit of `limit(family, kind, _)`: `6·offset_sigma_mv` today.
     pub spec_6sigma: Option<f32>,
+    /// The set's role, the evidence of last resort.
     pub role: SetRole,
+    /// Where [`class_of`] appends a diagnostic when it overrides or cannot decide.
     pub diags: &'a mut Vec<Diagnostic>,
 }
 

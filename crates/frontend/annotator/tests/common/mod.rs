@@ -3,6 +3,7 @@
 //!
 //! Contents:
 //! - `pub const STRONGARM`
+//! - `pub type SetRow`
 //! - `pub struct Canon`
 //! - `pub fn net(src: &str) -> Netlist`
 //! - `pub fn strongarm_cfg() -> annotator::AnnotationConfig`
@@ -36,11 +37,14 @@ pub const STRONGARM: &str = "mn0 vcom clk vss vss nfet w=1u l=14n m=8
     mp11 vop vip_o vcc vcc pfet w=1u l=14n m=1 | mn13 vop vip_o vss vss nfet w=1u l=14n m=1
     mp12 von vin_o vcc vcc pfet w=1u l=14n m=1 | mn14 von vin_o vss vss nfet w=1u l=14n m=1";
 
+/// A matched set by name: members `(name, parallel, series)` sorted, kind, class.
+pub type SetRow = (Vec<(String, u16, u16)>, String, String);
+
 /// Name-level, id-free view of what the annotator decided.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Canon {
     /// Matched sets `(members (name, parallel, series) sorted, kind, class)` (EXT-15).
-    pub sets: BTreeSet<(Vec<(String, u16, u16)>, String /*kind*/, String /*class*/)>,
+    pub sets: BTreeSet<SetRow>,
     /// Hard `Symmetry` pairs of two distinct devices, names sorted.
     pub pairs: BTreeSet<(String, String)>,
     /// Hard self-symmetric `Symmetry` entries (`a == b`).

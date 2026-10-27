@@ -7,9 +7,10 @@
 //! converts them to % itself (`MatchedSet::budget_in`).
 //!
 //! Contents:
+//! - `pub type Allotment`
 //! - `pub struct SetIn`
 //! - `pub(crate) fn margins(s: &SpecSens, beta: f64) -> Vec<(f64, f64, f64)>`
-//! - `pub fn allocate(sets: &[SetIn], sens: &Sensitivities, beta: f64, max_eta: f32) -> (Vec<(Option<f32>, Option<f32>)>, Vec<Diagnostic>)`
+//! - `pub fn allocate(sets: &[SetIn], sens: &Sensitivities, beta: f64, max_eta: f32) -> (Vec<Allotment>, Vec<Diagnostic>)`
 //! - `pub(crate) fn set_in(s: &MatchSpec, nl: &Netlist, avt: [Option<f32>; 2]) -> Option<SetIn>`
 
 use analog::base::ids::DeviceId;
@@ -20,9 +21,15 @@ use analog::matching::mismatch::sigma_pair;
 
 use crate::evidence::{Sensitivities, SpecSens};
 
+/// One set's allocation: its offset allowance δ, mV, and its weight, the
+/// largest share of a spec's variance in `[0, 1]`; `None` where unknown.
+pub type Allotment = (Option<f32>, Option<f32>);
+
 /// One allocatable set: compared sides (device lists) and its random 1σ, mV.
 pub struct SetIn {
+    /// Each compared pair of sides; a side of several devices averages their sensitivities.
     pub sides: Vec<(Vec<DeviceId>, Vec<DeviceId>)>,
+    /// The set's random 1σ offset, mV; `None` when the deck's A_VT is unknown.
     pub sigma_mv: Option<f32>,
 }
 
@@ -50,7 +57,7 @@ pub(crate) fn margins(s: &SpecSens, beta: f64) -> Vec<(f64, f64, f64)> {
 /// `S_jk > 0`, `None` unless σ_k and such a spec's σ_f are known: a set no spec's
 /// `d_vt` touches has no evidence of being minor, so D5 leaves it alone.
 #[must_use]
-pub fn allocate(sets: &[SetIn], sens: &Sensitivities, beta: f64, max_eta: f32) -> (Vec<(Option<f32>, Option<f32>)>, Vec<Diagnostic>) {
+pub fn allocate(sets: &[SetIn], sens: &Sensitivities, beta: f64, max_eta: f32) -> (Vec<Allotment>, Vec<Diagnostic>) {
     let n = sets.len();
     let mut delta: Vec<Option<f64>> = vec![None; n];
     let mut weight: Vec<Option<f64>> = vec![None; n];

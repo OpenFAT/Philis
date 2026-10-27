@@ -134,7 +134,9 @@ fn split_dac_bridge_value() {
 /// Oracle: differential: cellgen's deleted grouping (counts and flags) on the same fixtures.
 #[test]
 fn annotator_covers_cellgen_groups() {
-    let cases: [(&str, &[&str], &[u16], bool, bool); 4] = [
+    // (fixture, devices, unit counts, dummies, route matching)
+    type Case<'a> = (&'a str, &'a [&'a str], &'a [u16], bool, bool);
+    let cases: [Case; 4] = [
         ("dac4", &["XC0", "XC1", "XC2", "XC3", "XC4"], &[1, 1, 2, 4, 8], true, true),
         ("bgr_core", &["XQ1", "XQ2"], &[1, 8], false, true),
         ("pair", &["XM1", "XM2"], &[1, 1], false, false),

@@ -19,8 +19,11 @@ use crate::param;
 /// devices missing W/L are not "identical" (AA-21).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Drawn {
+    /// One finger's width, nm; `None` when the netlist omits W.
     pub w_finger_nm: Option<i64>,
+    /// Channel length, nm; `None` when the netlist omits L.
     pub l_nm: Option<i64>,
+    /// MOS `nf·m`; other kinds `m`; 1 when unknown.
     pub fingers: u32,
     /// Index into the `models` table [`drawn`] interns into (case-insensitive).
     pub model: u16,

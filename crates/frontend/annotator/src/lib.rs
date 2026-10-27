@@ -19,6 +19,8 @@
 //! - `pub(crate) fn gate_um2(dev: &analog::base::netlist::Device) -> f32`
 //! - `pub(crate) fn param(dev: &analog::base::netlist::Device, key: &str, default: i64) -> i64`
 
+#![warn(missing_docs)]
+
 pub mod allocate;
 pub mod audit;
 pub mod block;
@@ -63,7 +65,9 @@ pub struct Problem {
     pub blocks: Vec<Block>,
     /// Cell-tier directives (unitization, dummies, guard rings), read by `cells`.
     pub constraints: analog::Constraints,
+    /// Placement rules, every batch tagged with a stable id in emission order (EXT-10).
     pub placement: analog::Requirements<analog::base::Layout>,
+    /// Routing rules, tagged after the placement batches.
     pub routing: analog::Requirements<analog::base::Routes>,
     /// Per-net class + budgets, indexed by [`analog::base::NetId`].
     pub net_classes: Vec<analog::metadata::NetClassification>,
@@ -297,11 +301,12 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
     let mut set_roles = Vec::with_capacity(intent.sets.len());
     let input_compounds: std::collections::HashSet<u16> =
         (0..intent.sets.len()).filter(|&j| input(j)).filter_map(|j| intent.sets[j].compound).collect();
-    for i in 0..intent.sets.len() {
+    assert_eq!(roles.len(), intent.sets.len(), "one role list per set");
+    for (i, kinds) in roles.iter().enumerate() {
         let s = &intent.sets[i];
         let role = if input(i) {
             class::SetRole::InputPair
-        } else if roles[i].iter().any(|k| matches!(k, BlockKind::Load | BlockKind::CascodePair))
+        } else if kinds.iter().any(|k| matches!(k, BlockKind::Load | BlockKind::CascodePair))
             && s.compound.is_some_and(|c| input_compounds.contains(&c))
         {
             class::SetRole::LoadOfPair
@@ -314,7 +319,7 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
         } else if matches!(s.origin, analog::intent::Origin::Pattern { template } if template.starts_with("bjt_ratioed_pair")) {
             // A ratioed pair's ΔV_BE is a bandgap core (H09-01).
             class::SetRole::BandgapCore
-        } else if roles[i].contains(&BlockKind::CurrentMirror) || s.origin == analog::intent::Origin::SharedBias {
+        } else if kinds.contains(&BlockKind::CurrentMirror) || s.origin == analog::intent::Origin::SharedBias {
             class::SetRole::BiasMirror
         } else {
             class::SetRole::Other

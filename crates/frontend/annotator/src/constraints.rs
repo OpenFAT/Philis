@@ -47,6 +47,10 @@ pub(crate) fn dummy_required(kind: DeviceKind, class: MatchClass) -> bool {
     !matches!(kind, DeviceKind::Npn | DeviceKind::Pnp) && class >= MatchClass::Moderate
 }
 
+/// The cell-tier directives: one `Unitization` per matched set whose banks
+/// share one finger W and L (a set with mixed sizes gets none), and the
+/// sizing rows for the block devices no set covers. Guard rings are added by
+/// the caller.
 #[must_use]
 pub fn assemble(netlist: &Netlist, drawn: &[Drawn], blocks: &[Block], sets: &[MatchSpec]) -> Constraints {
     let mut c = Constraints::default();

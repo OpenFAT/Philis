@@ -23,18 +23,23 @@ use crate::netrole::NetRole;
 
 /// What [`refine`] reads: everything that exists only once sets are built.
 pub struct RefineCtx<'a> {
+    /// The netlist's device–net incidence.
     pub hg: &'a BipartiteHypergraph,
     /// Every pattern match, overlapping (`recognize_all`).
     pub matches: &'a [crate::pattern::PatternMatch],
+    /// The final matched sets.
     pub sets: &'a [MatchSpec],
     /// Role per `sets` entry (`MatchSpec` does not carry it).
     pub set_roles: &'a [SetRole],
+    /// The procedural passive sets.
     pub passive: &'a [crate::passive::PassiveSet],
     /// Net named in the caller's config (testbench-derived names excluded).
     pub user: &'a [bool],
+    /// Simulation evidence; empty means structure alone decides.
     pub ev: &'a Evidence,
     /// Sidecar `NetClass` overrides (EXT-26): first, over every rule, `User` evidence.
     pub user_classes: &'a [(NetId, NetClass)],
+    /// The netlist's ports: a port is driven from outside.
     pub ports: &'a [NetId],
     /// [`net_load_af`].
     pub load_af: &'a [Option<f32>],

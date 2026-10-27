@@ -23,8 +23,11 @@ use crate::size::{self, Drawn};
 /// selfs once EXT-26 (M3) builds them. The first device or net is half A.
 #[derive(Clone, Copy, Debug)]
 pub enum Seed {
+    /// Two devices that mirror each other, and the seed's id.
     Devices(DeviceId, DeviceId, ConstraintId),
+    /// Two nets that mirror each other (sidecar), and the seed's id.
     Nets(NetId, NetId, ConstraintId),
+    /// One device on the axis (sidecar), and the seed's id.
     SelfDevice(DeviceId, ConstraintId),
 }
 

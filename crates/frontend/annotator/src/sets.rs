@@ -32,10 +32,15 @@ use crate::size::Drawn;
 /// missing, and [`unitize`] answers `unit_deck_incomplete`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct UnitDeck {
+    /// Fabrication grid.
     pub grid_nm: i64,
+    /// Cell `min_finger_width`.
     pub min_w_nm: i64,
+    /// Cell `max_finger_width`.
     pub max_w_nm: i64,
+    /// Poly minimum width.
     pub min_l_nm: i64,
+    /// Cell `res_min_segment`.
     pub res_min_segment_nm: i64,
 }
 

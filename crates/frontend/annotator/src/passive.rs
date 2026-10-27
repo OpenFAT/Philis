@@ -27,10 +27,15 @@ use crate::size::Drawn;
 /// (`MatchSpec::reference`) and a split DAC's bridge.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PassiveSet {
+    /// Members, the reference first where there is one.
     pub devices: Vec<DeviceId>,
+    /// The finding rule's identifier, matched on by consumers.
     pub rule: &'static str,
+    /// The set's role for `class::class_of`.
     pub role: SetRole,
+    /// A bank's terminating unit.
     pub reference: Option<DeviceId>,
+    /// A split DAC's bridge capacitor, drawn off the unit.
     pub bridge: Option<DeviceId>,
 }
 

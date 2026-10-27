@@ -22,9 +22,13 @@ use crate::policy::Policy;
 /// the match, compound, group or net it came from in its input slice.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Req {
+    /// The device with the lower canonical label.
     pub a: DeviceId,
+    /// The other device.
     pub b: DeviceId,
+    /// What the edge asks for; decides the HSMPG node it joins.
     pub ty: ReqType,
+    /// Index of the match, compound, group or net the edge came from.
     pub source: ConstraintId,
 }
 

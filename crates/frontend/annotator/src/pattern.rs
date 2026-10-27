@@ -31,18 +31,25 @@ use crate::catalog::{roles_of, PATTERNS};
 use crate::netrole::{AnnotationConfig, NetRole};
 use crate::size::{self, Drawn};
 
+/// How two linked pins' nets relate.
 #[derive(Debug, Clone, Copy)]
 pub enum PinRel {
+    /// The same net.
     Same,
+    /// Different nets.
     Diff,
     /// Same net, and that net's role is `Signal`.
     SameSignal,
 }
 
+/// Which devices a slot accepts.
 #[derive(Debug, Clone, Copy)]
 pub enum SlotKind {
+    /// Any NMOS or PMOS.
     AnyFet,
+    /// The same FET polarity as slot `r`.
     SameTypeAs(u8),
+    /// The opposite FET polarity to slot `r`.
     ComplementOf(u8),
     /// Exactly this device kind (EXT-19: bipolar slots).
     Kind(DeviceKind),
@@ -54,22 +61,33 @@ pub enum SlotKind {
 /// W/L, model and bulk), `SameLAs` is [`size::same_l_as`] (known L and model).
 #[derive(Debug, Clone, Copy)]
 pub enum SizeMatch {
+    /// No size relation.
     Any,
+    /// The same W, L, model and bulk as slot `r` (`size::exact_as`).
     ExactAs(u8),
+    /// The same L and model as slot `r` (`size::same_l_as`).
     SameLAs(u8),
 }
 
+/// Whether a slot's device must be diode-connected (drain on gate, collector on base).
 #[derive(Debug, Clone, Copy)]
 pub enum DiodeReq {
+    /// Must be diode-connected.
     Required,
+    /// Must not be diode-connected.
     Forbidden,
+    /// Either.
     Any,
 }
 
+/// One device position in a [`Pattern`].
 #[derive(Debug, Clone, Copy)]
 pub struct Slot {
+    /// Which devices fit.
     pub kind: SlotKind,
+    /// Size relation to an earlier slot.
     pub size_match: SizeMatch,
+    /// Diode-connection requirement.
     pub diode: DiodeReq,
     /// The gate net must be a signal (not a rail/clock).
     pub gate_is_signal: bool,
@@ -78,29 +96,42 @@ pub struct Slot {
 /// `a.pin_a` and `b.pin_b` are on the same (or different) nets.
 #[derive(Debug, Clone, Copy)]
 pub struct PinLink {
+    /// First slot.
     pub a: u8,
+    /// First slot's pin name (`G`, `D`, `S`, `B`, `C`, `E`).
     pub pin_a: &'static str,
+    /// Second slot.
     pub b: u8,
+    /// Second slot's pin name.
     pub pin_b: &'static str,
+    /// How the two pins' nets relate.
     pub rel: PinRel,
 }
 
+/// A structural template: slots and the pin links between them. A `const`
+/// in [`crate::catalog`], listed in `PATTERNS`.
 #[derive(Debug, Clone, Copy)]
 pub struct Pattern {
+    /// Unique name; the key of `catalog::ROLES` and the block's `template`.
     pub name: &'static str,
     /// Higher wins when two matches overlap.
     pub priority: u32,
+    /// Device positions; a slot may only refer to earlier slots.
     pub slots: &'static [Slot],
+    /// Pin relations every match must satisfy.
     pub links: &'static [PinLink],
 }
 
+/// One occurrence of a pattern in the netlist.
 #[derive(Debug, Clone)]
 pub struct PatternMatch {
+    /// The pattern's name.
     pub template: &'static str,
     /// The matched pattern (its roles: [`crate::catalog::roles_of`]).
     pub pattern: &'static Pattern,
     /// Device ids in slot order.
     pub instances: Vec<u32>,
+    /// The pattern's priority, copied for selection.
     pub priority: u32,
 }
 
@@ -321,7 +352,7 @@ fn unary_ok(slot: &Slot, s: &Search, cell: u32) -> bool {
         DiodeReq::Any => true,
     };
     let gate_ok =
-        !slot.gate_is_signal || pin_of(s.pins, cell, if bjt(k) { "B" } else { "G" }).map_or(true, |n| s.roles[n.0 as usize] == NetRole::Signal);
+        !slot.gate_is_signal || pin_of(s.pins, cell, if bjt(k) { "B" } else { "G" }).is_none_or(|n| s.roles[n.0 as usize] == NetRole::Signal);
     let family_ok = match slot.kind {
         SlotKind::AnyFet | SlotKind::SameTypeAs(_) | SlotKind::ComplementOf(_) => fet(k),
         SlotKind::Kind(want) => k == want,
@@ -443,7 +474,7 @@ impl Search<'_> {
                 return Candidates::None;
             }
             let len = |n: NetId, pk: usize| pols.clone().map(|p| self.on[n.0 as usize][2 * pk + p].len()).sum::<usize>();
-            if best.map_or(true, |(b, bk)| len(n, pk) < len(b, bk)) {
+            if best.is_none_or(|(b, bk)| len(n, pk) < len(b, bk)) {
                 best = Some((n, pk));
             }
         }

@@ -82,6 +82,7 @@ pub(crate) fn by_polarity(nl: &Netlist, d: DeviceId, v: [Option<f32>; 2]) -> Opt
 /// nothing. The budget is [`set_budget`]: `offset_sigma_mv` (1σ input-referred
 /// offset a pair may spend) when given, else [`mismatch::GRADIENT_SHARE`]`·σ_rand`.
 #[must_use]
+#[allow(clippy::too_many_arguments)] // each argument is a table the spine owns; a struct built only for this call is what code-style rules out
 pub fn placement(
     intent: &Intent,
     blocks: &[Block],

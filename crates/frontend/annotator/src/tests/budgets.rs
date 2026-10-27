@@ -44,9 +44,9 @@ fn antenna_gate_area_lands_on_the_gate_net_not_the_drain() {
 /// Oracle: metamorphic: the same OTA without and with a clocked switch; only the second asks for a shield.
 #[test]
 fn shields_are_requested_only_against_a_clock() {
-    let is_shield = |b: &Box<dyn RuleBatch<analog::base::Routes>>| b.kind().ends_with("Shield");
+    let is_shield = |b: &dyn RuleBatch<analog::base::Routes>| b.kind().ends_with("Shield");
     let quiet = annotate(&ota(), &AnnotationConfig::default());
-    assert!(!quiet.routing.budget.iter().any(is_shield), "no aggressor, no shield");
+    assert!(!quiet.routing.budget.iter().any(|b| is_shield(b.as_ref())), "no aggressor, no shield");
 
     // The same OTA plus a clocked switch on its own nets.
     let mut nl = ota();
@@ -56,7 +56,7 @@ fn shields_are_requested_only_against_a_clock() {
     nl.devices.push(fet("XS", DeviceKind::Nmos, clk, sw, 3, 3, 1_000, 150));
     nl.devices.push(fet("XC", DeviceKind::Nmos, clk, 0, 3, 3, 1_000, 150));
     let clocked = annotate(&nl, &AnnotationConfig::default());
-    let b = clocked.routing.budget.iter().find(|b| is_shield(b)).expect("shield batch");
+    let b = clocked.routing.budget.iter().find(|b| is_shield(b.as_ref())).expect("shield batch");
     let mut pairs = Vec::new();
     b.shield_pairs(&mut pairs);
     assert!(!pairs.is_empty());
@@ -125,16 +125,16 @@ fn a_lone_mirror_is_matched_not_mirrored() {
 /// Oracle: metamorphic: the same OTA without and with the deck terms; the missing list empties.
 #[test]
 fn matched_sets_are_budgeted_and_missing_deck_terms_are_listed() {
-    let is_set = |b: &Box<dyn RuleBatch<analog::base::Layout>>| b.kind() == "MatchedSet";
+    let is_set = |b: &dyn RuleBatch<analog::base::Layout>| b.kind() == "MatchedSet";
     let bare = annotate(&ota(), &AnnotationConfig::default());
-    assert!(bare.placement.budget.iter().any(is_set), "coincidence needs no deck data");
+    assert!(bare.placement.budget.iter().any(|b| is_set(b.as_ref())), "coincidence needs no deck data");
     assert!(bare.missing.iter().any(|m| m.0 == "MatchedSet"), "the deck terms are listed unknown");
 
     let mut cfg = AnnotationConfig::default();
     cfg.process.avt_mv_um = [Some(5.0), Some(6.0)];
     cfg.process.svt_uv_per_um = Some(4.0);
     let full = annotate(&ota(), &cfg);
-    assert!(full.placement.budget.iter().any(is_set));
+    assert!(full.placement.budget.iter().any(|b| is_set(b.as_ref())));
     assert!(!full.missing.iter().any(|m| m.0 == "MatchedSet"));
 }
 
@@ -189,9 +189,9 @@ fn svt_fit_sets_s_of_l() {
 /// Oracle: metamorphic: the OTA without and with a clocked switch; only the second gets Isolation.
 #[test]
 fn clocked_devices_are_kept_away_from_matched_ones() {
-    let is_iso = |b: &Box<dyn RuleBatch<analog::base::Layout>>| b.kind().ends_with("Isolation");
+    let is_iso = |b: &dyn RuleBatch<analog::base::Layout>| b.kind().ends_with("Isolation");
     let quiet = annotate(&ota(), &AnnotationConfig::default());
-    assert!(!quiet.placement.cost.iter().any(is_iso), "no aggressor, no isolation");
+    assert!(!quiet.placement.cost.iter().any(|b| is_iso(b.as_ref())), "no aggressor, no isolation");
 
     let mut nl = ota();
     nl.nets.push(Net { name: "clk".into() });
@@ -199,16 +199,16 @@ fn clocked_devices_are_kept_away_from_matched_ones() {
     let (clk, sw) = (nl.nets.len() as u16 - 2, nl.nets.len() as u16 - 1);
     nl.devices.push(fet("XS", DeviceKind::Nmos, clk, sw, 3, 3, 1_000, 150));
     let p = annotate(&nl, &AnnotationConfig::default());
-    let b = p.placement.cost.iter().find(|b| is_iso(b)).expect("isolation pull");
+    let b = p.placement.cost.iter().find(|b| is_iso(b.as_ref())).expect("isolation pull");
     assert_eq!(b.count(), 5, "XS against the four matched devices and the bias-gated tail (EXT-23)");
-    assert!(!p.placement.budget.iter().any(is_iso), "uncalibrated: a pull, not a budget");
+    assert!(!p.placement.budget.iter().any(|b| is_iso(b.as_ref())), "uncalibrated: a pull, not a budget");
     assert!(p.missing.iter().any(|m| m.0 == "Isolation"), "and reported unknown");
 
     let mut cfg = AnnotationConfig::default();
     cfg.process.substrate = analog::base::SubstrateKind::EpiOnLowRes;
     cfg.process.epi_nm = Some(3_000);
     let p = annotate(&nl, &cfg);
-    assert!(p.placement.budget.iter().any(is_iso));
+    assert!(p.placement.budget.iter().any(|b| is_iso(b.as_ref())));
     assert!(!p.missing.iter().any(|m| m.0 == "Isolation"));
 }
 
