@@ -9,6 +9,7 @@
 
 pub mod claims;
 pub mod floorplan;
+pub mod interface;
 pub mod route;
 
 use std::collections::{HashMap, HashSet};
@@ -704,9 +705,22 @@ pub fn geometry(placed: &[Macro], routes: &Routes) -> Vec<Shape> {
 /// The schematic's LVS reference cannot be built, or a foundry engine
 /// refused (no tool, no deck for this PDK, no verdict): its code is kept.
 pub fn signoff(netlist: &Netlist, placed: &[Macro], routes: &Routes, pdk: &Pdk, engine: verify::SignoffEngine) -> Result<verify::Signoff, Refusal> {
+    let names: Vec<String> = netlist.flat.nets.iter().map(|n| n.name.clone()).collect();
+    let pins = labeled_pins(placed, &names, pdk, &geometry(placed, routes));
+    signoff_labeled(netlist, placed, routes, pins, pdk, engine)
+}
+
+/// [`signoff`] with the caller's labels: LVS ports are exactly `pins`.
+fn signoff_labeled(
+    netlist: &Netlist,
+    placed: &[Macro],
+    routes: &Routes,
+    pins: Vec<LabeledPin>,
+    pdk: &Pdk,
+    engine: verify::SignoffEngine,
+) -> Result<verify::Signoff, Refusal> {
     let shapes = geometry(placed, routes);
     let names: Vec<String> = netlist.flat.nets.iter().map(|n| n.name.clone()).collect();
-    let pins = labeled_pins(placed, &names, pdk, &shapes);
     let mut reference = substrate3::signoff::reference(&netlist.scir, pdk).map_err(|e| refuse("reference", e.to_string()))?;
     reference.devices.extend(dummy_cards(placed, &names, &reference.devices));
     reference.external_ports = Some(reference.ports.clone());
@@ -780,11 +794,22 @@ pub fn report(calls: &RecipeCalls, claims: &claims::Claims, flat: &Flat, signoff
 /// # Errors
 /// Any step's [`Refusal`].
 pub fn run(spice: &str, pdk: &Pdk, engine: verify::SignoffEngine) -> Result<Outcome, Refusal> {
+    run_in(spice, None, pdk, engine)
+}
+
+/// [`run`] inside a block harness: the floorplan centred in `interface`'s
+/// die, its boundary pins routed and labelled as the LVS ports
+/// ([`interface`]).
+///
+/// # Errors
+/// Any step's [`Refusal`]; `interface` for a pin on a non-port net or a
+/// non-routing layer, or a block that does not fit the die.
+pub fn run_in(spice: &str, interface: Option<&interface::Interface>, pdk: &Pdk, engine: verify::SignoffEngine) -> Result<Outcome, Refusal> {
     let netlist = parse(spice, pdk)?;
     let cfg = annotation(pdk);
     let problem = annotator::annotate(&netlist.flat, &cfg);
     let calls = plan_recipes(&problem, &netlist.flat, pdk)?;
-    run_calls(&netlist, &problem, &cfg, calls, pdk, engine)
+    run_calls_in(&netlist, &problem, &cfg, calls, interface, pdk, engine)
 }
 
 /// The spine from a call table on: what [`run`] does after `plan_recipes`,
@@ -800,14 +825,46 @@ pub fn run_calls(
     pdk: &Pdk,
     engine: verify::SignoffEngine,
 ) -> Result<Outcome, Refusal> {
+    run_calls_in(netlist, problem, cfg, calls, None, pdk, engine)
+}
+
+fn run_calls_in(
+    netlist: &Netlist,
+    problem: &annotator::Problem,
+    cfg: &annotator::AnnotationConfig,
+    calls: RecipeCalls,
+    interface: Option<&interface::Interface>,
+    pdk: &Pdk,
+    engine: verify::SignoffEngine,
+) -> Result<Outcome, Refusal> {
+    let bound = interface.map(|i| interface::bind(i, &netlist.flat, pdk)).transpose()?;
     netlist.flat.devices.iter().try_for_each(|d| drawable_size(d, pdk))?;
     let tiles = build_tiles(&calls, problem, &netlist.flat, pdk)?;
     let mut tiles = tiles;
     let layout = floorplan::arrange_block(&mut tiles, &calls, problem, &netlist.flat, pdk)?;
     // The glue fill (if any) rides after the call tiles; claims read the calls.
     let claims = claims::score_claims(&calls, &tiles[..calls.len()], &layout, problem, pdk);
+    let io = match interface.zip(bound) {
+        Some((i, b)) => interface::boundary(i, &b, &analog::base::place_macros(&tiles, &layout), pdk)?,
+        None => Vec::new(),
+    };
+    tiles.extend(io.iter().cloned());
     let (placed, routes, route_report) = route::route(&tiles, &layout, problem, cfg, netlist.flat.nets.len(), pdk);
-    let signoff = signoff(netlist, &placed, &routes, pdk, engine)?;
+    let signoff = match interface {
+        Some(_) => {
+            let names: Vec<String> = netlist.flat.nets.iter().map(|n| n.name.clone()).collect();
+            // The harness pins, then each port it leaves unpinned at its first cell pin.
+            let mut pins = interface::labels(&io, &names);
+            let ports: Vec<&String> = netlist.flat.ports.iter().map(|p| &names[p.0 as usize]).collect();
+            let rest: Vec<LabeledPin> = labeled_pins(&placed, &names, pdk, &geometry(&placed, &routes))
+                .into_iter()
+                .filter(|l| ports.contains(&&l.name) && pins.iter().all(|p| p.name != l.name))
+                .collect();
+            pins.extend(rest);
+            signoff_labeled(netlist, &placed, &routes, pins, pdk, engine)?
+        }
+        None => signoff(netlist, &placed, &routes, pdk, engine)?,
+    };
     let report = report(&calls, &claims, &netlist.flat, &signoff);
     Ok(Outcome { calls, claims, placed, routes, route_report, signoff, report })
 }
