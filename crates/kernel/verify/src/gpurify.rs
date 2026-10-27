@@ -165,7 +165,7 @@ pub fn run(input: &Input, pdk: &Pdk, checks: Checks) -> Result<Output, String> {
     ];
     for (stage, on, args) in stages {
         if on {
-            stage_into(&gpurify, &gds, stage, args, &mut out);
+            stage_into(&gpurify, &gds, stage, args, &pdk.deck, &mut out);
         }
     }
     if checks.pex {
@@ -316,7 +316,7 @@ fn spawn(gpurify: &Path, argv: &[String]) -> Result<(bool, String, String), Stri
 }
 
 /// One stage's rows and runs into `out`, or its denial.
-fn stage_into(gpurify: &Path, gds: &Path, stage: &'static str, args: &[String], out: &mut Output) {
+fn stage_into(gpurify: &Path, gds: &Path, stage: &'static str, args: &[String], deck: &crate::deck::Deck, out: &mut Output) {
     let mut argv = vec![stage.to_string(), gds.display().to_string()];
     argv.extend_from_slice(args);
     argv.extend(["--format".into(), "json".into()]);
@@ -333,7 +333,7 @@ fn stage_into(gpurify: &Path, gds: &Path, stage: &'static str, args: &[String], 
     };
     let rows_before = out.rows.len();
     for v in report["violations"].as_array().into_iter().flatten() {
-        match row(stage, v) {
+        match row(stage, v, deck) {
             Some(r) => out.rows.push(r),
             None => return out.denied.push((stage, format!("unreadable violation row {v}"))),
         }
@@ -378,13 +378,17 @@ fn summary_of(text: &str, stage: &str) -> Option<String> {
     (status != "ran").then(|| status.to_string())
 }
 
-fn row(domain: &'static str, v: &Value) -> Option<Row> {
+/// A JSON violation row; its layer named by the row's `layer_name`, else by
+/// `deck`'s layer table (the dump of the deck the run read, so its ids).
+fn row(domain: &'static str, v: &Value, deck: &crate::deck::Deck) -> Option<Row> {
     Some(Row {
         domain,
         rule: v["rule"].as_str()?.to_string(),
-        // ponytail: `#<id>` until GPurify writes `layer_name` (Q61); 65535 is
-        // GPurify's no-layer id.
-        layer: v["layer_name"].as_str().map(str::to_string).or_else(|| v["layer"].as_u64().filter(|&l| l != 65_535).map(|l| format!("#{l}"))),
+        // 65535 is GPurify's no-layer id: no row in `deck.layers`.
+        layer: v["layer_name"]
+            .as_str()
+            .map(str::to_string)
+            .or_else(|| Some(deck.layers.get(usize::try_from(v["layer"].as_u64()?).ok()?)?.name.clone())),
         warning: v["severity"].as_str()? != "error",
         x: v["at"]["x"].as_f64()?,
         y: v["at"]["y"].as_f64()?,

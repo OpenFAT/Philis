@@ -689,14 +689,16 @@ mod tests {
     /// A deliberately-too-narrow li wire trips li's minimum width with the
     /// right nm margin.
     ///
-    /// Oracle: sky130 li.1, 170 nm ([S1]); 100 nm wide is 70 short. Long
-    /// enough to clear li's minimum area and on the 5 nm grid.
+    /// Oracle: sky130 li.1, 170 nm ([S1]) on `li_not_vpp` (the deck); 100 nm
+    /// wide is 70 short. Long enough to clear li's minimum area and on the
+    /// 5 nm grid.
     #[test]
     fn drc_reports_a_min_width_shortfall_in_nm() {
         let pdk = sky130();
         let f = drc(&[rect(&pdk, "li", 0, 0, 100, 1000)], &[], &pdk);
         let hit = f.iter().find(|f| f.rule == "li.1").unwrap_or_else(|| panic!("no li.1 row: {f:?}"));
         assert_eq!((hit.margin, hit.unit), (70, "nm"));
+        assert_eq!(hit.layer, "li_not_vpp", "the layer the deck states li.1 on, named from the dump");
     }
 
     /// The deck's EM rules skip for want of design intent; with the supplies

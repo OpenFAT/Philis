@@ -832,7 +832,7 @@ a coded refusal, or a named known failure:
 | in-memory `in_cells` tagging | GDS structures written by `gds_out` |
 | the reference as SoA rows | `reference::spice`: one `X` card per device, W/L in µm with a unit so `netlist_scale` cannot rescale them |
 | stage verdicts (`StageStatus`) | the JSON `summary` when the report has one (a stage it does not state as `ran` is a hard `engine/<stage>` row); before it, the text report's `summary:` for a failed run with nothing in the JSON to show for it |
-| a row's layer name | the JSON row's `layer_name` |
+| a row's layer name | the JSON row's `layer_name`, else the deck dump's layer table (the same ids) |
 
 The GPurify gaps (the deck dump, `layer_name`, the stage summary, intent
 `ports` for `unconnected_pin` and `floating_gate`, label names on a short,
