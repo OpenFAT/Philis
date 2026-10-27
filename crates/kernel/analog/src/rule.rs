@@ -349,6 +349,10 @@ pub struct Tagged<On> {
     pub inner: Box<dyn RuleBatch<On>>,
 }
 
+/// Smallest Θ a violated rule contributes: one milli-budget, the unit
+/// `Violation::from_residual` counts in.
+const FAIL_FLOOR: f64 = 1e-3;
+
 impl<On> RuleBatch<On> for Tagged<On> {
     fn cost(&self, s: &On) -> f32 {
         self.inner.cost(s)
@@ -534,6 +538,20 @@ impl<R: Rule + Send + Sync> RuleBatch<R::On> for Vec<R> {
     }
 }
 
+/// `excess` past the spec as a fraction of `budget` (both in the rule's unit):
+/// a cap is `over(measured − cap, cap)`, a floor `over(floor − measured, floor)`.
+/// A non-positive budget yields `0`/`1` rather than a Θ-poisoning NaN.
+#[inline]
+#[must_use]
+pub(crate) fn over(excess: f32, budget: f32) -> f32 {
+    if budget <= 0.0 {
+        return f32::from(excess > 0.0);
+    }
+    (excess / budget).max(0.0)
+}
+
+// ---- private ----
+
 /// `0` with headroom ≥ margin, `1` at the raw spec; `1 − headroom` with no margin.
 #[inline]
 fn rule_criticality<R: Rule>(r: R, s: &R::On) -> f32 {
@@ -557,22 +575,6 @@ fn rule_residual<R: Rule>(r: R, s: &R::On) -> f64 {
     } else {
         FAIL_FLOOR
     }
-}
-
-/// Smallest Θ a violated rule contributes: one milli-budget, the unit
-/// `Violation::from_residual` counts in.
-const FAIL_FLOOR: f64 = 1e-3;
-
-/// `excess` past the spec as a fraction of `budget` (both in the rule's unit):
-/// a cap is `over(measured − cap, cap)`, a floor `over(floor − measured, floor)`.
-/// A non-positive budget yields `0`/`1` rather than a Θ-poisoning NaN.
-#[inline]
-#[must_use]
-pub(crate) fn over(excess: f32, budget: f32) -> f32 {
-    if budget <= 0.0 {
-        return f32::from(excess > 0.0);
-    }
-    (excess / budget).max(0.0)
 }
 
 #[cfg(test)]

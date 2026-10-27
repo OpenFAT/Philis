@@ -14,6 +14,8 @@ use analog::placement::symmetry::SymmetryGroup;
 use analog::placement::{EnvGeo, LiveEnvironment, MatchedSet, OrientCheck, OrientationSet, SymMode, Symmetry};
 use analog::RuleBatch;
 
+// ---- private ----
+
 /// Cells at `xs` (y 0), each `2·half` square, drawing `cells[c]`'s units for
 /// devices `members[c]`.
 fn layout(xs: &[i32], half: i32, members: &[Vec<DeviceId>], cells: &[Vec<Unit>]) -> Layout {
