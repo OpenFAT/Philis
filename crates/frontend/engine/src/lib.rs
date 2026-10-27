@@ -702,8 +702,7 @@ fn join_members(m: &mut Macro, pdk: &Pdk) {
 /// `floorplan`: the glue row refuses (tiles whose gates span other heights
 /// on a fin deck).
 pub fn arrange(tiles: &mut Vec<Macro>, pdk: &Pdk) -> Result<Layout, Refusal> {
-    let roles: Vec<&str> = pdk.roles.iter().map(|(r, _)| r.as_str()).collect();
-    let spacing = placement::floorplan::Spacing::of(pdk, &roles);
+    let spacing = floorplan::spacing(pdk);
     // Tile origins on the cut lattice, as the cells draw their cuts.
     let lattice = substrate3::cells::builder::cut_lattice(pdk).max(1);
     let (floorplan, fill) = placement::floorplan::glue(tiles, pdk, &spacing, lattice).map_err(|e| refuse("floorplan", format!("{e:?}")))?;

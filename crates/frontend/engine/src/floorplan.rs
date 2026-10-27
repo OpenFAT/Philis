@@ -7,6 +7,7 @@
 //! - `pub fn stack_of(calls: &RecipeCalls, problem: &annotator::Problem, flat: &Flat) -> Option<Stack>`
 //! - `pub fn targets(calls: &RecipeCalls, problem: &annotator::Problem, flat: &Flat, bounds: (i32, i32), pdk: &Pdk) -> placement::floorplan::Targets`
 //! - `pub fn arrange_block(tiles: &mut Vec<Macro>, calls: &RecipeCalls, problem: &annotator::Problem, flat: &Flat, pdk: &Pdk) -> Result<Layout, Refusal>`
+//! - `pub(crate) fn spacing(pdk: &Pdk) -> placement::floorplan::Spacing`
 
 use analog::base::netlist::Netlist as Flat;
 use analog::base::{DeviceId, DeviceKind, Layout, Macro};
@@ -84,8 +85,7 @@ pub fn stack_of(calls: &RecipeCalls, problem: &annotator::Problem, flat: &Flat) 
 #[must_use]
 pub fn targets(calls: &RecipeCalls, problem: &annotator::Problem, flat: &Flat, bounds: (i32, i32), pdk: &Pdk) -> placement::floorplan::Targets {
     let stack = stack_of(calls, problem, flat).unwrap_or_else(|| Stack { row: vec![0; calls.len()], side: vec![Side::Axis; calls.len()] });
-    let roles: Vec<&str> = pdk.roles.iter().map(|(r, _)| r.as_str()).collect();
-    let gap = placement::floorplan::Spacing::of(pdk, &roles).nm.into_iter().max().unwrap_or(0);
+    let gap = spacing(pdk).nm.into_iter().max().unwrap_or(0);
     placement::floorplan::targets(&stack, bounds, gap)
 }
 
@@ -100,10 +100,8 @@ pub fn arrange_block(tiles: &mut Vec<Macro>, calls: &RecipeCalls, problem: &anno
     let fin = analog::base::Process::layer(pdk, "fin").is_some();
     let layout = match stack_of(calls, problem, flat).filter(|_| !fin && tiles.len() > 1) {
         Some(stack) => {
-            let roles: Vec<&str> = pdk.roles.iter().map(|(r, _)| r.as_str()).collect();
-            let spacing = placement::floorplan::Spacing::of(pdk, &roles);
             let lattice = substrate3::cells::builder::cut_lattice(pdk).max(1);
-            let f = placement::floorplan::row_stack(tiles, &stack, &spacing, lattice).map_err(|e| refuse("floorplan", format!("{e:?}")))?;
+            let f = placement::floorplan::row_stack(tiles, &stack, &spacing(pdk), lattice).map_err(|e| refuse("floorplan", format!("{e:?}")))?;
             f.layout()
         }
         None => crate::arrange(tiles, pdk)?,
@@ -115,6 +113,16 @@ pub fn arrange_block(tiles: &mut Vec<Macro>, calls: &RecipeCalls, problem: &anno
         return Err(refuse("floorplan", format!("order {k}: a step overlaps the next by {overlap_nm} nm; the rows cannot keep this user order")));
     }
     Ok(layout)
+}
+
+/// The spacing rows among every role a tile draws: the deck's roles plus
+/// `npc`, which only the recipe overlay names (`verify::Pdk`), so a row of
+/// gate contacts keeps npc.2 from the next row's.
+#[must_use]
+pub(crate) fn spacing(pdk: &Pdk) -> placement::floorplan::Spacing {
+    let mut roles: Vec<&str> = pdk.roles.iter().map(|(r, _)| r.as_str()).collect();
+    roles.push("npc");
+    placement::floorplan::Spacing::of(pdk, &roles)
 }
 
 // ---- private ----
