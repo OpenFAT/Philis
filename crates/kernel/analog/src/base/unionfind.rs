@@ -51,9 +51,10 @@ impl UnionFind {
         }
     }
 
-    /// The non-singleton sets, each as a sorted member list. Singletons (devices
-    /// in no group) are omitted — they stay addressable as `Target::Device`.
-    /// The order of the sets is hash order, not stable across runs.
+    /// The non-singleton sets, each as a sorted member list, ordered by their
+    /// smallest member: the same on every run and thread (AGENTS.md
+    /// determinism). Singletons (devices in no group) are omitted — they stay
+    /// addressable as `Target::Device`.
     pub fn groups(&mut self) -> Vec<Vec<u32>> {
         let n = self.parent.len();
         let mut by_root: std::collections::HashMap<u32, Vec<u32>> = std::collections::HashMap::new();
@@ -61,6 +62,31 @@ impl UnionFind {
             let r = self.find(i);
             by_root.entry(r).or_default().push(i);
         }
-        by_root.into_values().filter(|s| s.len() > 1).collect()
+        // Ascending `i` pushed each set sorted; the sets come out in hash order.
+        let mut out: Vec<Vec<u32>> = by_root.into_values().filter(|s| s.len() > 1).collect();
+        out.sort_unstable_by_key(|s| s[0]);
+        out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Oracle: spec example, the sets by hand, ordered by their smallest
+    /// member. Forty fresh forests (each `groups` call a fresh hasher seed
+    /// before the fix) must all give the one order.
+    #[test]
+    fn groups_come_in_smallest_member_order_on_every_run() {
+        // Sets {0, 9}, {1, 5, 7}, {2, 3}, {4, 8}, {10, 11}, ... {38, 39}; 6 a singleton.
+        let pairs: Vec<(u32, u32)> =
+            [(9, 0), (7, 5), (5, 1), (3, 2), (8, 4), (11, 10)].into_iter().chain((12..40).step_by(2).map(|a| (a + 1, a))).collect();
+        let mut want: Vec<Vec<u32>> = vec![vec![0, 9], vec![1, 5, 7], vec![2, 3], vec![4, 8], vec![10, 11]];
+        want.extend((12..40).step_by(2).map(|a| vec![a, a + 1]));
+        for _ in 0..40 {
+            let mut uf = UnionFind::new(40);
+            pairs.iter().for_each(|&(a, b)| uf.union(a, b));
+            assert_eq!(uf.groups(), want);
+        }
     }
 }
