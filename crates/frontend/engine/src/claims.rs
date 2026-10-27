@@ -123,6 +123,10 @@ pub fn claims_of(kind: RecipeKind) -> &'static [Promise] {
         RecipeKind::MosAdjacent => &[Promise::ParallelChannels, Promise::UnitIdentity, Promise::CentroidOffset],
         RecipeKind::MosCc1d => &[Promise::Coincidence, Promise::MomentsCancelled(1), Promise::PhiEqual, Promise::EqualEnvironment],
         RecipeKind::MosCc2d => &[Promise::MomentsCancelled(2), Promise::PhiEqual],
+        // RECIPES.md: LOD equality (the environment), Φ equality; not
+        // common-centroid, so the offset is reported. ponytail: R_s equality
+        // has no scorer yet; it lands with the path-R claim (Q29).
+        RecipeKind::MosInterdigitated => &[Promise::PhiEqual, Promise::EqualEnvironment, Promise::CentroidOffset],
     }
 }
 

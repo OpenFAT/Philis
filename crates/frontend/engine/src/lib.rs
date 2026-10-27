@@ -188,27 +188,33 @@ pub enum RecipeKind {
     /// Two rows sharing one tap strip: cross-quad or the swapped ABBA/BAAB
     /// (`RECIPES.md` §2.1; 1.0 `Mosfet` `rows = 2`). Planar only.
     MosCc2d,
+    /// Members' drain pairs interleaved in one row, every boundary on a
+    /// shared source (Hastings Table 13.3, `(ₛAᴅAₛBᴅBₛ)ⁱ`): equal LOD and
+    /// source resistance, not common-centroid (`RECIPES.md` §2.1). Planar.
+    MosInterdigitated,
 }
 
 impl RecipeKind {
     /// Every kind, in ladder order from the most precise.
-    pub const ALL: [RecipeKind; 3] = [RecipeKind::MosCc2d, RecipeKind::MosCc1d, RecipeKind::MosAdjacent];
+    pub const ALL: [RecipeKind; 4] = [RecipeKind::MosCc2d, RecipeKind::MosCc1d, RecipeKind::MosInterdigitated, RecipeKind::MosAdjacent];
 }
 
 /// A MOS set's degradation ladder (Q19, `RECIPES.md` §1), most precise
 /// first. `None` class reads Moderate (C16), `None` kind Voltage. An
 /// Exceptional set whose ladder is exhausted refuses (Q13); the others end on
 /// Adjacent, which every MOS set can draw.
-/// ponytail: Interdigitated and Ratioed are missing rungs (no generator yet);
-/// each ladder skips them.
+/// ponytail: the Ratioed rung is missing (no generator yet); each ladder
+/// skips it.
 #[must_use]
 pub fn ladder(class: Option<analog::intent::MatchClass>, kind: Option<analog::intent::MatchKind>) -> &'static [RecipeKind] {
     use analog::intent::{MatchClass as C, MatchKind as K};
-    use RecipeKind::{MosAdjacent as Adj, MosCc1d as Cc1, MosCc2d as Cc2};
+    use RecipeKind::{MosAdjacent as Adj, MosCc1d as Cc1, MosCc2d as Cc2, MosInterdigitated as Int};
     match (class.unwrap_or(C::Moderate), kind == Some(K::Current)) {
         (C::Exceptional, _) => &[Cc2, Cc1],
-        (C::Moderate, _) => &[Cc1, Adj],
-        (C::Minimal, _) => &[Adj],
+        (C::Moderate, _) => &[Cc1, Int, Adj],
+        // MIN Current: Adjacent only (≤ 3–4 mirrors from the reference).
+        (C::Minimal, true) => &[Adj],
+        (C::Minimal, false) => &[Adj, Int],
     }
 }
 
@@ -394,7 +400,7 @@ fn mos_variants(kind: RecipeKind, flat: &Flat, members: &[DeviceId], c: &analog:
         return Variants::Fin(match kind {
             RecipeKind::MosAdjacent => all.into_iter().filter(|v| !v.shared).collect(),
             RecipeKind::MosCc1d if shared => all.into_iter().filter(|v| v.shared).collect(),
-            RecipeKind::MosCc1d | RecipeKind::MosCc2d => Vec::new(),
+            RecipeKind::MosCc1d | RecipeKind::MosCc2d | RecipeKind::MosInterdigitated => Vec::new(),
         });
     }
     let all = || Mosfet::enumerate(&group, c, process);
@@ -403,7 +409,13 @@ fn mos_variants(kind: RecipeKind, flat: &Flat, members: &[DeviceId], c: &analog:
             Variants::Planar(all().into_iter().filter(|v| v.style == Pattern::Single && v.rows == 1).collect(), true)
         }
         RecipeKind::MosAdjacent => Variants::Planar(Vec::new(), true),
-        RecipeKind::MosCc1d | RecipeKind::MosCc2d if !shared || members.len() < 2 => Variants::Planar(Vec::new(), false),
+        RecipeKind::MosCc1d | RecipeKind::MosCc2d | RecipeKind::MosInterdigitated if !shared || members.len() < 2 => {
+            Variants::Planar(Vec::new(), false)
+        }
+        RecipeKind::MosInterdigitated => Variants::Planar(
+            all().into_iter().filter(|v| v.style == Pattern::Interdig && v.rows == 1 && (v.split_gates || !private_gates)).collect(),
+            false,
+        ),
         RecipeKind::MosCc1d | RecipeKind::MosCc2d => {
             let rows = if kind == RecipeKind::MosCc1d { 1 } else { 2 };
             Variants::Planar(
