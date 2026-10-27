@@ -6,6 +6,7 @@
 //! Contents:
 //! - `pub struct CommonNode`
 //! - `pub struct CommonNodes`
+//! - `CommonNodes::delta_ohm(&self, n: &CommonNode, r: &Routes) -> Option<f32>`
 //! - `CommonNodes::star_broken(&self, n: &CommonNode, r: &Routes) -> bool`
 
 use crate::base::geom::{Rect, Shape};
