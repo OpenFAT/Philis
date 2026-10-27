@@ -975,11 +975,19 @@ impl DetailedRoute {
                 let mut cands = if point { Vec::new() } else { grid.candidates((cx, cy, base), &claimed, clean, 8, 12) };
                 // Nearest first within each layer's ring: the ring scan's own
                 // order (row by row) is not distance.
-                cands.sort_by_key(|&n| {
-                    let ((px, py, l), (ix, iy, _)) = (grid.pos(n), grid.ixy(n));
-                    let ring = (ix as i32 - grid.bin_x(cx) as i32).abs().max((iy as i32 - grid.bin_y(cy) as i32).abs());
-                    (l, ring, (px - cx).abs() + (py - cy).abs())
-                });
+                //
+                // ponytail: not on a metal hosting full-width cuts (asap7):
+                // there the nearest node sits beside its own cell strap, a
+                // same-net tip-to-side gap (M1.S.2) neither search nor fill
+                // closes. Sort there too once landing prices same-net
+                // end-of-line spacing.
+                if !layers.get(base as usize).is_some_and(|&l| cfg.exact(l)) {
+                    cands.sort_by_key(|&n| {
+                        let ((px, py, l), (ix, iy, _)) = (grid.pos(n), grid.ixy(n));
+                        let ring = (ix as i32 - grid.bin_x(cx) as i32).abs().max((iy as i32 - grid.bin_y(cy) as i32).abs());
+                        (l, ring, (px - cx).abs() + (py - cy).abs())
+                    });
+                }
                 // Spaced from every foreign pin's future pad first, then merely
                 // not touching it.
                 let spaced = (stitch, (cfg.pitch - cfg.wire_width).max(1));
