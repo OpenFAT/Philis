@@ -761,3 +761,30 @@ M7 with the checklist as its specification; the die-context input table
 (outline, origin, thickness, package and bumps, θ, heaters, pin classes, pad
 order) is defined in v1 so the block floorplan's stress, thermal and pad rules
 read it when present and report unknown when absent. Recommendation: yes.
+
+---
+
+## During M2 (2026-10-27)
+
+### Q61 Which `Order` binds the row stack's rows — accepted (lead, issue #11)
+
+Settles what Q21 and RECIPES §3 left open: the annotator emits three kinds of
+`Order` (sidecar; EXT-28 current chains, `dir: V`, ground up; signal stages,
+`dir: H`), and nothing said which ones set FLOOR-RowStack's rows. Every
+`dir: V` order binds rows, in `intent.order`'s order (sidecar first, then
+the chains). A call takes its step index in the first vertical order that
+names one of its devices, with `steps[0]` at the bottom. Calls that no order
+names come after the ordered rows, in the earlier order (NMOS, then PMOS,
+then call order). A reversible order keeps the sense it was emitted in, so
+read top-down a 5T OTA is the load, then the pair, then the tail, which is
+§3's "loads, then signal devices, then tails". `dir: H` orders do not bind
+rows: `intent.rs` defines H as left to right, and the mirror axis owns that
+direction in the stack.
+
+Whether a stack keeps an order is a claim (Q2): `OrderMonotone(k)` under
+the floorplan call, scored on the placed tiles by `analog::placement::Below`
+(each step's bbox wholly under the next). A user order the rows break is a
+coded `floorplan` refusal. An extracted order they break is a violated claim
+and does not block, since conflicting chains are normal in multi-stage
+circuits. Each chain's step `k` is rank `k` on one shared scale; a merge of
+conflicting chains waits for a fixture that needs one.

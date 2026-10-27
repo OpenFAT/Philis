@@ -609,6 +609,7 @@ by the recipe (Q2). The rules are 1.0's, kept.
 | coincidence, cancelled order n, second-moment residue | `MatchedSet` (coincidence, second_order_nm, cancelled_order), `matching::moments` | `Unit` rows |
 | mirror about axis k, selfs on axis | `Symmetry`, `SymmetryGroup` | tile positions and axis |
 | island connectivity | `SymmetryIsland` | tile bboxes |
+| order monotone (FLOOR-RowStack, Q61) | `Below` (new in 2.0) | tile bboxes |
 | equal signed Φ, parallel channels | `OrientationSet` | `Unit.phi` |
 | equal WPE and OSE distances, well clearance | `Environment`, `LiveEnvironment` | placed wells and diffusions |
 | equal SA/SB | `MatchedSet.mu_lod` | `Unit.sa`, `Unit.sb` |
