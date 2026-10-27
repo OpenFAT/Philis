@@ -31,8 +31,8 @@ fn main() {
         let mut taken = HashSet::new();
         let mut models = String::new();
         let mut seen = HashSet::new();
-        for &m in &pdk.deck.devices.model {
-            let name = pdk.strings.resolve(m);
+        for d in &pdk.deck.devices {
+            let name = d.model.as_str();
             let pmos = match pdk.model_kind(name) {
                 Some(verify::RefKind::Nmos) => false,
                 Some(verify::RefKind::Pmos) => true,

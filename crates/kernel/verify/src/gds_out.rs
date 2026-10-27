@@ -194,7 +194,7 @@ mod tests {
     #[test]
     fn a_shape_on_a_computed_layer_is_refused() {
         let pdk = Pdk::builtin("sky130").unwrap();
-        let derived = (0..pdk.deck.layers.len() as u16).find(|&i| pdk.deck.layers.is_derived(crate::pdk::GvLayerId(i))).unwrap();
+        let derived = pdk.deck.layers.iter().find(|l| l.derived.is_some()).unwrap().id;
         let shapes = [Shape { layer: LayerId(derived), rect: Rect { x: 0, y: 0, w: 10, h: 10 } }];
         assert!(gds(&shapes, &[], &[], &pdk, "top").is_err());
     }

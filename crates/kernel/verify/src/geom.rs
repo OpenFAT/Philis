@@ -5,8 +5,7 @@
 //! - `pub struct LabeledPin`
 //! - `pub fn label_layer(deck: &Deck, drawn: u16) -> Option<u16>`
 
-use gdsverify::geom::LayerId as GvLayerId;
-use gdsverify::ingest::deck::Deck;
+use crate::deck::Deck;
 
 /// A named pin label. The point `(x, y)` (nm) must lie on a shape of `layer`,
 /// the pin's drawing layer; the label goes on whichever layer the deck's
@@ -27,9 +26,7 @@ pub struct LabeledPin {
 /// itself when it is such a label layer. `None` when no label reaches it.
 #[must_use]
 pub fn label_layer(deck: &Deck, drawn: u16) -> Option<u16> {
-    let c = &deck.connectivity;
-    let d = GvLayerId(drawn);
-    let rows: Vec<usize> =
-        (0..c.label_layer.len()).filter(|&r| c.label_names[r] == d || deck.layers.operands(c.label_names[r]).contains(&d)).collect();
-    rows.iter().find(|&&r| c.label_layer[r] == d).or_else(|| rows.first()).map(|&r| c.label_layer[r].0)
+    let rows: Vec<u16> =
+        deck.connectivity.labels.iter().filter(|l| l.names == drawn || deck.operands(l.names).contains(&drawn)).map(|l| l.layer).collect();
+    rows.iter().find(|&&l| l == drawn).or_else(|| rows.first()).copied()
 }

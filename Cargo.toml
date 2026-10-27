@@ -46,13 +46,11 @@ members = [
 ]
 exclude = ["crates/kernel/substrate3/upstream/examples", "crates/kernel/substrate3/upstream/bins"]
 
-# Pinned external engines. GPurify is the PDK input (Q55); the pin moves to its
-# head in the `verify` re-pin commit (Q59). Substrate2 is the vendored fork in
+# GPurify is not a Rust dependency: it runs as the `gpurify` binary the flake
+# pins (Q61). Substrate2 is the vendored fork in
 # `crates/kernel/substrate3/upstream` (Q35), at the rev its README records.
 [workspace.dependencies]
 fearless_simd = "1.0.0"
-gdsverify = { package = "gpurify", git = "https://github.com/UW-ASIC/GPurify", rev = "11b557802a65c043eb5ab898b529f30c19b819c9" }
-gdsverify-geom = { package = "gpurify-geom", git = "https://github.com/UW-ASIC/GPurify", rev = "11b557802a65c043eb5ab898b529f30c19b819c9" }
 substrate = { path = "crates/kernel/substrate3/upstream/substrate" }
 sky130 = { path = "crates/kernel/substrate3/upstream/pdks/sky130" }
 layir = { path = "crates/kernel/substrate3/upstream/libs/layir" }

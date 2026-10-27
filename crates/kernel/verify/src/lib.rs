@@ -7,13 +7,13 @@
 //! ([`Coverage`]) apart from it; [`drc`]/[`erc`] are standalone probes.
 //! [`Pdk`] (the process schema every crate reads) lives here too.
 
+pub mod deck;
 mod decks;
 pub mod foundry;
 pub mod gds_out;
 pub mod geom;
 pub mod gpurify;
 pub mod netlist;
-pub mod overrides;
 pub mod pdk;
 pub mod pdk_data;
 pub mod reference;
@@ -23,8 +23,8 @@ use std::time::{Duration, Instant};
 
 use analog::base::{Report, Shape, Violation};
 
+pub use deck::DeviceKind;
 pub use foundry::{Refused, SignoffEngine};
-pub use gdsverify::ingest::deck::DeviceKind;
 pub use geom::LabeledPin;
 pub use gpurify::{Checks, Measurement};
 pub use netlist::{device_count, extract_spice, Detail};
@@ -209,7 +209,7 @@ pub fn signoff_extract(shapes: &[Shape], pins: &[LabeledPin], reference: &RefInp
     let mut s = Signoff::default();
     let fail = |s: &mut Signoff, rule: String| s.report.hard_violations.push(Violation { rule, margin: 0 });
 
-    let (text, skipped) = match reference::spice(reference, &pdk.deck, &pdk.strings) {
+    let (text, skipped) = match reference::spice(reference, &pdk.deck) {
         Ok(r) => r,
         Err(e) => {
             fail(&mut s, format!("engine/reference: {e}"));
@@ -395,12 +395,11 @@ fn standalone(shapes: &[Shape], pins: &[LabeledPin], pdk: &Pdk, checks: Checks, 
 /// around it, so that check is chip integration's. Their rows are dropped
 /// and they are reported as not run, never as passed.
 fn deferred_rules(pdk: &Pdk, shapes: &[Shape]) -> Vec<(String, String)> {
-    use gdsverify::ingest::deck::{ParamValue, RuleSpec};
-    let (st, rules) = (&pdk.strings, &pdk.deck.rules);
+    let rules = &pdk.deck.rules;
     let mut out = Vec::new();
     if let Some(w) = pdk.cell.get("waivers").and_then(|w| w.as_object()) {
         for (k, why) in w {
-            if st.get(k).is_some_and(|id| rules.spec.iter().any(|s| s.id == id)) {
+            if rules.iter().any(|s| &s.id == k) {
                 out.push((k.clone(), format!("Waived({})", why.as_str().unwrap_or(""))));
             }
         }
@@ -410,20 +409,15 @@ fn deferred_rules(pdk: &Pdk, shapes: &[Shape]) -> Vec<(String, String)> {
         (a.min(i64::from(r.x)), b.min(i64::from(r.y)), c.max(i64::from(r.x + r.w)), d.max(i64::from(r.y + r.h)))
     });
     let (w, h) = if shapes.is_empty() { (0, 0) } else { (x1 - x0, y1 - y0) };
-    let (density, cmp, global) = (st.get("density"), st.get("density_cmp"), st.get("global_density"));
-    let len = |s: &RuleSpec, k: &str| match st.get(k).and_then(|k| rules.param(s, k)) {
-        Some(ParamValue::Length(d)) => Some(d.raw()),
-        _ => None,
-    };
-    for s in &rules.spec {
-        let name = st.resolve(s.id).to_string();
-        if Some(s.kind) == global {
-            out.push((name, "ChipLevel(global density: whole die)".to_string()));
-            continue;
-        }
-        let window = match Some(s.kind) {
-            k if k == density => len(s, "window").map(|d| (d, d)),
-            k if k == cmp => len(s, "window_x").zip(len(s, "window_y")),
+    for s in rules {
+        let name = s.id.clone();
+        let window = match s.kind.as_str() {
+            "global_density" => {
+                out.push((name, "ChipLevel(global density: whole die)".to_string()));
+                continue;
+            }
+            "density" => s.nm("window").map(|d| (d, d)),
+            "density_cmp" => s.nm("window_x").zip(s.nm("window_y")),
             _ => None,
         };
         if let Some((wx, wy)) = window.filter(|&(wx, wy)| w > 0 && h > 0 && (wx > w || wy > h)) {
@@ -478,7 +472,7 @@ mod tests {
     /// Only the rows of `checks` over `shapes`, by rule id, with LVS
     /// against `reference` when it is given.
     fn rules(shapes: &[Shape], pins: &[LabeledPin], reference: Option<&RefInput>, intent: &Intent, checks: Checks, pdk: &Pdk) -> gpurify::Output {
-        let text = reference.map(|r| reference::spice(r, &pdk.deck, &pdk.strings).unwrap().0);
+        let text = reference.map(|r| reference::spice(r, &pdk.deck).unwrap().0);
         let input = gpurify::Input { shapes, pins, cells: &[], reference: text.as_deref(), ports: None, intent, field_solve: &[] };
         gpurify::run(&input, pdk, checks).unwrap()
     }
@@ -824,7 +818,7 @@ mod tests {
             ports: vec!["in".into(), "out".into(), "vss".into()],
             external_ports: None,
         };
-        let (text, skipped) = reference::spice(&input, &pdk.deck, &pdk.strings).unwrap();
+        let (text, skipped) = reference::spice(&input, &pdk.deck).unwrap();
         assert_eq!(skipped, [1]);
         assert_eq!(
             text,
@@ -1022,7 +1016,7 @@ mod tests {
             external_ports: None,
         };
         assert_eq!(
-            reference::spice(&with_diode, &pdk.deck, &pdk.strings).unwrap().1,
+            reference::spice(&with_diode, &pdk.deck).unwrap().1,
             Vec::<usize>::new(),
             "a deck with a diom recogniser must not skip diode cards"
         );

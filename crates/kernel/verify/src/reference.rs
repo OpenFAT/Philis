@@ -17,10 +17,9 @@
 //!
 //! Contents:
 //! - `pub enum RefKind`, `pub struct RefDeviceIn`, `pub struct RefInput`
-//! - `pub fn spice(input: &RefInput, deck: &Deck, strings: &StrTable) -> Result<(String, Vec<usize>), String>`
+//! - `pub fn spice(input: &RefInput, deck: &Deck) -> Result<(String, Vec<usize>), String>`
 
-use gdsverify::ingest::deck::{Deck, DeviceKind};
-use gdsverify::ingest::StrTable;
+use crate::deck::{Deck, DeviceKind};
 
 /// A schematic device kind, polarity included (recognisers are per-polarity).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,17 +74,17 @@ pub struct RefInput {
 ///
 /// # Errors
 /// A device whose terminals are fewer than its recogniser's arity.
-pub fn spice(input: &RefInput, deck: &Deck, strings: &StrTable) -> Result<(String, Vec<usize>), String> {
+pub fn spice(input: &RefInput, deck: &Deck) -> Result<(String, Vec<usize>), String> {
     let mut out = format!(".subckt top {}\n", input.ports.join(" "));
     let mut skipped = Vec::new();
     for (index, dev) in input.devices.iter().enumerate() {
-        let Some(row) = recogniser_for(dev, deck, strings) else {
+        let Some(d) = recogniser_for(dev, deck) else {
             // No marker layer in this deck extracts this device from the
             // layout, so the reference must not expect it either.
             skipped.push(index);
             continue;
         };
-        let arity = (deck.devices.terminal_start[row + 1] - deck.devices.terminal_start[row]) as usize;
+        let arity = d.terminals.len();
         if dev.terminals.len() < arity {
             return Err(format!(
                 "reference device {index} ({:?}) states {} terminals, its deck recogniser needs {arity}",
@@ -95,7 +94,7 @@ pub fn spice(input: &RefInput, deck: &Deck, strings: &StrTable) -> Result<(Strin
         }
         // Every card terminal: GPurify reads a MOS's bulk off the card even
         // where the deck extracts none.
-        out.push_str(&format!("X{index} {} {}", dev.terminals.join(" "), strings.resolve(deck.devices.model[row])));
+        out.push_str(&format!("X{index} {} {}", dev.terminals.join(" "), d.model));
         for (name, v) in &dev.params {
             match name.as_str() {
                 // Rounded to the pm: no float noise past the nm grid.
@@ -121,7 +120,7 @@ pub fn spice(input: &RefInput, deck: &Deck, strings: &StrTable) -> Result<(Strin
 /// capacitor with no model (an elaborated composition's card): every deck's
 /// capacitor row is a MIM or MOS cap, never the MOM the generators draw. A
 /// model-less R/D still takes the first row (antenna diodes carry no model).
-fn recogniser_for(dev: &RefDeviceIn, deck: &Deck, strings: &StrTable) -> Option<usize> {
+fn recogniser_for<'d>(dev: &RefDeviceIn, deck: &'d Deck) -> Option<&'d crate::deck::Device> {
     let (kind, polarity) = match dev.kind {
         RefKind::Inductor => return None,
         RefKind::Capacitor if dev.model.is_none() => return None,
@@ -133,29 +132,21 @@ fn recogniser_for(dev: &RefDeviceIn, deck: &Deck, strings: &StrTable) -> Option<
         RefKind::Capacitor => (DeviceKind::Capacitor, None),
         RefKind::Diode => (DeviceKind::Diode, None),
     };
-    let hinted = dev.model.as_deref().and_then(|m| strings.get(m));
     let mut fallback = None;
-    for row in 0..deck.devices.kind.len() {
-        if deck.devices.kind[row] != kind {
+    for d in deck.devices.iter().filter(|d| d.kind == kind) {
+        let marker = &deck.layers[usize::from(d.marker)].name;
+        if polarity.is_some_and(|want_p| marker.starts_with('p') != want_p) {
             continue;
         }
-        if let Some(want_p) = polarity {
-            let marker = strings.resolve(deck.layers.name(deck.devices.marker[row]));
-            if marker.starts_with('p') != want_p {
-                continue;
-            }
-        }
-        let named = strings.resolve(deck.devices.model[row]);
-        let vendor = dev.model.as_deref().is_some_and(|m| named.ends_with(&format!("__{m}")) || m.ends_with(&format!("__{named}")));
-        if hinted.is_none() && dev.model.is_none() || hinted == Some(deck.devices.model[row]) || vendor {
-            return Some(row);
+        let vendor = dev.model.as_deref().is_some_and(|m| d.model.ends_with(&format!("__{m}")) || m.ends_with(&format!("__{}", d.model)));
+        if dev.model.is_none() || dev.model.as_deref() == Some(d.model.as_str()) || vendor {
+            return Some(d);
         }
         // The hint names no deck model (yet): a MOS/BJT falls back to the
         // first match whose marker states its polarity (IHP's `esd_vdd` bjt
         // is an ESD diode, no NPN a schematic may mean).
-        let marker = strings.resolve(deck.layers.name(deck.devices.marker[row]));
         if polarity.is_some() && (marker.starts_with('n') || marker.starts_with('p')) {
-            fallback.get_or_insert(row);
+            fallback.get_or_insert(d);
         }
     }
     fallback

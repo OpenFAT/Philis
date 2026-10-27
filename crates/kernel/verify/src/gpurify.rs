@@ -16,6 +16,7 @@
 //! - `pub struct Checks` (`Checks::ALL`), `pub enum Measurement`, `pub struct Row`, `pub struct RuleRun`, `pub struct Output`, `pub struct Input`
 //! - `pub fn run(input: &Input, pdk: &Pdk, checks: Checks) -> Result<Output, String>`
 //! - `pub fn netlist(shapes: &[Shape], pins: &[LabeledPin], pdk: &Pdk) -> Result<String, String>`
+//! - `pub fn dump(text: &str) -> Result<String, String>`
 //! - `pub fn caps_of_spice(text: &str) -> (Vec<(String, Option<String>, f64)>, f64)`
 
 use std::path::{Path, PathBuf};
@@ -204,6 +205,23 @@ pub fn netlist(shapes: &[Shape], pins: &[LabeledPin], pdk: &Pdk) -> Result<Strin
     spice_once(&gpurify, &input, pins, &[], pdk, &dir, &args)?
 }
 
+/// GPurify's dump of deck `text` (`gpurify deck <deck> --format json`,
+/// [`crate::deck`]).
+///
+/// # Errors
+/// `gpurify` missing, or GPurify refusing the deck (its compile error).
+pub fn dump(text: &str) -> Result<String, String> {
+    let (gpurify, dir) = setup()?;
+    let deck = dir.0.join("philis.deck");
+    write(&deck, text.as_bytes())?;
+    let (ok, stdout, stderr) = spawn(&gpurify, &["deck".into(), deck.display().to_string(), "--format".into(), "json".into()])?;
+    if ok {
+        Ok(stdout)
+    } else {
+        Err(format!("deck rejected: {stderr}"))
+    }
+}
+
 /// Ground and coupling capacitance between labelled nets in a `pex --format
 /// spice` netlist, fF: `(net, None, C)` to ground, `(a, Some(b), C)` with
 /// `a < b`, summed per pair; and the sum of every C card. A node is its
@@ -275,12 +293,10 @@ fn setup() -> Result<(PathBuf, Scratch), String> {
     Ok((gpurify, Scratch::new()?))
 }
 
-/// `--deck <file>`, the file written into `dir`: a built-in PDK's vendored
-/// deck ([`crate::decks`]), else the text the `Pdk` was loaded from.
+/// `--deck <file>`, the `Pdk`'s deck text written into `dir`.
 fn deck_args(dir: &Scratch, pdk: &Pdk) -> Result<Vec<String>, String> {
     let deck = dir.0.join("philis.deck");
-    let text = pdk.name.and_then(crate::decks::vendored).unwrap_or(&pdk.source);
-    write(&deck, text.as_bytes())?;
+    write(&deck, pdk.source.as_bytes())?;
     Ok(vec!["--deck".into(), deck.display().to_string()])
 }
 

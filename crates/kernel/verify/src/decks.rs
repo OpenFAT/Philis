@@ -1,23 +1,26 @@
-//! The built-in PDKs' decks (Q61), compiled in: a moved or packaged `philis`
-//! signs off without this repository on disk. Each is GPurify's shipped deck
-//! at the rev `flake.lock` pins (line 1 names it), Philis's edits made in
-//! place under a `# PHILIS:` line.
+//! The built-in PDKs' decks and their dumps (Q61), compiled in: a moved or
+//! packaged `philis` loads and signs off without this repository on disk,
+//! and a build script reads a `Pdk` with no `gpurify` binary. Each deck is
+//! GPurify's shipped deck at the rev `flake.lock` pins (line 1 names it),
+//! Philis's edits made in place under a `# PHILIS:` line; each dump is
+//! `gpurify deck <deck> --format json` of it (`pdks/gpurify/dump.sh`).
 //!
 //! Contents:
-//! - `pub(crate) const DECKS: &[(&str, &str)]`
-//! - `pub(crate) fn vendored(pdk: &str) -> Option<&'static str>`
+//! - `pub(crate) const DECKS: &[(&str, &str, &str)]`
+//! - `pub(crate) fn vendored(pdk: &str) -> Option<(&'static str, &'static str)>`
 
-/// `(deck file name, deck text)`.
-pub(crate) const DECKS: &[(&str, &str)] = &[
-    ("sky130.deck", include_str!("../../../../pdks/gpurify/sky130.deck")),
-    ("gf180mcu.deck", include_str!("../../../../pdks/gpurify/gf180mcu.deck")),
-    ("ihp_sg13g2.deck", include_str!("../../../../pdks/gpurify/ihp_sg13g2.deck")),
-    ("asap7.deck", include_str!("../../../../pdks/gpurify/asap7.deck")),
+/// `(PDK name, deck text, deck dump)`.
+pub(crate) const DECKS: &[(&str, &str, &str)] = &[
+    ("sky130", include_str!("../../../../pdks/gpurify/sky130.deck"), include_str!("../../../../pdks/gpurify/sky130.deck.json")),
+    ("gf180mcu", include_str!("../../../../pdks/gpurify/gf180mcu.deck"), include_str!("../../../../pdks/gpurify/gf180mcu.deck.json")),
+    ("ihp_sg13g2", include_str!("../../../../pdks/gpurify/ihp_sg13g2.deck"), include_str!("../../../../pdks/gpurify/ihp_sg13g2.deck.json")),
+    ("asap7", include_str!("../../../../pdks/gpurify/asap7.deck"), include_str!("../../../../pdks/gpurify/asap7.deck.json")),
 ];
 
-/// The deck of built-in PDK `pdk`, `None` for a name not built in.
-pub(crate) fn vendored(pdk: &str) -> Option<&'static str> {
-    DECKS.iter().find(|(file, _)| file.strip_suffix(".deck") == Some(pdk)).map(|(_, text)| *text)
+/// `(deck text, deck dump)` of built-in PDK `pdk`, `None` for a name not
+/// built in.
+pub(crate) fn vendored(pdk: &str) -> Option<(&'static str, &'static str)> {
+    DECKS.iter().find(|d| d.0 == pdk).map(|d| (d.1, d.2))
 }
 
 #[cfg(test)]
@@ -27,7 +30,7 @@ mod tests {
     fn asap7_is_built_in_under_its_own_name() {
         assert!(crate::Pdk::builtin("asap7").is_ok());
         assert!(crate::Pdk::builtin("generic_finfet").is_err());
-        assert!(super::vendored("asap7").is_some_and(|t| t.contains("pdks/asap7.deck")));
+        assert!(super::vendored("asap7").is_some_and(|(t, _)| t.contains("pdks/asap7.deck")));
         assert!(super::vendored("generic_finfet").is_none());
     }
 
@@ -40,10 +43,26 @@ mod tests {
     #[test]
     fn every_deck_edit_is_marked_philis() {
         let src = std::env::var("GPURIFY_SRC").expect("GPURIFY_SRC is unset: run under `nix develop`");
-        for (file, text) in super::DECKS {
-            let upstream = std::fs::read_to_string(format!("{src}/pdks/{file}")).unwrap_or_else(|e| panic!("{file}: {e}"));
+        for (pdk, text, _) in super::DECKS {
+            let upstream = std::fs::read_to_string(format!("{src}/pdks/{pdk}.deck")).unwrap_or_else(|e| panic!("{pdk}: {e}"));
             let unmarked = unmarked_edits(&upstream, text);
-            assert!(unmarked.is_empty(), "{file}: edits with no # PHILIS: comment above them: {unmarked:#?}");
+            assert!(unmarked.is_empty(), "{pdk}.deck: edits with no # PHILIS: comment above them: {unmarked:#?}");
+        }
+    }
+
+    /// Each checked-in dump is what the pinned `gpurify` dumps from its deck
+    /// now: a deck edit or a re-pin without `pdks/gpurify/dump.sh` fails.
+    ///
+    /// Oracle: `gpurify deck <deck> --format json`, the binary the flake pins.
+    #[test]
+    fn dumps_are_fresh() {
+        let gpurify = crate::foundry::tool("gpurify").unwrap_or_else(|r| panic!("{r}"));
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../pdks/gpurify");
+        for (pdk, _, dump) in super::DECKS {
+            let o =
+                std::process::Command::new(&gpurify).args(["deck", &format!("{pdk}.deck"), "--format", "json"]).current_dir(dir).output().unwrap();
+            assert!(o.status.success(), "{pdk}: {}", String::from_utf8_lossy(&o.stderr));
+            assert!(o.stdout == dump.as_bytes(), "{pdk}.deck.json is stale: run `nix develop -c pdks/gpurify/dump.sh`");
         }
     }
 

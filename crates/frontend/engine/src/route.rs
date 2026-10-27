@@ -710,21 +710,22 @@ mod tests {
 pub(crate) fn model_table(pdk: &Pdk) -> Vec<(String, analog::base::DeviceKind)> {
     use analog::base::{DeviceKind as K, Process as _};
     use verify::DeviceKind as D;
-    let d = &pdk.deck.devices;
     let psdm = pdk.layer("psdm");
     let p_type = |x| psdm.is_some_and(|l| pdk.reaches(x, l.0));
-    (0..d.kind.len())
-        .filter_map(|row| {
-            let model = pdk.strings.resolve(d.model[row]).to_string();
-            let kind = match d.kind[row] {
-                D::Mos if p_type(d.terminal[d.terminal_start[row] as usize + 1]) || p_type(d.marker[row]) => K::Pmos,
+    pdk.deck
+        .devices
+        .iter()
+        .filter_map(|d| {
+            let model = d.model.clone();
+            let kind = match d.kind {
+                D::Mos if p_type(d.terminals[1]) || p_type(d.marker) => K::Pmos,
                 D::Mos => K::Nmos,
                 D::Bjt if model.to_ascii_lowercase().split('_').any(|t| t == "pnp") => K::Pnp,
                 D::Bjt => K::Npn,
                 D::Resistor => K::Resistor,
                 D::Capacitor => K::Capacitor,
                 D::Diode => K::Diode,
-                D::Inductor | D::Cell => return None,
+                D::Inductor => return None,
             };
             Some((model, kind))
         })
