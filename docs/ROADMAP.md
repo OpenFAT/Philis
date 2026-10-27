@@ -58,8 +58,14 @@ and typed fields for the `pdk_data` tables.
 - **M2, started.** Floorplan library (targets, symmetric row stack, glue row
   with gaps from facing shapes and the fin-deck gate lattice); the engine
   takes the row stack from the annotator's mirror pairs on planar decks, else
-  the glue row; fingers folded to the tap reach. `ota` clean on sky130. Open:
-  `ota` on asap7, `tt_ota`, `ota_constrained`; routing recipes (mirror pair,
+  the glue row; fingers folded to the tap reach. `ota` clean on sky130. The
+  block harness (`engine/src/interface.rs`, 1.0's interface format): boundary
+  pins routed and labelled as LVS ports; with a die, each call takes its
+  smallest variant that fits. `tt_ota` and `ota_constrained` clean on sky130
+  (GPurify; KLayout and magic/netgen checked once). Open: `ota`, `tt_ota`,
+  `ota_constrained` on asap7; dr lands pins only on its two lowest layers, so
+  a harness pin above met2 carries a via stack down to met1 (dr should land
+  from the pin's own layer); routing recipes (mirror pair,
   star) routed first; the stage `Order` for rows; dr's off-lattice landing
   spacing in general (being made exhaustive and self-reporting).
 
