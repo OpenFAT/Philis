@@ -13,7 +13,7 @@
 //! - `pub const FORMAT: &str`
 //! - `pub struct Deck`, `pub struct Layer`, `pub struct Derived`, `pub struct Rule`, `pub struct Param`, `pub struct Connectivity`, `pub struct Via`, `pub struct Label`, `pub enum DeviceKind`, `pub struct Device`, `pub struct Pex`, `pub struct PexRow`, `pub struct Answers`, `pub struct LayerAnswers`, `pub struct Spacing`, `pub struct Enclosure`, `pub struct ModelAnswers`
 //! - `pub fn parse(json: &str) -> Result<Deck, String>`
-//! - `Deck::{layer_id, op, operands, enclosure, polarity, model}`, `Rule::{param, nm, number, layer_param}`
+//! - `Deck::{layer_id, op, operands, enclosure, polarity, model}`, `Rule::{param, nm, nm_list, number, layer_param}`
 
 use serde::Deserialize;
 
