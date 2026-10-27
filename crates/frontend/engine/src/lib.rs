@@ -8,6 +8,7 @@
 //! `score_claims`, `print`) land with the milestone that needs them.
 
 pub mod claims;
+pub mod floorplan;
 pub mod route;
 
 use std::collections::{HashMap, HashSet};
@@ -275,7 +276,8 @@ pub fn plan_recipes(problem: &annotator::Problem, flat: &Flat, pdk: &Pdk) -> Res
         // The first rung this set can be drawn as on this deck.
         let rungs = ladder(u.class, u.kind);
         let process = Mos::new(flat, &u.devices, pdk);
-        let Some(step) = rungs.iter().position(|&k| !mos_variants(k, flat, &u.devices, &problem.constraints, process.get()).is_empty()) else {
+        let c = folded(&problem.constraints, i, process.get());
+        let Some(step) = rungs.iter().position(|&k| !mos_variants(k, flat, &u.devices, &c, process.get()).is_empty()) else {
             return Err(refuse(
                 "no-recipe",
                 format!("{}: no rung of {rungs:?} draws this {:?} set", names(flat, &u.devices), u.class.unwrap_or_default()),
@@ -331,8 +333,8 @@ pub fn build_tiles(calls: &RecipeCalls, problem: &annotator::Problem, flat: &Fla
             let members = calls.members_of(i);
             let group = DeviceGroup { devices: members.to_vec() };
             let constraints = match calls.unitization[i] {
-                Some(_) => problem.constraints.clone(),
-                None => as_drawn(flat, members),
+                Some(row) => folded(&problem.constraints, usize::from(row), Mos::new(flat, members, pdk).get()),
+                None => as_drawn(flat, members, Mos::new(flat, members, pdk).get()),
             };
             let mos = Mos::new(flat, members, pdk);
             let process = mos.get();
@@ -495,17 +497,20 @@ fn names(flat: &Flat, members: &[DeviceId]) -> String {
 /// adapter synthesises one): every member at its schematic fingers and the
 /// first member's finger size. ponytail: members of unequal size draw at the
 /// first's; the annotator's rows carry real ratios.
-fn as_drawn(flat: &Flat, members: &[DeviceId]) -> analog::Constraints {
+fn as_drawn(flat: &Flat, members: &[DeviceId], process: &dyn analog::base::Process) -> analog::Constraints {
     let first = &flat.devices[members[0].0 as usize];
     let s = first.mos_size();
-    let nf = |d: &DeviceId| flat.devices[d.0 as usize].mos_size().map_or(1, |s| s.fingers().clamp(1, u32::from(u16::MAX)) as u16);
+    // Fold a finger longer than the deck's tap reach (LU.2/LU.3) into k equal
+    // grid-aligned fingers: the same total W, which LVS merges back.
+    let k = s.map_or(1, |s| fold(s.w_finger_nm(), s.l_nm, process));
+    let nf = |d: &DeviceId| flat.devices[d.0 as usize].mos_size().map_or(1, |s| (s.fingers() * k).clamp(1, u32::from(u16::MAX)) as u16);
     analog::Constraints {
         unitization: vec![analog::cell::Unitization {
             devices: members.to_vec(),
             device_type: first.kind,
             dev_nf: members.iter().map(nf).collect(),
             target_ratio: vec![1; members.len()],
-            unit_w: s.map_or(0, |s| s.w_finger_nm() as i32),
+            unit_w: s.map_or(0, |s| (s.w_finger_nm() / i64::from(k)) as i32),
             unit_l: s.map_or(0, |s| s.l_nm as i32),
             series_parallel: analog::cell::SeriesParallel::Parallel,
             dummy_required: false,
@@ -517,6 +522,33 @@ fn as_drawn(flat: &Flat, members: &[DeviceId]) -> analog::Constraints {
         }],
         ..analog::Constraints::default()
     }
+}
+
+/// The fold count for a finger `w` × `l` nm: the least `k` whose `w / k` is
+/// within the deck's tap reach and a whole number of grid steps; 1 when `w`
+/// already fits or the deck states no reach.
+fn fold(w: i64, l: i64, process: &dyn analog::base::Process) -> u32 {
+    let taps = i64::from(substrate3::cells::mosfet::max_finger_for_taps(process, l as i32));
+    let deck = i64::from(process.rule("max_finger_width", 0));
+    let reach = if deck > 0 { taps.min(deck) } else { taps };
+    let grid = i64::from(process.grid().max(1));
+    if reach == i64::from(i32::MAX) || w <= reach {
+        return 1;
+    }
+    (1..=1024).find(|&k| w / k <= reach && w % (k * grid) == 0).map_or(1, |k| k as u32)
+}
+
+/// `c` with unitization row `row` folded (each finger to the tap reach and
+/// the deck's widest finger, [`fold`]): the same total W per member.
+fn folded(c: &analog::Constraints, row: usize, process: &dyn analog::base::Process) -> analog::Constraints {
+    let mut c = c.clone();
+    let u = &mut c.unitization[row];
+    let k = fold(i64::from(u.unit_w), i64::from(u.unit_l), process);
+    if k > 1 {
+        u.unit_w /= k as i32;
+        u.dev_nf.iter_mut().for_each(|n| *n = n.saturating_mul(k as u16));
+    }
+    c
 }
 
 /// Rebind a drawn macro's pins to the netlist (1.0 `cellgen::bind_pins`):
@@ -771,7 +803,7 @@ pub fn run_calls(
     netlist.flat.devices.iter().try_for_each(|d| drawable_size(d, pdk))?;
     let tiles = build_tiles(&calls, problem, &netlist.flat, pdk)?;
     let mut tiles = tiles;
-    let layout = arrange(&mut tiles, pdk)?;
+    let layout = floorplan::arrange_block(&mut tiles, &calls, problem, &netlist.flat, pdk)?;
     // The glue fill (if any) rides after the call tiles; claims read the calls.
     let claims = claims::score_claims(&calls, &tiles[..calls.len()], &layout, problem, pdk);
     let (placed, routes, route_report) = route::route(&tiles, &layout, problem, cfg, netlist.flat.nets.len(), pdk);

@@ -750,7 +750,17 @@ pub fn annotation(pdk: &Pdk, base: &annotator::AnnotationConfig) -> annotator::A
         unit: annotator::sets::UnitDeck {
             grid_nm: i64::from(pdk.grid()),
             min_w_nm: i64::from(pdk.rule("min_finger_width", 0)),
-            max_w_nm: i64::from(pdk.rule("max_finger_width", 0)),
+            // A finger also keeps its far corner within the deck's latch-up tap
+            // reach of the strip beside it (sky130 LU.2/LU.3), as 1.0 folded.
+            max_w_nm: {
+                let (rule, l) = (pdk.rule("max_finger_width", 0), pdk.layer("poly").and_then(|l| pdk.min_width(l.0)).unwrap_or(0));
+                let taps = substrate3::cells::mosfet::max_finger_for_taps(pdk, l);
+                i64::from(match (rule, taps) {
+                    (_, i32::MAX) => rule,
+                    (0, t) => t,
+                    (r, t) => r.min(t),
+                })
+            },
             min_l_nm: pdk.layer("poly").and_then(|l| pdk.min_width(l.0)).map_or(0, i64::from),
             res_min_segment_nm: i64::from(pdk.rule("res_min_segment", 0)),
         },
