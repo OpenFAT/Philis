@@ -1503,10 +1503,14 @@ impl DetailedRoute {
                     .collect();
                 let touch = |a: Rect, b: Rect| rect_gap(a, b) == 0;
                 let cell_of = |n: usize| -> Vec<Shape> {
-                    // The pins, then every cell shape joined to them on their layer
-                    // (a pin, its rail, the strap off the rail), by flood fill.
-                    let mut out: Vec<Shape> = term_rects.get(n).into_iter().flatten().map(|&(r, l, _)| Shape { layer: l, rect: r }).collect();
-                    let mut taken = vec![false; fill_metal.len()];
+                    // The pins, the cell metal they reach through the stack
+                    // ([`cell_metal`]: an M1 strap under an M2 pin), then every
+                    // cell shape joined to those on its layer (a pin, its rail,
+                    // the strap off the rail), by flood fill.
+                    let reached: HashSet<(LayerId, Rect)> = cell_f.get(n).into_iter().flatten().map(|s| (s.layer, s.rect)).collect();
+                    let mut taken: Vec<bool> = fill_metal.iter().map(|c| reached.contains(&(c.layer, c.rect))).collect();
+                    let pins = term_rects.get(n).into_iter().flatten().map(|&(r, l, _)| Shape { layer: l, rect: r });
+                    let mut out: Vec<Shape> = pins.chain(fill_metal.iter().zip(&taken).filter(|(_, t)| **t).map(|(c, _)| *c)).collect();
                     let mut i = 0;
                     while i < out.len() {
                         let a = out[i];
