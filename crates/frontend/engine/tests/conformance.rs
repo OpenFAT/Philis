@@ -8,6 +8,10 @@
 //! private per member, the source private or shared (the recipe joins a
 //! shared one in its tile), the bulk shared (a substrate is one net).
 //!
+//! MosRatioed also draws a mirror axis: one gate net, member `k` at `2^k`
+//! times the size's W (1:2 and 1:2:4 at unequal fingers), its input and no
+//! other recipe's (they take members of one finger).
+//!
 //! A point a recipe does not apply to (a `no-recipe` refusal: Cc1d over
 //! private sources) is skipped, not failed. A recipe is available on a PDK
 //! when it draws at least one point there and every point it draws signs off.
@@ -28,15 +32,19 @@ const PROOFS: [Proof; 2] = [
     Proof { deck: "asap7", models: [("nmos_rvt", &[("270n", "20n"), ("54n", "20n")]), ("pmos_rvt", &[("270n", "20n"), ("54n", "20n")])] },
 ];
 
-/// `n` members of `nf` fingers; `shared`: the sources on one net.
-fn netlist(n: usize, model: &str, w: &str, l: &str, nf: u16, shared: bool) -> String {
+/// `n` members of `nf` fingers; `shared`: the sources on one net; `ratio`:
+/// one gate net, member `k` at `2^k` times `w`.
+fn netlist(n: usize, model: &str, w: &str, l: &str, nf: u16, shared: bool, ratio: bool) -> String {
     let mut ports = Vec::new();
     let mut cards = String::new();
+    // `w` is SPICE text in `u` or `n`.
+    let w_nm: u64 = w.strip_suffix('u').map_or_else(|| w.trim_end_matches('n').parse().unwrap(), |u| u.parse::<u64>().unwrap() * 1000);
     for k in 0..n {
         let (s, b) = (if shared { "s".to_string() } else { format!("s{k}") }, "b".to_string());
-        writeln!(cards, "XM{k} d{k} g{k} {s} {b} {model} W={w} L={l} nf={nf}").unwrap();
-        ports.extend([format!("d{k}"), format!("g{k}")]);
-        for p in [s, b] {
+        let (g, w) = if ratio { ("g".to_string(), format!("{}n", w_nm << k)) } else { (format!("g{k}"), w.to_string()) };
+        writeln!(cards, "XM{k} d{k} {g} {s} {b} {model} W={w} L={l} nf={nf}").unwrap();
+        ports.push(format!("d{k}"));
+        for p in [g, s, b] {
             if !ports.contains(&p) {
                 ports.push(p);
             }
@@ -75,9 +83,12 @@ fn every_recipe_conforms_on_every_proof_pdk() {
             let (mut ok, mut drawn) = (true, 0);
             for (model, sizes) in proof.models {
                 for &(w, l) in sizes {
-                    for (n, nf, shared) in (1..=3).flat_map(|n| [1u16, 2, 4].into_iter().flat_map(move |nf| [false, true].map(|s| (n, nf, s)))) {
+                    let grid = (1..=3).flat_map(|n| [1u16, 2, 4].into_iter().flat_map(move |nf| [false, true].map(|s| (n, nf, s, false))));
+                    let mirrors = (2..=3).flat_map(|n| [1u16, 2, 4].map(|nf| (n, nf, true, true)));
+                    let mirrors = mirrors.filter(|_| kind == engine::RecipeKind::MosRatioed);
+                    for (n, nf, shared, ratio) in grid.chain(mirrors) {
                         {
-                            let spice = netlist(n, model, w, l, nf, shared);
+                            let spice = netlist(n, model, w, l, nf, shared, ratio);
                             let bad = match one_call(kind, &spice, &pdk) {
                                 Ok(out) => findings(&out.signoff),
                                 // Not this recipe's input, or a size the deck cannot draw.
@@ -87,7 +98,10 @@ fn every_recipe_conforms_on_every_proof_pdk() {
                             drawn += 1;
                             if !bad.is_empty() {
                                 ok = false;
-                                failures.push(format!("{kind:?} {} {model} W={w} L={l} n={n} nf={nf} shared={shared}: {bad:?}", proof.deck));
+                                failures.push(format!(
+                                    "{kind:?} {} {model} W={w} L={l} n={n} nf={nf} shared={shared} ratio={ratio}: {bad:?}",
+                                    proof.deck
+                                ));
                             }
                         }
                     }
