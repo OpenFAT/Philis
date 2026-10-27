@@ -8,21 +8,6 @@ use crate::base::ids::NetId;
 use crate::base::routes::Routes;
 use crate::rule::Rule;
 
-/// Boltzmann's constant, eV/K.
-const K_EV: f32 = 8.617e-5;
-
-/// Allowed-current factor for a limit rated at `t_ref_k`, at conductor
-/// temperature `t_k`: `F = exp[(Ea/(n·k))·(1/T − 1/T_ref)]`, `< 1` when hotter.
-/// Hastings eqs. 15.24–15.25; Lienig & Thiele 2018 eq. 3.11 (from Black, eq. 3.8).
-/// Never credits a conductor cooler than the rating: `F ≤ 1`.
-#[must_use]
-pub fn derate(t_k: f32, t_ref_k: f32, ea_ev: f32, n: f32) -> f32 {
-    if t_k <= t_ref_k || n <= 0.0 {
-        return 1.0;
-    }
-    ((ea_ev / (n * K_EV)) * (1.0 / t_k - 1.0 / t_ref_k)).exp()
-}
-
 /// One layer's deck EM limits, already derated to the conductor temperature.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Limit {
@@ -33,45 +18,6 @@ pub struct Limit {
     pub ua_per_cut: f32,
     /// Blech product `(jL)_B` in (µA/µm)·µm; `0` = the deck has none.
     pub blech: f32,
-}
-
-impl Limit {
-    /// Scale both current limits by a [`derate`] factor.
-    #[must_use]
-    pub fn derated(self, f: f32) -> Self {
-        Self { ua_per_um: self.ua_per_um * f, ua_per_cut: self.ua_per_cut * f, ..self }
-    }
-
-    /// Width a segment carrying `i_ua` needs, nm: `w ≥ I/J` (Lienig & Thiele
-    /// 2018 eq. 3.21; Hastings eq. 15.24) — unless it is Blech-immortal,
-    /// `(I/w)·L < (jL)_B` (Lienig eq. 4.1), i.e. `w > I·L/(jL)_B`. `domain_nm`
-    /// is the diffusion domain's length (`dr` passes the net's whole run on
-    /// the layer, [`Electromigration`] the shape's long side). `0` when the
-    /// limit is unknown.
-    #[must_use]
-    pub fn width_nm(self, i_ua: f32, domain_nm: f32) -> f32 {
-        if self.ua_per_um <= 0.0 {
-            return 0.0;
-        }
-        let density = i_ua.abs() * 1_000.0 / self.ua_per_um;
-        if self.blech > 0.0 {
-            density.min(i_ua.abs() * domain_nm / self.blech)
-        } else {
-            density
-        }
-    }
-
-    /// Cuts a via carrying `i_ua` needs: `n = ⌈I / I_cut⌉` (Lienig & Thiele 2018
-    /// eq. 3.25; its temperature factor f(T) is divided out here, via
-    /// [`Limit::derated`] — the book prints it multiplied, which would let a
-    /// hotter via have fewer cuts). `1` when the limit is unknown.
-    #[must_use]
-    pub fn cuts(self, i_ua: f32) -> u32 {
-        if self.ua_per_cut <= 0.0 {
-            return 1;
-        }
-        ((i_ua.abs() / self.ua_per_cut).ceil() as u32).max(1)
-    }
 }
 
 /// Most layers (metals and cuts) a rule carries limits for.
@@ -115,16 +61,69 @@ pub struct Electromigration {
     pub front_row: bool,
 }
 
-/// The most of `cuts` sharing one centre coordinate along `m`'s long axis (x
-/// when `m` is wider than tall, else y): the cuts across the current. A square
-/// `m` has no long axis: all of them.
-fn front_row(cuts: &[&Rect], m: &Rect) -> u32 {
-    if m.w == m.h {
-        return cuts.len() as u32;
+/// Every routed metal shape of an ESD pad net has a cross-section ≥ `area_um2`:
+/// short side ≥ area·1e6/thickness_nm. A layer of thickness 0 is unknown for it.
+/// Separate from [`Electromigration`]: the floor needs no DC current, which a
+/// pad net rarely has.
+#[derive(Clone, Copy)]
+pub struct EsdWidth {
+    pub net: NetId,
+    pub area_um2: f32,
+    pub stack: &'static Stack,
+}
+
+/// Boltzmann's constant, eV/K.
+const K_EV: f32 = 8.617e-5;
+
+/// Allowed-current factor for a limit rated at `t_ref_k`, at conductor
+/// temperature `t_k`: `F = exp[(Ea/(n·k))·(1/T − 1/T_ref)]`, `< 1` when hotter.
+/// Hastings eqs. 15.24–15.25; Lienig & Thiele 2018 eq. 3.11 (from Black, eq. 3.8).
+/// Never credits a conductor cooler than the rating: `F ≤ 1`.
+#[must_use]
+pub fn derate(t_k: f32, t_ref_k: f32, ea_ev: f32, n: f32) -> f32 {
+    if t_k <= t_ref_k || n <= 0.0 {
+        return 1.0;
     }
-    let mut c: Vec<i64> = cuts.iter().map(|r| if m.w > m.h { 2 * r.x as i64 + r.w as i64 } else { 2 * r.y as i64 + r.h as i64 }).collect();
-    c.sort_unstable();
-    c.chunk_by(|a, b| a == b).map(|g| g.len() as u32).max().unwrap_or(0)
+    ((ea_ev / (n * K_EV)) * (1.0 / t_k - 1.0 / t_ref_k)).exp()
+}
+
+impl Limit {
+    /// Scale both current limits by a [`derate`] factor.
+    #[must_use]
+    pub fn derated(self, f: f32) -> Self {
+        Self { ua_per_um: self.ua_per_um * f, ua_per_cut: self.ua_per_cut * f, ..self }
+    }
+
+    /// Width a segment carrying `i_ua` needs, nm: `w ≥ I/J` (Lienig & Thiele
+    /// 2018 eq. 3.21; Hastings eq. 15.24) — unless it is Blech-immortal,
+    /// `(I/w)·L < (jL)_B` (Lienig eq. 4.1), i.e. `w > I·L/(jL)_B`. `domain_nm`
+    /// is the diffusion domain's length (`dr` passes the net's whole run on
+    /// the layer, [`Electromigration`] the shape's long side). `0` when the
+    /// limit is unknown.
+    #[must_use]
+    pub fn width_nm(self, i_ua: f32, domain_nm: f32) -> f32 {
+        if self.ua_per_um <= 0.0 {
+            return 0.0;
+        }
+        let density = i_ua.abs() * 1_000.0 / self.ua_per_um;
+        if self.blech > 0.0 {
+            density.min(i_ua.abs() * domain_nm / self.blech)
+        } else {
+            density
+        }
+    }
+
+    /// Cuts a via carrying `i_ua` needs: `n = ⌈I / I_cut⌉` (Lienig & Thiele 2018
+    /// eq. 3.25; its temperature factor f(T) is divided out here, via
+    /// [`Limit::derated`] — the book prints it multiplied, which would let a
+    /// hotter via have fewer cuts). `1` when the limit is unknown.
+    #[must_use]
+    pub fn cuts(self, i_ua: f32) -> u32 {
+        if self.ua_per_cut <= 0.0 {
+            return 1;
+        }
+        ((i_ua.abs() / self.ua_per_cut).ceil() as u32).max(1)
+    }
 }
 
 impl Electromigration {
@@ -262,33 +261,6 @@ pub fn metal_family(key: Option<&str>) -> (f32, f32) {
     }
 }
 
-/// Every routed metal shape of an ESD pad net has a cross-section ≥ `area_um2`:
-/// short side ≥ area·1e6/thickness_nm. A layer of thickness 0 is unknown for it.
-/// Separate from [`Electromigration`]: the floor needs no DC current, which a
-/// pad net rarely has.
-#[derive(Clone, Copy)]
-pub struct EsdWidth {
-    pub net: NetId,
-    pub area_um2: f32,
-    pub stack: &'static Stack,
-}
-
-impl EsdWidth {
-    /// `(worst residual, worst need/have)` over the net's routed metal shapes
-    /// of known thickness; `None` when there is none.
-    fn check(self, r: &Routes) -> Option<(f32, f32)> {
-        let mut worst: Option<(f32, f32)> = None;
-        for s in r.shapes(self.net) {
-            let Some(l) = self.stack.layers.iter().find(|l| l.id == s.layer.0 && !l.cut && l.thickness_nm > 0.0) else { continue };
-            let need = (f64::from(self.area_um2) * 1e6 / f64::from(l.thickness_nm)) as f32;
-            let have = s.rect.w.min(s.rect.h).max(1) as f32;
-            let (res, q) = worst.unwrap_or((f32::MIN, 0.0));
-            worst = Some((res.max(crate::rule::over(need - have, need)), q.max(need / have)));
-        }
-        worst
-    }
-}
-
 impl Rule for EsdWidth {
     type On = Routes;
     const REPAIR: crate::RepairKind = crate::RepairKind::Em;
@@ -340,6 +312,36 @@ impl Rule for Electromigration {
     }
     fn touches(self, out: &mut Vec<u32>) {
         out.push(u32::from(self.net.0));
+    }
+}
+
+// ---- private ----
+
+/// The most of `cuts` sharing one centre coordinate along `m`'s long axis (x
+/// when `m` is wider than tall, else y): the cuts across the current. A square
+/// `m` has no long axis: all of them.
+fn front_row(cuts: &[&Rect], m: &Rect) -> u32 {
+    if m.w == m.h {
+        return cuts.len() as u32;
+    }
+    let mut c: Vec<i64> = cuts.iter().map(|r| if m.w > m.h { 2 * r.x as i64 + r.w as i64 } else { 2 * r.y as i64 + r.h as i64 }).collect();
+    c.sort_unstable();
+    c.chunk_by(|a, b| a == b).map(|g| g.len() as u32).max().unwrap_or(0)
+}
+
+impl EsdWidth {
+    /// `(worst residual, worst need/have)` over the net's routed metal shapes
+    /// of known thickness; `None` when there is none.
+    fn check(self, r: &Routes) -> Option<(f32, f32)> {
+        let mut worst: Option<(f32, f32)> = None;
+        for s in r.shapes(self.net) {
+            let Some(l) = self.stack.layers.iter().find(|l| l.id == s.layer.0 && !l.cut && l.thickness_nm > 0.0) else { continue };
+            let need = (f64::from(self.area_um2) * 1e6 / f64::from(l.thickness_nm)) as f32;
+            let have = s.rect.w.min(s.rect.h).max(1) as f32;
+            let (res, q) = worst.unwrap_or((f32::MIN, 0.0));
+            worst = Some((res.max(crate::rule::over(need - have, need)), q.max(need / have)));
+        }
+        worst
     }
 }
 

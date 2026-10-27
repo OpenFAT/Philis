@@ -115,25 +115,6 @@ impl CommonNodes {
     }
 }
 
-/// `a` less the interior of `g`: up to four pieces (left and right full
-/// height, bottom and top between them); `a` whole when they do not overlap.
-fn minus(a: Rect, g: Rect) -> Vec<Rect> {
-    let (ar, at, gr, gt) = (a.x + a.w, a.y + a.h, g.x + g.w, g.y + g.h);
-    if a.x >= gr || g.x >= ar || a.y >= gt || g.y >= at {
-        return vec![a];
-    }
-    let (l, r) = (a.x.max(g.x), ar.min(gr));
-    [
-        Rect { x: a.x, y: a.y, w: l - a.x, h: a.h },
-        Rect { x: r, y: a.y, w: ar - r, h: a.h },
-        Rect { x: l, y: a.y, w: r - l, h: g.y - a.y },
-        Rect { x: l, y: gt, w: r - l, h: at - gt },
-    ]
-    .into_iter()
-    .filter(|p| p.w > 0 && p.h > 0)
-    .collect()
-}
-
 impl RuleBatch<Routes> for CommonNodes {
     fn cost(&self, r: &Routes) -> f32 {
         self.nodes.iter().filter_map(|n| self.usage(n, r)).sum()
@@ -170,6 +151,27 @@ impl RuleBatch<Routes> for CommonNodes {
     fn violating_ids(&self, r: &Routes, out: &mut Vec<u32>) {
         out.extend(self.nodes.iter().filter(|n| self.star_broken(n, r) || self.usage(n, r).is_some_and(|u| u > 1.0)).map(|n| u32::from(n.net.0)));
     }
+}
+
+// ---- private ----
+
+/// `a` less the interior of `g`: up to four pieces (left and right full
+/// height, bottom and top between them); `a` whole when they do not overlap.
+fn minus(a: Rect, g: Rect) -> Vec<Rect> {
+    let (ar, at, gr, gt) = (a.x + a.w, a.y + a.h, g.x + g.w, g.y + g.h);
+    if a.x >= gr || g.x >= ar || a.y >= gt || g.y >= at {
+        return vec![a];
+    }
+    let (l, r) = (a.x.max(g.x), ar.min(gr));
+    [
+        Rect { x: a.x, y: a.y, w: l - a.x, h: a.h },
+        Rect { x: r, y: a.y, w: ar - r, h: a.h },
+        Rect { x: l, y: a.y, w: r - l, h: g.y - a.y },
+        Rect { x: l, y: gt, w: r - l, h: at - gt },
+    ]
+    .into_iter()
+    .filter(|p| p.w > 0 && p.h > 0)
+    .collect()
 }
 
 #[cfg(test)]

@@ -16,29 +16,6 @@ pub struct CrosstalkExclusion {
     pub margin_pct: u8,
 }
 
-impl CrosstalkExclusion {
-    /// Min same-layer edge gap between the nets' shapes, nm; `f32::MAX` when
-    /// they share no layer. ponytail: O(|A|·|B|), analog nets are short.
-    fn clearance(self, r: &Routes) -> f32 {
-        let mut best = f32::MAX;
-        for wa in r.shapes(self.a) {
-            for wb in r.shapes(self.b) {
-                if wa.layer == wb.layer {
-                    best = best.min(rect_gap(&wa.rect, &wb.rect));
-                }
-            }
-        }
-        best
-    }
-}
-
-/// Euclidean edge-to-edge gap between two rects (`0` if touching/overlapping).
-fn rect_gap(p: &Rect, q: &Rect) -> f32 {
-    let dx = (q.x - (p.x + p.w)).max(p.x - (q.x + q.w)).max(0);
-    let dy = (q.y - (p.y + p.h)).max(p.y - (q.y + q.h)).max(0);
-    ((dx as f32).powi(2) + (dy as f32).powi(2)).sqrt()
-}
-
 impl Rule for CrosstalkExclusion {
     type On = Routes;
     const REPAIR: crate::RepairKind = crate::RepairKind::KeepAway;
@@ -95,6 +72,31 @@ impl Rule for CrosstalkExclusion {
         let floor = self.min_spacing_nm as f32;
         crate::rule::over(floor - d, floor)
     }
+}
+
+// ---- private ----
+
+impl CrosstalkExclusion {
+    /// Min same-layer edge gap between the nets' shapes, nm; `f32::MAX` when
+    /// they share no layer. ponytail: O(|A|·|B|), analog nets are short.
+    fn clearance(self, r: &Routes) -> f32 {
+        let mut best = f32::MAX;
+        for wa in r.shapes(self.a) {
+            for wb in r.shapes(self.b) {
+                if wa.layer == wb.layer {
+                    best = best.min(rect_gap(&wa.rect, &wb.rect));
+                }
+            }
+        }
+        best
+    }
+}
+
+/// Euclidean edge-to-edge gap between two rects (`0` if touching/overlapping).
+fn rect_gap(p: &Rect, q: &Rect) -> f32 {
+    let dx = (q.x - (p.x + p.w)).max(p.x - (q.x + q.w)).max(0);
+    let dy = (q.y - (p.y + p.h)).max(p.y - (q.y + q.h)).max(0);
+    ((dx as f32).powi(2) + (dy as f32).powi(2)).sqrt()
 }
 
 #[cfg(test)]

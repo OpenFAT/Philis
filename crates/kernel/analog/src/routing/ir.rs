@@ -30,18 +30,6 @@ pub struct IrDrop {
     pub stack: Option<&'static Stack>,
 }
 
-impl IrDrop {
-    /// Drop along the routing, µV; `None` when unknown.
-    fn drop_uv(self, r: &Routes) -> Option<f32> {
-        let st = self.stack?;
-        let shapes = r.shapes(self.net);
-        let all = [shapes, r.cell_metal(self.net)].concat();
-        super::current::net_flow(st, &all, r.terminals(self.net))
-            .map(|f| f.drop_uv)
-            .or_else(|| (self.current_ua >= 0 && !shapes.is_empty()).then(|| self.current_ua as f32 * st.path_resistance_ohm(shapes)))
-    }
-}
-
 impl Rule for IrDrop {
     type On = Routes;
     const REPAIR: crate::RepairKind = crate::RepairKind::Ir;
@@ -70,6 +58,20 @@ impl Rule for IrDrop {
     }
     fn touches(self, out: &mut Vec<u32>) {
         out.push(u32::from(self.net.0));
+    }
+}
+
+// ---- private ----
+
+impl IrDrop {
+    /// Drop along the routing, µV; `None` when unknown.
+    fn drop_uv(self, r: &Routes) -> Option<f32> {
+        let st = self.stack?;
+        let shapes = r.shapes(self.net);
+        let all = [shapes, r.cell_metal(self.net)].concat();
+        super::current::net_flow(st, &all, r.terminals(self.net))
+            .map(|f| f.drop_uv)
+            .or_else(|| (self.current_ua >= 0 && !shapes.is_empty()).then(|| self.current_ua as f32 * st.path_resistance_ohm(shapes)))
     }
 }
 

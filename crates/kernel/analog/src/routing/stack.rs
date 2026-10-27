@@ -60,6 +60,14 @@ pub struct DiodeCredit {
     pub bonus: f32,
 }
 
+/// [`Stack::port_graph`]'s resistor network: adjacency `(node, Ω, shape
+/// index)` (`u32::MAX`: a 0-Ω junction or terminal link) and each terminal's
+/// node.
+pub(crate) struct PortGraph {
+    pub(crate) adj: Vec<Vec<(usize, f32, u32)>>,
+    pub(crate) term: Vec<Option<usize>>,
+}
+
 impl Stack {
     fn at(&self, id: u16) -> Option<(usize, &Layer)> {
         self.layers.iter().enumerate().find(|(_, l)| l.id == id)
@@ -391,14 +399,6 @@ impl Stack {
     }
 }
 
-/// [`Stack::port_graph`]'s resistor network: adjacency `(node, Ω, shape
-/// index)` (`u32::MAX`: a 0-Ω junction or terminal link) and each terminal's
-/// node.
-pub(crate) struct PortGraph {
-    pub(crate) adj: Vec<Vec<(usize, f32, u32)>>,
-    pub(crate) term: Vec<Option<usize>>,
-}
-
 impl PortGraph {
     fn link(&mut self, a: usize, b: usize, r: f32, shape: u32) {
         self.adj[a].push((b, r, shape));
@@ -461,6 +461,8 @@ pub fn parallel(p: &Rect, q: &Rect) -> Option<(i32, i32)> {
         None
     }
 }
+
+// ---- private ----
 
 /// Area (nm²) and perimeter (nm) of the union of `rects`, by coordinate
 /// compression: the distinct edge coordinates cut the plane into X·Y cells, a

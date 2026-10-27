@@ -38,6 +38,10 @@ pub struct PlateRatio {
     pub space_nm: i32,
 }
 
+/// Every [`PlateRatio`] of one routed layout (budget arm).
+#[derive(Clone, Debug, Default)]
+pub struct PlateRatios(pub Vec<PlateRatio>);
+
 impl PlateRatio {
     /// Per bit, its lead C, aF.
     #[must_use]
@@ -81,10 +85,6 @@ impl PlateRatio {
         self.spread_pct(r).map_or(0.0, |s| crate::rule::over(s - tol, tol))
     }
 }
-
-/// Every [`PlateRatio`] of one routed layout (budget arm).
-#[derive(Clone, Debug, Default)]
-pub struct PlateRatios(pub Vec<PlateRatio>);
 
 impl RuleBatch<Routes> for PlateRatios {
     fn cost(&self, r: &Routes) -> f32 {

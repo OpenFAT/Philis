@@ -60,6 +60,8 @@ impl Rule for Antenna {
     }
 }
 
+// ---- private ----
+
 impl Antenna {
     /// `(ratio, limit)` of the worst stage. Without the stack: all routed metal
     /// over the gate area against the tightest ratio (the cumulative,

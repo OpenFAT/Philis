@@ -12,46 +12,29 @@ use super::Stack;
 use crate::metadata::{NetClass, NetClassification};
 use crate::rule::Rule;
 
+/// Budget on the total coupling onto `net`, aF. Registered in the budget arm.
+#[derive(Clone, Copy)]
+pub struct CouplingBudget {
+    /// The victim.
+    pub net: NetId,
+    pub max_coupling_af: i64,
+    /// Safety margin held back from the budget, percent.
+    pub margin_pct: u8,
+    /// Per-layer `ε·t`; `None` = one constant for the stack.
+    pub stack: Option<&'static Stack>,
+    /// The victim's shield reference: never an aggressor (a grounded shield is
+    /// the remedy the rule asks for, BAL2-10, not coupling to book).
+    pub exclude: Option<NetId>,
+    /// Aggressor weight in `[0, 1]` by `NetId`; a missing index reads 1.0;
+    /// `None` = all 1.0. `&'static` because rules are `Copy` (as `stack`).
+    pub aggressor_weight: Option<&'static [f32]>,
+}
+
 /// `ε·h` in `C = ε·h·run/gap`, aF (εr 3.9, ~0.35 µm metal): two wires 400 nm
 /// apart couple ~30 aF/µm of parallel run.
 ///
 /// The fallback when the deck gives no per-layer `ε·t` ([`Stack::lateral_af`]).
 const EPS_H_AF: f32 = 12.0;
-
-/// Lateral coupling over `run` nm at `gap` nm on `layer`, aF: the deck's
-/// `ε0·k·t·run/gap` when known (TOPO eq. 4.3), else `EPS_H_AF`.
-fn run_af(stack: Option<&Stack>, layer: u16, run: i32, gap: i32) -> f32 {
-    stack.and_then(|s| s.lateral_run_af(layer, run, gap)).unwrap_or(EPS_H_AF * run as f32 / gap.max(1) as f32)
-}
-
-/// `shapes` merged per layer into maximal runs `(layer, rect, along x)`:
-/// longest first, a shape joins a run it touches when it is not longer across
-/// the run than along it (a collinear piece or a pad), extending the run's
-/// span; the run keeps its own width. So a pad over a wire end counts once.
-fn runs(shapes: &[Shape]) -> Vec<(u16, Rect, bool)> {
-    let mut order: Vec<&Shape> = shapes.iter().collect();
-    order.sort_by_key(|s| std::cmp::Reverse(s.rect.w.max(s.rect.h)));
-    let mut out: Vec<(u16, Rect, bool)> = Vec::new();
-    for s in order {
-        let r = s.rect;
-        let joined = out.iter_mut().find(|(l, q, horiz)| {
-            let touch = r.x <= q.x + q.w && q.x <= r.x + r.w && r.y <= q.y + q.h && q.y <= r.y + r.h;
-            *l == s.layer.0 && touch && if *horiz { r.w >= r.h } else { r.h >= r.w }
-        });
-        match joined {
-            Some((_, q, true)) => {
-                let (x0, x1) = (q.x.min(r.x), (q.x + q.w).max(r.x + r.w));
-                (q.x, q.w) = (x0, x1 - x0);
-            }
-            Some((_, q, false)) => {
-                let (y0, y1) = (q.y.min(r.y), (q.y + q.h).max(r.y + r.h));
-                (q.y, q.h) = (y0, y1 - y0);
-            }
-            None => out.push((s.layer.0, r, r.w >= r.h)),
-        }
-    }
-    out
-}
 
 /// Coupling between two nets, aF (Lampaert 1999 eq. 2.33; TOPO eqs. 4.2–4.3):
 /// `a` is merged into runs ([`runs`]); per run and side, the parallel
@@ -142,24 +125,6 @@ pub fn screens_but(r: &Routes, skip: &[usize]) -> Vec<Shape> {
     r.wires.iter().enumerate().filter(|(n, _)| !skip.contains(n)).flat_map(|(_, w)| w.iter().copied()).collect()
 }
 
-/// Budget on the total coupling onto `net`, aF. Registered in the budget arm.
-#[derive(Clone, Copy)]
-pub struct CouplingBudget {
-    /// The victim.
-    pub net: NetId,
-    pub max_coupling_af: i64,
-    /// Safety margin held back from the budget, percent.
-    pub margin_pct: u8,
-    /// Per-layer `ε·t`; `None` = one constant for the stack.
-    pub stack: Option<&'static Stack>,
-    /// The victim's shield reference: never an aggressor (a grounded shield is
-    /// the remedy the rule asks for, BAL2-10, not coupling to book).
-    pub exclude: Option<NetId>,
-    /// Aggressor weight in `[0, 1]` by `NetId`; a missing index reads 1.0;
-    /// `None` = all 1.0. `&'static` because rules are `Copy` (as `stack`).
-    pub aggressor_weight: Option<&'static [f32]>,
-}
-
 impl CouplingBudget {
     /// `1.0` per net, `0.0` for the quiet rails (Supply, Ground, Substrate):
     /// coupling to a DC node injects no noise. `classes` entries past
@@ -229,6 +194,43 @@ impl Rule for CouplingBudget {
     fn touches(self, out: &mut Vec<u32>) {
         out.push(u32::from(self.net.0));
     }
+}
+
+// ---- private ----
+
+/// Lateral coupling over `run` nm at `gap` nm on `layer`, aF: the deck's
+/// `ε0·k·t·run/gap` when known (TOPO eq. 4.3), else `EPS_H_AF`.
+fn run_af(stack: Option<&Stack>, layer: u16, run: i32, gap: i32) -> f32 {
+    stack.and_then(|s| s.lateral_run_af(layer, run, gap)).unwrap_or(EPS_H_AF * run as f32 / gap.max(1) as f32)
+}
+
+/// `shapes` merged per layer into maximal runs `(layer, rect, along x)`:
+/// longest first, a shape joins a run it touches when it is not longer across
+/// the run than along it (a collinear piece or a pad), extending the run's
+/// span; the run keeps its own width. So a pad over a wire end counts once.
+fn runs(shapes: &[Shape]) -> Vec<(u16, Rect, bool)> {
+    let mut order: Vec<&Shape> = shapes.iter().collect();
+    order.sort_by_key(|s| std::cmp::Reverse(s.rect.w.max(s.rect.h)));
+    let mut out: Vec<(u16, Rect, bool)> = Vec::new();
+    for s in order {
+        let r = s.rect;
+        let joined = out.iter_mut().find(|(l, q, horiz)| {
+            let touch = r.x <= q.x + q.w && q.x <= r.x + r.w && r.y <= q.y + q.h && q.y <= r.y + r.h;
+            *l == s.layer.0 && touch && if *horiz { r.w >= r.h } else { r.h >= r.w }
+        });
+        match joined {
+            Some((_, q, true)) => {
+                let (x0, x1) = (q.x.min(r.x), (q.x + q.w).max(r.x + r.w));
+                (q.x, q.w) = (x0, x1 - x0);
+            }
+            Some((_, q, false)) => {
+                let (y0, y1) = (q.y.min(r.y), (q.y + q.h).max(r.y + r.h));
+                (q.y, q.h) = (y0, y1 - y0);
+            }
+            None => out.push((s.layer.0, r, r.w >= r.h)),
+        }
+    }
+    out
 }
 
 #[cfg(test)]

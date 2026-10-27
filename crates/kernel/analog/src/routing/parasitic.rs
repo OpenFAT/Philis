@@ -26,16 +26,6 @@ pub struct ParasiticBudget {
     pub stack: Option<&'static Stack>,
 }
 
-impl ParasiticBudget {
-    /// `(spent, budget)`: extracted C in aF when both are known, else length.
-    fn spent(self, r: &Routes) -> (f32, f32) {
-        match self.stack {
-            Some(s) if self.max_c_af > 0 => (s.ground_af(r.shapes(self.net)), self.max_c_af as f32),
-            _ => (r.length(self.net) as f32, self.max_len_nm as f32),
-        }
-    }
-}
-
 impl Rule for ParasiticBudget {
     type On = Routes;
     const REPAIR: crate::RepairKind = crate::RepairKind::Budget;
@@ -85,6 +75,18 @@ impl Rule for ParasiticBudget {
             .filter(|(_, devs)| devs.len() >= 2)
             .map(|(n, _)| ParasiticBudget { net: NetId(n as u16), max_len_nm: 1_000_000, max_c_af: 0, margin_pct: 20, stack: None })
             .collect()
+    }
+}
+
+// ---- private ----
+
+impl ParasiticBudget {
+    /// `(spent, budget)`: extracted C in aF when both are known, else length.
+    fn spent(self, r: &Routes) -> (f32, f32) {
+        match self.stack {
+            Some(s) if self.max_c_af > 0 => (s.ground_af(r.shapes(self.net)), self.max_c_af as f32),
+            _ => (r.length(self.net) as f32, self.max_len_nm as f32),
+        }
     }
 }
 

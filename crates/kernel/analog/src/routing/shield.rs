@@ -26,6 +26,55 @@ pub struct Shield {
     pub max_gap_nm: i32,
 }
 
+/// Least long-to-wide ratio of a victim shape that counts as wire: a cut or
+/// via pad (one or two cuts plus enclosure) and a one-pitch jog fall below.
+const RUN_ASPECT: i32 = 3;
+
+/// Total length common to two sorted, disjoint interval lists; O(a + b).
+pub(crate) fn intersection_len(p: &[(i32, i32)], q: &[(i32, i32)]) -> i64 {
+    let (mut i, mut j, mut len) = (0, 0, 0i64);
+    while i < p.len() && j < q.len() {
+        let (a, b) = (p[i].0.max(q[j].0), p[i].1.min(q[j].1));
+        len += i64::from((b - a).max(0));
+        if p[i].1 < q[j].1 {
+            i += 1
+        } else {
+            j += 1
+        }
+    }
+    len
+}
+
+impl Rule for Shield {
+    type On = Routes;
+    const REPAIR: crate::RepairKind = crate::RepairKind::Shield;
+    fn cost(self, r: &Routes) -> f32 {
+        self.residual(r)
+    }
+    fn satisfied(self, r: &Routes) -> bool {
+        self.coverage(r).is_none_or(|c| c * 100.0 >= f32::from(self.min_coverage_pct))
+    }
+    fn known(self, r: &Routes) -> bool {
+        self.coverage(r).is_some()
+    }
+    fn residual(self, r: &Routes) -> f32 {
+        let want = f32::from(self.min_coverage_pct) / 100.0;
+        self.coverage(r).map_or(0.0, |c| crate::rule::over(want - c, want))
+    }
+    fn usage(self, r: &Routes) -> Option<f32> {
+        self.coverage(r)
+    }
+    fn touches(self, out: &mut Vec<u32>) {
+        out.push(u32::from(self.victim.0));
+        out.push(u32::from(self.reference.0));
+    }
+    fn shield(self) -> Option<(u32, u32, i32)> {
+        Some((u32::from(self.victim.0), u32::from(self.reference.0), self.max_gap_nm))
+    }
+}
+
+// ---- private ----
+
 impl Shield {
     /// Shielded fraction of the victim's wire length, `0..=1`; `None` when the
     /// victim has no wire.
@@ -91,25 +140,6 @@ impl Shield {
     }
 }
 
-/// Least long-to-wide ratio of a victim shape that counts as wire: a cut or
-/// via pad (one or two cuts plus enclosure) and a one-pitch jog fall below.
-const RUN_ASPECT: i32 = 3;
-
-/// Total length common to two sorted, disjoint interval lists; O(a + b).
-pub(crate) fn intersection_len(p: &[(i32, i32)], q: &[(i32, i32)]) -> i64 {
-    let (mut i, mut j, mut len) = (0, 0, 0i64);
-    while i < p.len() && j < q.len() {
-        let (a, b) = (p[i].0.max(q[j].0), p[i].1.min(q[j].1));
-        len += i64::from((b - a).max(0));
-        if p[i].1 < q[j].1 {
-            i += 1
-        } else {
-            j += 1
-        }
-    }
-    len
-}
-
 /// Edge gap from `v` to `s` when `s` lies wholly on one side of `v` across its
 /// run (`below` = lower y for a horizontal run, lower x for a vertical one).
 fn gap_on_side(v: Rect, s: Rect, horiz: bool, below: bool) -> Option<i32> {
@@ -118,34 +148,6 @@ fn gap_on_side(v: Rect, s: Rect, horiz: bool, below: bool) -> Option<i32> {
         (s1 <= v0).then_some(v0 - s1)
     } else {
         (s0 >= v1).then_some(s0 - v1)
-    }
-}
-
-impl Rule for Shield {
-    type On = Routes;
-    const REPAIR: crate::RepairKind = crate::RepairKind::Shield;
-    fn cost(self, r: &Routes) -> f32 {
-        self.residual(r)
-    }
-    fn satisfied(self, r: &Routes) -> bool {
-        self.coverage(r).is_none_or(|c| c * 100.0 >= f32::from(self.min_coverage_pct))
-    }
-    fn known(self, r: &Routes) -> bool {
-        self.coverage(r).is_some()
-    }
-    fn residual(self, r: &Routes) -> f32 {
-        let want = f32::from(self.min_coverage_pct) / 100.0;
-        self.coverage(r).map_or(0.0, |c| crate::rule::over(want - c, want))
-    }
-    fn usage(self, r: &Routes) -> Option<f32> {
-        self.coverage(r)
-    }
-    fn touches(self, out: &mut Vec<u32>) {
-        out.push(u32::from(self.victim.0));
-        out.push(u32::from(self.reference.0));
-    }
-    fn shield(self) -> Option<(u32, u32, i32)> {
-        Some((u32::from(self.victim.0), u32::from(self.reference.0), self.max_gap_nm))
     }
 }
 

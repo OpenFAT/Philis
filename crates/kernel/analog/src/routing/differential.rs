@@ -42,6 +42,32 @@ pub struct Differential {
     pub aggressor_weight: Option<&'static [f32]>,
 }
 
+impl Rule for Differential {
+    type On = Routes;
+    const REPAIR: crate::RepairKind = crate::RepairKind::Mirror;
+    fn touches(self, out: &mut Vec<u32>) {
+        out.push(u32::from(self.pos.0));
+        out.push(u32::from(self.neg.0));
+    }
+    /// Percent signature mismatch past budget.
+    fn cost(self, r: &Routes) -> f32 {
+        (self.mismatch_pct(r) - self.budget_pct()).max(0.0)
+    }
+    fn satisfied(self, r: &Routes) -> bool {
+        self.mismatch_pct(r) <= self.budget_pct()
+    }
+    fn residual(self, r: &Routes) -> f32 {
+        let budget = self.budget_pct();
+        crate::rule::over(self.mismatch_pct(r) - budget, budget)
+    }
+    /// Unknown until both sides have metal (AR-44): an unrouted side is not a match.
+    fn known(self, r: &Routes) -> bool {
+        !r.shapes(self.pos).is_empty() && !r.shapes(self.neg).is_empty()
+    }
+}
+
+// ---- private ----
+
 impl Differential {
     /// `|a − b| / mean · 100`; `0` when both are empty.
     fn len_delta_pct(self, r: &Routes) -> f32 {
@@ -173,30 +199,6 @@ impl Differential {
 
     fn budget_pct(self) -> f32 {
         self.max_len_delta_pct10 as f32 / 10.0
-    }
-}
-
-impl Rule for Differential {
-    type On = Routes;
-    const REPAIR: crate::RepairKind = crate::RepairKind::Mirror;
-    fn touches(self, out: &mut Vec<u32>) {
-        out.push(u32::from(self.pos.0));
-        out.push(u32::from(self.neg.0));
-    }
-    /// Percent signature mismatch past budget.
-    fn cost(self, r: &Routes) -> f32 {
-        (self.mismatch_pct(r) - self.budget_pct()).max(0.0)
-    }
-    fn satisfied(self, r: &Routes) -> bool {
-        self.mismatch_pct(r) <= self.budget_pct()
-    }
-    fn residual(self, r: &Routes) -> f32 {
-        let budget = self.budget_pct();
-        crate::rule::over(self.mismatch_pct(r) - budget, budget)
-    }
-    /// Unknown until both sides have metal (AR-44): an unrouted side is not a match.
-    fn known(self, r: &Routes) -> bool {
-        !r.shapes(self.pos).is_empty() && !r.shapes(self.neg).is_empty()
     }
 }
 
