@@ -197,7 +197,7 @@ fn in_scratch<T>(
     let name = pdk.name.ok_or_else(|| {
         refuse("foundry/no-pdk", format!("the {} engine finds its decks by built-in PDK name; this Pdk was loaded from text", engine.name()))
     })?;
-    let bytes = crate::gds_out::gds(shapes, pins, pdk, TOP).map_err(|e| refuse("foundry/gds", e))?;
+    let bytes = crate::gds_out::gds(shapes, pins, &[], pdk, TOP).map_err(|e| refuse("foundry/gds", e))?;
     let dir = scratch(engine)?;
     let gds = dir.join(format!("{TOP}.gds"));
     std::fs::write(&gds, bytes).map_err(|e| refuse("foundry/run", format!("{}: {e}", gds.display())))?;
