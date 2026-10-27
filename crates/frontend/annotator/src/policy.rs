@@ -1,5 +1,8 @@
 //! Every tuning number the annotator emits with, in one table (EXT-10). Each is
 //! Philis policy unless its doc names a source; none is derived from the deck.
+//!
+//! Contents:
+//! - `pub struct Policy`
 
 /// The annotator's emission policy; [`Default`] is today's values.
 #[derive(Clone, Debug)]

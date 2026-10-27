@@ -1,16 +1,16 @@
 //! EXT-23: substrate aggressor and victim tags (Charbon 2001 ch.2: injection
 //! → propagation → reception). What isolation ([`crate::emit::isolation`])
 //! and guard rings ([`crate::rings`]) read.
+//!
+//! Contents:
+//! - `pub fn tag(nl: &Netlist, classes: &[NetClassification], sets: &[MatchSpec]) -> (Vec<Aggressor>, Vec<Victim>)`
+//! - `pub fn injectors(nl: &Netlist, classes: &[NetClassification], op: Option<&crate::evidence::OpFacts>, inj_series_ohm: f64, missing: &mut Vec<(&'static str, &'static str)>) -> Vec<Aggressor>`
+//! - `pub fn victim_mask(n_devices: usize, v: &[Victim]) -> Vec<bool>`
 
 use analog::base::ids::DeviceId;
 use analog::base::{DeviceKind, Netlist};
 use analog::intent::{Aggressor, Inject, MatchClass, MatchSpec, Victim};
 use analog::metadata::{NetClass, NetClassification};
-
-/// A net whose voltage swings hard enough to inject: Clock, DigitalSwitching, Noisy.
-fn aggressor_net(c: NetClass) -> bool {
-    matches!(c, NetClass::Clock | NetClass::DigitalSwitching | NetClass::Noisy)
-}
 
 /// EXT-23 steps 1–3 (GAP-03 adds the minority kinds): aggressors, then
 /// victims (non-aggressors), each in device-id order, one tag per device.
@@ -152,6 +152,13 @@ pub fn victim_mask(n_devices: usize, v: &[Victim]) -> Vec<bool> {
     out
 }
 
+// ---- private ----
+
+/// A net whose voltage swings hard enough to inject: Clock, DigitalSwitching, Noisy.
+fn aggressor_net(c: NetClass) -> bool {
+    matches!(c, NetClass::Clock | NetClass::DigitalSwitching | NetClass::Noisy)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,6 +170,7 @@ mod tests {
     }
 
     /// C1 couples `clk` onto `x`: M1 (D on x) and M2 (G on x) are Capacitive.
+    /// Oracle: the input: C1 couples `clk` onto `x`, so M1 and M2 are Capacitive.
     #[test]
     fn capacitor_couples_an_aggressor() {
         use crate::tests::{fet, nets};
@@ -210,19 +218,24 @@ mod tests {
         }
     }
 
-    fn minority(nl: &Netlist) -> (Vec<(String, Inject, &'static str)>, Vec<(&'static str, &'static str)>) {
+    /// Each tagged device's name, injection and reason.
+    type Tags = Vec<(String, Inject, &'static str)>;
+
+    fn minority(nl: &Netlist) -> (Tags, Vec<(&'static str, &'static str)>) {
         let p = crate::annotate(nl, &crate::AnnotationConfig::default());
         let mut missing = Vec::new();
         let tags = injectors(nl, &p.net_classes, None, crate::Policy::default().inj_series_ohm, &mut missing);
         (tags.iter().map(|a| (nl.devices[a.device.0 as usize].name.clone(), a.inject, a.reason)).collect(), missing)
     }
 
+    /// Oracle: the input: NMOS diffusions on a port below 100 MΩ are electron injectors.
     #[test]
     fn pin_diffusions_are_injectors() {
         let (tags, _) = minority(&drv(Some(100_000_000)));
         assert_eq!(tags, [("M1".into(), Inject::MinorityElectron, "pin diffusion"), ("M2".into(), Inject::MinorityElectron, "pin diffusion")]);
     }
 
+    /// Oracle: the input: a PMOS diffusion on a port injects holes.
     #[test]
     fn a_pmos_on_a_pin_injects_holes() {
         let mut nl = drv(Some(100_000_000));
@@ -231,12 +244,14 @@ mod tests {
         assert!(tags.contains(&("M4".into(), Inject::MinorityHole, "pin diffusion")), "{tags:?}");
     }
 
+    /// Oracle: the input: no stated resistance, so the conservative tag.
     #[test]
     fn unknown_resistance_is_conservative() {
         let (tags, _) = minority(&drv(None));
         assert!(tags.contains(&("M3".into(), Inject::MinorityElectron, "resistance unknown")), "{tags:?}");
     }
 
+    /// Oracle: the input: no port list, so no injector and one missing note.
     #[test]
     fn no_ports_no_minority_tags() {
         let mut nl = drv(Some(100_000_000));
@@ -246,6 +261,7 @@ mod tests {
         assert!(missing.contains(&("GuardRing", "no port list: injectors unknown")));
     }
 
+    /// Oracle: the input op point: a positive V_BS forward-biases the bulk junction.
     #[test]
     fn forward_biased_bulk() {
         let mut nl = drv(Some(100_000_000));
@@ -270,6 +286,7 @@ mod tests {
     }
 
     /// REL T7: every minority-tagged device gets an Injector ring.
+    /// Oracle: REL T7: every minority-tagged device gets an Injector ring, counted from the tags.
     #[test]
     fn drv_injectors_get_rings() {
         let nl = drv(Some(100_000_000));

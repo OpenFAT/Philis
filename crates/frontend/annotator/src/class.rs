@@ -1,5 +1,12 @@
 //! Precision class and match kind per matched set (EXT-16; Hastings §13.3,
 //! §10.3, §8.3 class tables via `analog::matching::class::limit`).
+//!
+//! Contents:
+//! - `pub enum SetRole`
+//! - `pub struct ClassCtx<'a>`
+//! - `pub fn kind_of(set: &MatchSpec, leaf_kinds: &[BlockKind], dk: DeviceKind) -> MatchKind`
+//! - `pub fn class_of(set: &MatchSpec, ctx: &mut ClassCtx) -> (MatchClass, ClassSource)`
+//! - `pub fn style_of(class: MatchClass, kind: MatchKind, shares_source: bool) -> ArrayStyle`
 
 use analog::base::netlist::DeviceKind;
 use analog::intent::{ArrayStyle, ClassSource, Diagnostic, MatchClass, MatchKind, MatchSpec};
@@ -10,12 +17,19 @@ use crate::block::BlockKind;
 /// What a set does in the circuit: the evidence of last resort for its class.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SetRole {
+    /// A differential input pair: its offset is the circuit's.
     InputPair,
+    /// The load of an input pair: its mismatch refers to the input through the gain.
     LoadOfPair,
+    /// A bias mirror or a shared-bias group: a current error, Minimal by default.
     BiasMirror,
+    /// A bipolar ratioed pair: its ΔV_BE is the reference.
     BandgapCore,
+    /// A capacitor or resistor bank: its ratio is the code's linearity.
     DacBank,
+    /// A feedback divider or ratio: its ratio sets a gain.
     FeedbackRatio,
+    /// None of the above: the class falls back to the family default.
     Other,
 }
 
@@ -25,7 +39,9 @@ pub struct ClassCtx<'a> {
     pub user: Option<MatchClass>,
     /// 6σ target in the unit of `limit(family, kind, _)`: `6·offset_sigma_mv` today.
     pub spec_6sigma: Option<f32>,
+    /// The set's role, the evidence of last resort.
     pub role: SetRole,
+    /// Where [`class_of`] appends a diagnostic when it overrides or cannot decide.
     pub diags: &'a mut Vec<Diagnostic>,
 }
 
@@ -129,6 +145,7 @@ mod tests {
         (c, src, diags.iter().map(|d| d.kind).collect())
     }
 
+    /// Oracle: the class thresholds: 12, 5 and 2 mV map to Minimal, Moderate, Exceptional.
     #[test]
     fn spec_maps_to_class() {
         use MatchClass::{Exceptional, Minimal, Moderate};
@@ -139,18 +156,21 @@ mod tests {
         assert_eq!(run(&s, None, Some(0.5), SetRole::Other), (Exceptional, ClassSource::Spec, vec!["beyond_exceptional_trim"]));
     }
 
+    /// Oracle: the precedence rule: User over Spec over Role.
     #[test]
     fn user_wins_over_spec_and_role() {
         let s = set(Family::Mos, MatchKind::Voltage);
         assert_eq!(run(&s, Some(MatchClass::Minimal), Some(2.0), SetRole::InputPair), (MatchClass::Minimal, ClassSource::User, vec![]));
     }
 
+    /// Oracle: the rule: a Current set's class ignores an mV spec and takes the role default.
     #[test]
     fn current_kind_ignores_mv_spec() {
         let s = set(Family::Mos, MatchKind::Current);
         assert_eq!(run(&s, None, Some(2.0), SetRole::BiasMirror), (MatchClass::Minimal, ClassSource::Role, vec![]));
     }
 
+    /// Oracle: the style table, enumerated by hand: class, kind and shared source → array style.
     #[test]
     fn style_by_class() {
         assert_eq!(style_of(MatchClass::Minimal, MatchKind::Current, true), ArrayStyle::Adjacent);

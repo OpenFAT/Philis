@@ -2,6 +2,12 @@
 //! importance order, Algorithm 3.1). Overlapping requirements (a tail in a
 //! compound and in a shared-bias group, AA-01) live here, not in the disjoint
 //! `Problem::blocks`.
+//!
+//! Contents:
+//! - `pub struct Req`
+//! - `pub fn requirements(matches: &[PatternMatch], compounds: &[Compound], shared_bias: &[Vec<DeviceId>], passive: &[Vec<DeviceId>], user_groups: &[(u32, Vec<DeviceId>)], hier_pairs: &[(DeviceId, DeviceId)], arrays: &[Vec<DeviceId>], inst: &[Option<u32>], hg: &BipartiteHypergraph, classes: &[NetClassification], canon: &[u64], policy: &Policy) -> Vec<Req>`
+//! - `pub fn hsmpg(n_devices: usize, reqs: &[Req], canon: &[u64]) -> Vec<GroupNode>`
+//! - `pub fn render(tree: &[GroupNode], names: &[&str]) -> String`
 
 use analog::base::ids::DeviceId;
 use analog::base::BipartiteHypergraph;
@@ -16,9 +22,13 @@ use crate::policy::Policy;
 /// the match, compound, group or net it came from in its input slice.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Req {
+    /// The device with the lower canonical label.
     pub a: DeviceId,
+    /// The other device.
     pub b: DeviceId,
+    /// What the edge asks for; decides the HSMPG node it joins.
     pub ty: ReqType,
+    /// Index of the match, compound, group or net the edge came from.
     pub source: ConstraintId,
 }
 
@@ -238,6 +248,7 @@ mod tests {
         (reqs, render(&tree, &names))
     }
 
+    /// Oracle: the textbook 5T OTA's hierarchy, written by hand.
     #[test]
     fn ota5t_tree() {
         // XM1..XM5 = ids 0..4.
@@ -245,6 +256,7 @@ mod tests {
         assert_eq!(t, "Root{Symmetry{Matching{XM3,XM4},Proximity{Matching{XM1,XM2},XM5}}}");
     }
 
+    /// Oracle: the input: the tail sits in the compound and in the bias set, so both nodes hold it.
     #[test]
     fn tail_in_two_requirements() {
         let nl = crate::tests::three_stage();

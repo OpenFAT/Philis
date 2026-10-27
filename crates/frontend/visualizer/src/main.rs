@@ -1,3 +1,11 @@
+//! The `visualizer` binary: a GDS path on the command line → [`visualizer::run_viewer`]
+//! on it, layers named `L{layer}/{datatype}` (no deck loader: this crate does not
+//! link `verify`).
+//!
+//! Contents: none public.
+
+// ---- private ----
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {

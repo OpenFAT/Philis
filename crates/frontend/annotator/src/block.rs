@@ -1,4 +1,12 @@
 //! Recognised blocks — the annotator's output vocabulary.
+//!
+//! Contents:
+//! - `pub struct Block`
+//! - `pub enum BlockKind`
+//! - `BlockKind::from_template(t: &str, n_devices: usize) -> Self`
+//! - `BlockKind::is_sensitive(self) -> bool`
+//! - `Block::from_match(m: &PatternMatch) -> Self`
+//! - `pub fn leaves(blocks: &[Block]) -> Vec<&Block>`
 
 use analog::base::ids::DeviceId;
 
@@ -6,6 +14,7 @@ use crate::pattern::PatternMatch;
 
 /// One recognised structure (or the glue remainder).
 pub struct Block {
+    /// The leaf kind, which decides the constraints the block emits; `Glue` for the remainder.
     pub kind: BlockKind,
     /// Matched pattern's name (`"glue"` for the remainder); a child carries its parent's.
     pub template: &'static str,

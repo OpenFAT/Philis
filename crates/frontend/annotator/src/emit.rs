@@ -30,6 +30,14 @@
 //!
 //! Matching and thermal budgets come from the netlist's areas and the deck's
 //! mismatch data; without them the documented fallbacks apply.
+//!
+//! Contents:
+//! - `pub(crate) fn by_polarity(nl: &Netlist, d: DeviceId, v: [Option<f32>; 2]) -> Option<f32>`
+//! - `pub fn placement(intent: &Intent, blocks: &[Block], user_groups: &[(u32, Vec<DeviceId>)], nl: &Netlist, drawn: &[Drawn], p: &ProcessNumbers, offset_sigma_mv: Option<f32>, policy: &crate::policy::Policy) -> Requirements<Layout>`
+//! - `pub fn isolation_min_nm(kind: analog::base::SubstrateKind, epi_nm: Option<i32>) -> i32`
+//! - `pub fn isolation(aggressor: &[bool], victim: &[bool], related: &dyn Fn(usize, usize) -> bool, kind: analog::base::SubstrateKind, epi_nm: Option<i32>, r: &mut Requirements<Layout>) -> Option<&'static str>`
+//! - `pub fn substrate_balance(aggressor: &[bool], blocks: &[Block], block_of: &[usize], r: &mut Requirements<Layout>)`
+//! - `pub(crate) fn tag_batches(placement: &mut analog::Requirements<analog::base::Layout>, routing: &mut analog::Requirements<analog::base::Routes>, blocks: &[Block], block_of: &[usize]) -> Vec<bool>`
 
 use analog::base::ids::{BranchId, DeviceId, Target};
 use analog::base::layout::Layout;
@@ -45,19 +53,16 @@ use crate::block::{leaves, Block, BlockKind};
 use crate::size::Drawn;
 use crate::ProcessNumbers;
 
-/// A set's budget: an allocated MOS allowance as itself (C13), else MAT-08's rule, with the
-/// class limit only for a User/Spec class.
-fn set_budget(s: &MatchSpec, offset_sigma_mv: Option<f32>) -> Budget {
-    match s.allowance {
-        // EXT-21 allocates MOS sets only, in mV ΔV_T: the ledger converts it to % for a
-        // Current set (`MatchedSet::budget_in`); any other family's ledger would misread it.
-        Some(a) if s.family == Family::Mos => Budget::Allowance(a),
-        _ => {
-            let limit = (s.class_source != ClassSource::Role).then(|| class::limit(s.family, s.kind, s.class)).flatten();
-            mismatch::choose(offset_sigma_mv, None, limit, s.kind)
-        }
-    }
-}
+/// Isolation saturates beyond this multiple of the epi thickness (Charbon et
+/// al. 2001 ch.8, PDF p.127: 2.5–5×; Su et al. 4×): farther buys nothing.
+const ISOLATION_EPI_MULTIPLE: i32 = 4;
+
+/// ponytail: nominal epi when the distance is uncalibrated, so the pull still
+/// acts; the check then reads unknown. The decks' `p_epi_thickness` is not it:
+/// a guard-ring depth default (3000 nm in all four decks, finfet included),
+/// and sky130 is bulk p-substrate, not epi on p+, where Charbon's plateau does
+/// not hold (isolation keeps improving with distance; SUB-32).
+const NOMINAL_EPI_NM: i32 = 2_500;
 
 /// `d`'s entry of a deck `[nmos, pmos]` pair; `None` for a non-FET or a
 /// missing entry.
@@ -69,51 +74,6 @@ pub(crate) fn by_polarity(nl: &Netlist, d: DeviceId, v: [Option<f32>; 2]) -> Opt
     }
 }
 
-/// `S_VT` at `d`'s gate length: the deck's S(L) fit when it has one and `d`
-/// a length, else its single `svt_uv_per_um`.
-fn svt(nl: &Netlist, p: &ProcessNumbers, d: DeviceId) -> Option<f32> {
-    let l = crate::param(&nl.devices[d.0 as usize], "l", 0);
-    match p.svt_fit {
-        Some((a, b)) if l > 0 => Some(mismatch::svt_of_l(a, b, l as f32 / 1000.0)),
-        _ => p.svt_uv_per_um,
-    }
-}
-
-/// Deck coefficients of a set whose slot 0 is `d`. R/C sets stay unknown:
-/// their `k_A` is per recipe (FLOW-06) and has no [`ProcessNumbers`] slot.
-fn coeffs(nl: &Netlist, p: &ProcessNumbers, d: DeviceId, family: Family) -> Coeffs {
-    match family {
-        Family::Mos => Coeffs {
-            avt_mv_um: by_polarity(nl, d, p.avt_mv_um),
-            svt_uv_per_um: svt(nl, p, d),
-            kvth0_mv_um: by_polarity(nl, d, p.lod_kvth0_mv_um),
-            tc_uv_per_k: by_polarity(nl, d, p.vt_tc_uv_per_k),
-            abeta_pct_um: by_polarity(nl, d, p.abeta_pct_um),
-            mobility_exp: by_polarity(nl, d, [Some(1.7), Some(1.5)]),
-            die_temp_k: p.die_temp_k,
-            ..Coeffs::default()
-        },
-        Family::Bipolar | Family::Diode => {
-            Coeffs { ka_pct_um: p.bjt_ka_pct_um, vbe_tc_uv_per_k: p.vbe_tc_uv_per_k, die_temp_k: p.die_temp_k, ..Coeffs::default() }
-        }
-        Family::Resistor | Family::Capacitor => Coeffs::default(),
-    }
-}
-
-/// Netlist area of `d`, µm²: a FET's gate area, else drawn `w·l·fingers`
-/// (0 when either is unknown).
-fn area_um2(nl: &Netlist, drawn: &[Drawn], d: DeviceId) -> f32 {
-    let dev = &nl.devices[d.0 as usize];
-    if matches!(dev.kind, DeviceKind::Nmos | DeviceKind::Pmos) {
-        return crate::gate_um2(dev);
-    }
-    let s = &drawn[d.0 as usize];
-    match (s.w_finger_nm, s.l_nm) {
-        (Some(w), Some(l)) => (w as f64 * l as f64 * f64::from(s.fingers) * 1e-6) as f32,
-        _ => 0.0,
-    }
-}
-
 /// Build the placement [`Requirements`] from the intent's compounds and sets
 /// plus the blocks' Stack leaves and declared selfs.
 ///
@@ -122,6 +82,7 @@ fn area_um2(nl: &Netlist, drawn: &[Drawn], d: DeviceId) -> f32 {
 /// nothing. The budget is [`set_budget`]: `offset_sigma_mv` (1σ input-referred
 /// offset a pair may spend) when given, else [`mismatch::GRADIENT_SHARE`]`·σ_rand`.
 #[must_use]
+#[allow(clippy::too_many_arguments)] // each argument is a table the spine owns; a struct built only for this call is what code-style rules out
 pub fn placement(
     intent: &Intent,
     blocks: &[Block],
@@ -252,27 +213,6 @@ pub fn placement(
     r
 }
 
-/// Isolation saturates beyond this multiple of the epi thickness (Charbon et
-/// al. 2001 ch.8, PDF p.127: 2.5–5×; Su et al. 4×): farther buys nothing.
-const ISOLATION_EPI_MULTIPLE: i32 = 4;
-/// ponytail: nominal epi when the distance is uncalibrated, so the pull still
-/// acts; the check then reads unknown. The decks' `p_epi_thickness` is not it:
-/// a guard-ring depth default (3000 nm in all four decks, finfet included),
-/// and sky130 is bulk p-substrate, not epi on p+, where Charbon's plateau does
-/// not hold (isolation keeps improving with distance; SUB-32).
-const NOMINAL_EPI_NM: i32 = 2_500;
-
-/// The epi thickness `isolation` scales, or the `missing` input that leaves it unknown.
-fn calibration(kind: analog::base::SubstrateKind, epi_nm: Option<i32>) -> Result<i32, &'static str> {
-    use analog::base::SubstrateKind;
-    match (kind, epi_nm) {
-        (SubstrateKind::EpiOnLowRes, Some(epi)) => Ok(epi),
-        (SubstrateKind::EpiOnLowRes, None) => Err("deck epi_thickness_nm"),
-        (SubstrateKind::Bulk, _) => Err("bulk substrate: no plateau distance"),
-        (SubstrateKind::Unknown, _) => Err("substrate kind unknown"),
-    }
-}
-
 /// The edge-to-edge distance [`isolation`] asks: `4·t_epi`, at
 /// [`NOMINAL_EPI_NM`] when uncalibrated.
 #[must_use]
@@ -335,6 +275,126 @@ pub fn substrate_balance(aggressor: &[bool], blocks: &[Block], block_of: &[usize
         .collect();
     if !rules.is_empty() {
         r.cost.push(Box::new(rules));
+    }
+}
+
+/// Wraps every batch in `Tagged` with a stable id in emission order
+/// (permutation-invariant since EXT-06) and its origin. A pre-tagged batch (sidecar `GroupBlocks`) keeps its origin; else a
+/// placement batch whose first touched device is in a recognised block came
+/// from that block's pattern; Isolation and SubstrateBalance are cross-block,
+/// and the rest are net-class. Returns which devices any placement batch
+/// touches (`block_of.len()` rows).
+pub(crate) fn tag_batches(
+    placement: &mut analog::Requirements<analog::base::Layout>,
+    routing: &mut analog::Requirements<analog::base::Routes>,
+    blocks: &[Block],
+    block_of: &[usize],
+) -> Vec<bool> {
+    let mut next = 0u32;
+    let mut id = |origin| {
+        next += 1;
+        analog::intent::BatchMeta { id: analog::intent::ConstraintId(next - 1), origin }
+    };
+    let mut touched = vec![false; block_of.len()];
+    for arm in [&mut placement.hard, &mut placement.budget, &mut placement.cost] {
+        *arm = std::mem::take(arm)
+            .into_iter()
+            .map(|inner| -> Box<dyn analog::RuleBatch<analog::base::Layout>> {
+                let mut ids = Vec::new();
+                inner.touched(&mut ids);
+                ids.iter().for_each(|&d| touched[d as usize] = true);
+                let bi = ids.first().map_or(usize::MAX, |&d| block_of[d as usize]);
+                let origin = if let Some(m) = inner.meta() {
+                    m.origin
+                } else if bi == usize::MAX || inner.kind().ends_with("::Isolation") || inner.kind().ends_with("::SubstrateBalance") {
+                    analog::intent::Origin::NetClass
+                } else {
+                    analog::intent::Origin::Pattern { template: blocks[bi].template }
+                };
+                Box::new(analog::rule::Tagged { meta: id(origin), inner })
+            })
+            .collect();
+    }
+    for arm in [&mut routing.hard, &mut routing.budget, &mut routing.cost] {
+        *arm = std::mem::take(arm)
+            .into_iter()
+            .map(|inner| -> Box<dyn analog::RuleBatch<analog::base::Routes>> {
+                Box::new(analog::rule::Tagged { meta: id(analog::intent::Origin::NetClass), inner })
+            })
+            .collect();
+    }
+    touched
+}
+
+// ---- private ----
+
+/// A set's budget: an allocated MOS allowance as itself (C13), else MAT-08's rule, with the
+/// class limit only for a User/Spec class.
+fn set_budget(s: &MatchSpec, offset_sigma_mv: Option<f32>) -> Budget {
+    match s.allowance {
+        // EXT-21 allocates MOS sets only, in mV ΔV_T: the ledger converts it to % for a
+        // Current set (`MatchedSet::budget_in`); any other family's ledger would misread it.
+        Some(a) if s.family == Family::Mos => Budget::Allowance(a),
+        _ => {
+            let limit = (s.class_source != ClassSource::Role).then(|| class::limit(s.family, s.kind, s.class)).flatten();
+            mismatch::choose(offset_sigma_mv, None, limit, s.kind)
+        }
+    }
+}
+
+/// `S_VT` at `d`'s gate length: the deck's S(L) fit when it has one and `d`
+/// a length, else its single `svt_uv_per_um`.
+fn svt(nl: &Netlist, p: &ProcessNumbers, d: DeviceId) -> Option<f32> {
+    let l = crate::param(&nl.devices[d.0 as usize], "l", 0);
+    match p.svt_fit {
+        Some((a, b)) if l > 0 => Some(mismatch::svt_of_l(a, b, l as f32 / 1000.0)),
+        _ => p.svt_uv_per_um,
+    }
+}
+
+/// Deck coefficients of a set whose slot 0 is `d`. R/C sets stay unknown:
+/// their `k_A` is per recipe (FLOW-06) and has no [`ProcessNumbers`] slot.
+fn coeffs(nl: &Netlist, p: &ProcessNumbers, d: DeviceId, family: Family) -> Coeffs {
+    match family {
+        Family::Mos => Coeffs {
+            avt_mv_um: by_polarity(nl, d, p.avt_mv_um),
+            svt_uv_per_um: svt(nl, p, d),
+            kvth0_mv_um: by_polarity(nl, d, p.lod_kvth0_mv_um),
+            tc_uv_per_k: by_polarity(nl, d, p.vt_tc_uv_per_k),
+            abeta_pct_um: by_polarity(nl, d, p.abeta_pct_um),
+            mobility_exp: by_polarity(nl, d, [Some(1.7), Some(1.5)]),
+            die_temp_k: p.die_temp_k,
+            ..Coeffs::default()
+        },
+        Family::Bipolar | Family::Diode => {
+            Coeffs { ka_pct_um: p.bjt_ka_pct_um, vbe_tc_uv_per_k: p.vbe_tc_uv_per_k, die_temp_k: p.die_temp_k, ..Coeffs::default() }
+        }
+        Family::Resistor | Family::Capacitor => Coeffs::default(),
+    }
+}
+
+/// Netlist area of `d`, µm²: a FET's gate area, else drawn `w·l·fingers`
+/// (0 when either is unknown).
+fn area_um2(nl: &Netlist, drawn: &[Drawn], d: DeviceId) -> f32 {
+    let dev = &nl.devices[d.0 as usize];
+    if matches!(dev.kind, DeviceKind::Nmos | DeviceKind::Pmos) {
+        return crate::gate_um2(dev);
+    }
+    let s = &drawn[d.0 as usize];
+    match (s.w_finger_nm, s.l_nm) {
+        (Some(w), Some(l)) => (w as f64 * l as f64 * f64::from(s.fingers) * 1e-6) as f32,
+        _ => 0.0,
+    }
+}
+
+/// The epi thickness `isolation` scales, or the `missing` input that leaves it unknown.
+fn calibration(kind: analog::base::SubstrateKind, epi_nm: Option<i32>) -> Result<i32, &'static str> {
+    use analog::base::SubstrateKind;
+    match (kind, epi_nm) {
+        (SubstrateKind::EpiOnLowRes, Some(epi)) => Ok(epi),
+        (SubstrateKind::EpiOnLowRes, None) => Err("deck epi_thickness_nm"),
+        (SubstrateKind::Bulk, _) => Err("bulk substrate: no plateau distance"),
+        (SubstrateKind::Unknown, _) => Err("substrate kind unknown"),
     }
 }
 
@@ -418,6 +478,7 @@ mod tests {
 
     /// MAT-07 / EXT-20: each MOS/bipolar set of ≥ 2 keeps Axis hard; Φ is a
     /// budget for a Moderate set and absent for a Minimal one.
+    /// Oracle: MAT-07 / EXT-20: a Moderate set keeps Axis hard and Φ budget; a Minimal one has no Φ.
     #[test]
     fn default_class_is_moderate_mos() {
         let nl = crate::tests::ota();
@@ -451,6 +512,7 @@ mod tests {
 
     /// MAT-08 + C13: the class limit only for an explicit class; an allocated
     /// Voltage allowance is the budget itself.
+    /// Oracle: MAT-08 + C13: the budget table by class source, enumerated by hand.
     #[test]
     fn set_budget_follows_source() {
         use MatchKind::{Current, Voltage};
@@ -466,6 +528,7 @@ mod tests {
     }
 
     /// C13: an allocated allowance reaches the ledger unchanged.
+    /// Oracle: C13: the allowance written into the set equals the ledger's.
     #[test]
     fn allocated_allowance_round_trips() {
         let nl = crate::tests::ota();
@@ -501,6 +564,7 @@ mod tests {
     /// REL C3 / AA-13: the stage's clocked tail sits by its pair (Proximity);
     /// isolating it from the pair would contradict that. A clocked device
     /// outside the stage is still isolated from the pair.
+    /// Oracle: AA-13: the tail is in the pair's block, so Isolation would contradict Proximity.
     #[test]
     fn a_clocked_tail_is_not_isolated_from_its_own_pair() {
         let (nl, cfg) = strongarm_like();
@@ -516,6 +580,7 @@ mod tests {
     /// GAP-09 (b): a sidecar group holding aggressor `XS` and victim `mn1`
     /// pulls them ≤ 5 µm while Isolation pushes ≥ 10 µm: the user pull wins,
     /// the Isolation pair is dropped and both ids are reported.
+    /// Oracle: GAP-09 (b): a 5 µm pull against a 10 µm push is a conflict by arithmetic; both ids reported.
     #[test]
     fn proximity_below_isolation_is_a_conflict() {
         let (nl, mut cfg) = strongarm_like();
@@ -540,6 +605,7 @@ mod tests {
 
     /// REL-15: the stage's own clocked tail is no imbalance source for its
     /// pair; the lone `XS` gets one rule per pair, tagged net-class.
+    /// Oracle: REL-15: the input's clocked tail is in the pair's block; only `XS` is a source.
     #[test]
     fn substrate_balance_skips_the_aggressors_own_block() {
         let (nl, cfg) = strongarm_like();
@@ -560,6 +626,7 @@ mod tests {
     }
 
     /// REL C3: epi on p+ saturates at 4·t_epi (Su), a budget the search pays.
+    /// Oracle: REL C3: epi on p+ saturates at 4·t_epi (Su), so a budget row is owed.
     #[test]
     fn epi_decks_get_a_plateau_budget() {
         let (nl, mut cfg) = strongarm_like();
@@ -573,6 +640,7 @@ mod tests {
 
     /// Bulk (sky130's `substrate_kind`) has no plateau distance: a cost-only
     /// pull at 4·2500 nm, reported unknown, whatever epi the deck states.
+    /// Oracle: the input deck: bulk substrate has no plateau, so a cost-only row at 4·2500 nm.
     #[test]
     fn bulk_is_cost_only_and_unknown() {
         let (nl, mut cfg) = strongarm_like();

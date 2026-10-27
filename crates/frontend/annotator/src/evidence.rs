@@ -2,6 +2,15 @@
 //! testbench sources, spec sensitivities), and the per-device region and role
 //! derived from it. Every field is optional: [`Evidence::default`] is the
 //! structure-only annotation [`crate::annotate`] runs.
+//!
+//! Contents:
+//! - `pub struct Evidence`
+//! - `pub struct OpFacts`
+//! - `pub struct DeviceOp`
+//! - `pub struct Sensitivities`
+//! - `pub struct SpecSens`
+//! - `pub fn region(op: &DeviceOp, max_id_ua: f64) -> Region`
+//! - `pub fn device_facts(nl: &Netlist, op: Option<&OpFacts>, classes: &[NetClassification], shared_bias: &[Vec<DeviceId>], load_leaf: &[bool]) -> Vec<DeviceFacts>`
 
 use analog::base::ids::{DeviceId, NetId};
 use analog::base::{DeviceKind, Netlist};
@@ -11,6 +20,7 @@ use analog::metadata::{NetClass, NetClassification};
 /// What the flow knows beyond the netlist. Ports are `Netlist.ports` (FLOW-07).
 #[derive(Clone, Debug, Default)]
 pub struct Evidence {
+    /// The DC operating point; `None` keeps every region `Unknown`.
     pub op: Option<OpFacts>,
     /// Spec sensitivities; PERF-12 fills them (M4); EXT-21 allocates set allowances
     /// from `d_vt`, EXT-25 parasitic budgets from `d_c`/`d_r`/`d_cc`.
@@ -26,7 +36,9 @@ pub struct Evidence {
 /// DC operating point, indexed by device and by net.
 #[derive(Clone, Debug)]
 pub struct OpFacts {
+    /// By device id; `None` for a device the simulator did not report.
     pub dev: Vec<Option<DeviceOp>>,
+    /// Node voltage by net id, mV.
     pub net_mv: Vec<Option<f64>>,
 }
 
@@ -34,31 +46,47 @@ pub struct OpFacts {
 /// folds vdsat into it); `vth`/`gmb`/`gds` are `None` until PERF-09 produces them.
 #[derive(Clone, Copy, Debug)]
 pub struct DeviceOp {
+    /// Drain (collector) current, µA.
     pub id_ua: f64,
+    /// `|V_DS| − |V_DSsat|`, mV; negative in triode.
     pub headroom_mv: f64,
+    /// Transconductance, µS.
     pub gm_us: f64,
+    /// Dissipated power, µW.
     pub power_uw: f64,
+    /// Gate-source voltage, mV.
     pub vgs_mv: Option<f64>,
+    /// Bulk-source voltage, mV; positive forward-biases an NMOS bulk junction.
     pub vbs_mv: Option<f64>,
+    /// Threshold voltage, mV.
     pub vth_mv: Option<f64>,
+    /// Body transconductance, µS.
     pub gmb_us: Option<f64>,
+    /// Output conductance, µS; `None` leaves the CLM audit unchecked.
     pub gds_us: Option<f64>,
 }
 
 /// Per-spec sensitivities (Lampaert eqs. 2.2–2.7); PERF-12 produces them.
 #[derive(Clone, Debug, Default)]
 pub struct Sensitivities {
+    /// One row per spec metric.
     pub specs: Vec<SpecSens>,
 }
 
+/// One spec metric's bounds and its sensitivity to each layout parameter.
 #[derive(Clone, Debug)]
 pub struct SpecSens {
+    /// The spec's name (`offset`, `ugf`, …); rows are named `metric:min` / `metric:max`.
     pub metric: String,
+    /// The metric's nominal value at the schematic.
     pub f0: f64,
+    /// The spec's lower bound; `None` = unbounded below.
     pub lo: Option<f64>,
+    /// The spec's upper bound; `None` = unbounded above.
     pub hi: Option<f64>,
     /// Metric range over the process corners; `None` = nominal only.
     pub proc: Option<(f64, f64)>,
+    /// The metric's random 1σ; `β·σ_f` is reserved from the margin.
     pub sigma_f: Option<f64>,
     /// Per aF of ground capacitance.
     pub d_c: Vec<(NetId, f64)>,
@@ -161,6 +189,7 @@ mod tests {
         DeviceOp { id_ua, headroom_mv, gm_us, power_uw: 0.0, vgs_mv: None, vbs_mv: None, vth_mv: None, gmb_us: None, gds_us: None }
     }
 
+    /// Oracle: the region rules worked by hand per op point.
     #[test]
     fn regions_from_headroom_and_gm() {
         assert_eq!(region(&op(0.05, 1.0, 100.0), 100.0), Region::Off);
@@ -185,6 +214,7 @@ mod tests {
         }
     }
 
+    /// Oracle: EXT-18: triode devices gated by configured clocks are switches.
     #[test]
     fn switch_needs_digital_gate() {
         let nl = sc_switches();
@@ -221,6 +251,7 @@ mod tests {
 
     /// EXT-17/18: a Bias-gated FET with its source off the rails is a cascode,
     /// not a current source.
+    /// Oracle: EXT-17/18: a Bias-gated FET with its source off the rails is a cascode.
     #[test]
     fn cascode_before_current_source() {
         let nl = folded();

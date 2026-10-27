@@ -1,115 +1,37 @@
 //! Net role by name (supply / ground / clock / signal), bulk-inferred rails + user recognition
 //! overrides. Gates recognition: a diff pair's gates must be signals.
+//!
+//! Contents:
+//! - `pub enum NetRole`
+//! - `pub struct AnnotationConfig`
+//! - `pub struct ProcessNumbers`
+//! - `pub(crate) struct Needs`
+//! - `pub fn rail_of(name: &str) -> Option<NetRole>`
+//! - `pub fn classify_nets(hg: &BipartiteHypergraph, cfg: &AnnotationConfig) -> Vec<NetRole>`
+//! - `pub(crate) fn is_clock(lower: &str) -> bool`
+//! - `pub(crate) fn missing(p: &ProcessNumbers, needs: &Needs) -> Vec<(&'static str, &'static str)>`
+//! - `pub(crate) fn with_testbench(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -> AnnotationConfig`
 
 use std::collections::HashSet;
 
+use analog::base::ids::NetId;
 use analog::base::netlist::DeviceKind;
-use analog::base::BipartiteHypergraph;
+use analog::base::{BipartiteHypergraph, Netlist};
+
+use crate::evidence::Evidence;
 
 /// Electrical role of a net, keyed off its name (bulk connectivity when no rail is named). Index the returned `Vec` by
 /// [`analog::base::ids::NetId`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NetRole {
+    /// Anything not named or inferred as a rail or clock.
     Signal,
+    /// A positive rail, by name or as the bulk of PMOS devices.
     Supply,
+    /// A negative rail, by name or as the bulk of NMOS devices.
     Ground,
+    /// A clock, by name or by configuration.
     Clock,
-}
-
-/// Supply rail roots (**Philis policy**, not a source's list); `vpb` is the
-/// sky130 PMOS body pin.
-const SUPPLY_ROOTS: &[&str] = &["vdd", "vcc", "vpwr", "vddio", "avdd", "dvdd", "vdda", "vddd", "vpb"];
-/// Ground rail roots; `vnb` is the sky130 NMOS body pin, `vee` the most
-/// negative rail of a bipolar circuit (low impedance, hence ground-class).
-const GROUND_ROOTS: &[&str] = &["vss", "gnd", "vgnd", "vssio", "avss", "dvss", "vssa", "vssd", "vnb", "vee", "agnd", "dgnd"];
-/// Substrings that mark a clock anywhere in the name.
-const CLK_SUBSTR: &[&str] = &["clk", "clock"];
-/// Clock prefixes that must be followed by digits/`_`/`b`/end (`phi1`, `ck_b`),
-/// so `back`/`stack`/`phase` stay signals.
-const CLK_PREFIX: &[&str] = &["phi", "ck"];
-
-/// Rail role from a net name alone; the one source of truth for every crate.
-/// Case-insensitive; a trailing `!` (SPICE global) is stripped; `0` is ground;
-/// a root matches when followed by nothing, `_…`, or only [0-9pv] (vdd1, avdd3v3, vdd1p8).
-#[must_use]
-pub fn rail_of(name: &str) -> Option<NetRole> {
-    let s = name.trim_end_matches('!').to_ascii_lowercase();
-    if s == "0" {
-        return Some(NetRole::Ground);
-    }
-    [(SUPPLY_ROOTS, NetRole::Supply), (GROUND_ROOTS, NetRole::Ground)].into_iter().find_map(|(roots, role)| {
-        roots
-            .iter()
-            .any(|r| {
-                s.strip_prefix(r).is_some_and(|rest| {
-                    rest.is_empty() || rest.starts_with('_') || rest.bytes().all(|c| c.is_ascii_digit() || c == b'p' || c == b'v')
-                })
-            })
-            .then_some(role)
-    })
-}
-
-/// Classify every net by name: config names win, then [`rail_of`], then clock
-/// names. Bulk inference runs per rail role only when no net got that role by
-/// name or config: the net that is the `B` terminal of the most PMOS (NMOS)
-/// devices (ties to the lowest net id) becomes Supply (Ground) if it is a
-/// Signal on no FET gate; otherwise nothing is inferred. A named rail
-/// therefore always disables the inference.
-#[must_use]
-pub fn classify_nets(hg: &BipartiteHypergraph, cfg: &AnnotationConfig) -> Vec<NetRole> {
-    let mut roles: Vec<NetRole> = hg
-        .net_names
-        .iter()
-        .map(|name| {
-            let named = |set: &[String]| set.iter().any(|s| s.eq_ignore_ascii_case(name));
-            if named(&cfg.supply_nets) {
-                NetRole::Supply
-            } else if named(&cfg.ground_nets) {
-                NetRole::Ground
-            } else if let Some(rail) = rail_of(name) {
-                rail
-            } else if named(&cfg.clock_nets) || is_clock(&name.to_ascii_lowercase()) {
-                NetRole::Clock
-            } else {
-                NetRole::Signal
-            }
-        })
-        .collect();
-    // ponytail: evidence (`Structure`) is not recorded until EXT-18 adds `Intent.nets[n].evidence`.
-    let fet = |k: DeviceKind| matches!(k, DeviceKind::Nmos | DeviceKind::Pmos);
-    let mut on_gate = vec![false; roles.len()];
-    for (d, nets) in hg.device_nets.iter().enumerate() {
-        if fet(hg.kinds[d]) {
-            for (t, n) in hg.terminals[d].iter().zip(nets) {
-                on_gate[n.0 as usize] |= t == "G";
-            }
-        }
-    }
-    for (kind, role) in [(DeviceKind::Pmos, NetRole::Supply), (DeviceKind::Nmos, NetRole::Ground)] {
-        if roles.contains(&role) {
-            continue;
-        }
-        let mut bulk = vec![0usize; roles.len()];
-        for (d, nets) in hg.device_nets.iter().enumerate() {
-            if hg.kinds[d] == kind {
-                if let Some((_, n)) = hg.terminals[d].iter().zip(nets).find(|(t, _)| *t == "B") {
-                    bulk[n.0 as usize] += 1;
-                }
-            }
-        }
-        // Max first, then the checks: a top-bulk rail that also drives a gate (a G=S=B dummy) must
-        // not hand the role to the runner-up, typically a source-tied bulk (diff-pair tail).
-        let best = (0..roles.len()).filter(|&n| bulk[n] > 0).max_by_key(|&n| (bulk[n], std::cmp::Reverse(n)));
-        if let Some(n) = best.filter(|&n| !on_gate[n] && roles[n] == NetRole::Signal) {
-            roles[n] = role;
-        }
-    }
-    roles
-}
-
-pub(crate) fn is_clock(lower: &str) -> bool {
-    CLK_SUBSTR.iter().any(|p| lower.contains(p))
-        || CLK_PREFIX.iter().any(|p| lower.strip_prefix(p).is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit() || c == '_' || c == 'b')))
 }
 
 /// User overrides on recognition — the library's channel to override our
@@ -123,7 +45,9 @@ pub struct AnnotationConfig {
     pub do_not_use: HashSet<String>,
     /// Extra nets to force to each role (name match, case-insensitive).
     pub supply_nets: Vec<String>,
+    /// Extra nets forced to `Ground`.
     pub ground_nets: Vec<String>,
+    /// Extra nets forced to `Clock`.
     pub clock_nets: Vec<String>,
     /// Process numbers from the deck; `library::annotation` fills them.
     pub process: ProcessNumbers,
@@ -220,6 +144,7 @@ pub struct ProcessNumbers {
     pub ecgr_min_width_nm: Option<i32>,
     /// The process can draw an `Ecgr` / `Hcgr` (`cells::post_cell::drawable`).
     pub ecgr_drawable: bool,
+    /// The process can draw a hole-collecting ring.
     pub hcgr_drawable: bool,
     /// The process can draw a `Tub` (deep n-well; `cells::post_cell::drawable`).
     pub tub_drawable: bool,
@@ -229,6 +154,159 @@ pub struct ProcessNumbers {
     pub unit: crate::sets::UnitDeck,
 }
 
+/// What the netlist needs, so `missing` lists only families that would apply.
+pub(crate) struct Needs {
+    /// A matched leaf (DiffPair, CurrentMirror, Load, CascodePair) exists.
+    pub(crate) matched: bool,
+    /// A FET exists: gate nets an antenna rule would check.
+    pub(crate) gate_nets: bool,
+    /// A device has gate area: `classify` would budget nets (its own precondition).
+    pub(crate) budgeted_nets: bool,
+}
+
+/// Supply rail roots (**Philis policy**, not a source's list); `vpb` is the
+/// sky130 PMOS body pin.
+const SUPPLY_ROOTS: &[&str] = &["vdd", "vcc", "vpwr", "vddio", "avdd", "dvdd", "vdda", "vddd", "vpb"];
+
+/// Ground rail roots; `vnb` is the sky130 NMOS body pin, `vee` the most
+/// negative rail of a bipolar circuit (low impedance, hence ground-class).
+const GROUND_ROOTS: &[&str] = &["vss", "gnd", "vgnd", "vssio", "avss", "dvss", "vssa", "vssd", "vnb", "vee", "agnd", "dgnd"];
+
+/// Substrings that mark a clock anywhere in the name.
+const CLK_SUBSTR: &[&str] = &["clk", "clock"];
+
+/// Clock prefixes that must be followed by digits/`_`/`b`/end (`phi1`, `ck_b`),
+/// so `back`/`stack`/`phase` stay signals.
+const CLK_PREFIX: &[&str] = &["phi", "ck"];
+
+/// Rail role from a net name alone; the one source of truth for every crate.
+/// Case-insensitive; a trailing `!` (SPICE global) is stripped; `0` is ground;
+/// a root matches when followed by nothing, `_…`, or only [0-9pv] (vdd1, avdd3v3, vdd1p8).
+#[must_use]
+pub fn rail_of(name: &str) -> Option<NetRole> {
+    let s = name.trim_end_matches('!').to_ascii_lowercase();
+    if s == "0" {
+        return Some(NetRole::Ground);
+    }
+    [(SUPPLY_ROOTS, NetRole::Supply), (GROUND_ROOTS, NetRole::Ground)].into_iter().find_map(|(roots, role)| {
+        roots
+            .iter()
+            .any(|r| {
+                s.strip_prefix(r).is_some_and(|rest| {
+                    rest.is_empty() || rest.starts_with('_') || rest.bytes().all(|c| c.is_ascii_digit() || c == b'p' || c == b'v')
+                })
+            })
+            .then_some(role)
+    })
+}
+
+/// Classify every net by name: config names win, then [`rail_of`], then clock
+/// names. Bulk inference runs per rail role only when no net got that role by
+/// name or config: the net that is the `B` terminal of the most PMOS (NMOS)
+/// devices (ties to the lowest net id) becomes Supply (Ground) if it is a
+/// Signal on no FET gate; otherwise nothing is inferred. A named rail
+/// therefore always disables the inference.
+#[must_use]
+pub fn classify_nets(hg: &BipartiteHypergraph, cfg: &AnnotationConfig) -> Vec<NetRole> {
+    let mut roles: Vec<NetRole> = hg
+        .net_names
+        .iter()
+        .map(|name| {
+            let named = |set: &[String]| set.iter().any(|s| s.eq_ignore_ascii_case(name));
+            if named(&cfg.supply_nets) {
+                NetRole::Supply
+            } else if named(&cfg.ground_nets) {
+                NetRole::Ground
+            } else if let Some(rail) = rail_of(name) {
+                rail
+            } else if named(&cfg.clock_nets) || is_clock(&name.to_ascii_lowercase()) {
+                NetRole::Clock
+            } else {
+                NetRole::Signal
+            }
+        })
+        .collect();
+    // ponytail: evidence (`Structure`) is not recorded until EXT-18 adds `Intent.nets[n].evidence`.
+    let fet = |k: DeviceKind| matches!(k, DeviceKind::Nmos | DeviceKind::Pmos);
+    let mut on_gate = vec![false; roles.len()];
+    for (d, nets) in hg.device_nets.iter().enumerate() {
+        if fet(hg.kinds[d]) {
+            for (t, n) in hg.terminals[d].iter().zip(nets) {
+                on_gate[n.0 as usize] |= t == "G";
+            }
+        }
+    }
+    for (kind, role) in [(DeviceKind::Pmos, NetRole::Supply), (DeviceKind::Nmos, NetRole::Ground)] {
+        if roles.contains(&role) {
+            continue;
+        }
+        let mut bulk = vec![0usize; roles.len()];
+        for (d, nets) in hg.device_nets.iter().enumerate() {
+            if hg.kinds[d] == kind {
+                if let Some((_, n)) = hg.terminals[d].iter().zip(nets).find(|(t, _)| *t == "B") {
+                    bulk[n.0 as usize] += 1;
+                }
+            }
+        }
+        // Max first, then the checks: a top-bulk rail that also drives a gate (a G=S=B dummy) must
+        // not hand the role to the runner-up, typically a source-tied bulk (diff-pair tail).
+        let best = (0..roles.len()).filter(|&n| bulk[n] > 0).max_by_key(|&n| (bulk[n], std::cmp::Reverse(n)));
+        if let Some(n) = best.filter(|&n| !on_gate[n] && roles[n] == NetRole::Signal) {
+            roles[n] = role;
+        }
+    }
+    roles
+}
+
+pub(crate) fn is_clock(lower: &str) -> bool {
+    CLK_SUBSTR.iter().any(|p| lower.contains(p))
+        || CLK_PREFIX.iter().any(|p| lower.strip_prefix(p).is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit() || c == '_' || c == 'b')))
+}
+
+/// Rule families [`ProcessNumbers`] cannot instantiate, among those `needs`
+/// says apply. DTI is absent from the list: a process without trenches makes
+/// `DtiBand` inapplicable, not unknown.
+pub(crate) fn missing(p: &ProcessNumbers, needs: &Needs) -> Vec<(&'static str, &'static str)> {
+    let mut out = Vec::new();
+    if needs.matched && p.svt_uv_per_um.is_none() && p.svt_fit.is_none() {
+        out.push(("MatchedSet", "deck svt_uv_per_um — distance term unknown"));
+    }
+    if needs.matched && p.avt_mv_um.iter().any(Option::is_none) {
+        out.push(("MatchedSet", "deck avt_n_mv_um/avt_p_mv_um"));
+    }
+    if needs.gate_nets && p.antenna_max_ratio.is_none() {
+        out.push(("Antenna", "deck antenna ratio"));
+    }
+    if needs.budgeted_nets && p.gate_af_per_um2.is_none() {
+        out.push(("ParasiticBudget", "deck gate_cap_af_um2"));
+        out.push(("CouplingBudget", "deck gate_cap_af_um2"));
+    } else if needs.budgeted_nets && p.wire_af_per_um.is_none() {
+        out.push(("ParasiticBudget", "deck wire capacitance"));
+    }
+    out
+}
+
+/// `cfg` plus the testbench's rails and clocks (EXT-17): with ≥ 2 distinct DC
+/// source levels, the nets at the highest (lowest) level that [`rail_of`] gives
+/// no role join `supply_nets` (`ground_nets`); switching-source nets join
+/// `clock_nets`. Names, so [`classify_nets`] runs unchanged.
+pub(crate) fn with_testbench(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -> AnnotationConfig {
+    let mut cfg = cfg.clone();
+    let name = |n: NetId| netlist.nets[n.0 as usize].name.clone();
+    let (lo, hi) = ev.dc_sources.iter().map(|&(_, v)| v).fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), v| (a.min(v), b.max(v)));
+    if lo < hi {
+        for &(n, v) in ev.dc_sources.iter().filter(|(n, _)| rail_of(&netlist.nets[n.0 as usize].name).is_none()) {
+            if v == hi {
+                cfg.supply_nets.push(name(n));
+            } else if v == lo {
+                cfg.ground_nets.push(name(n));
+            }
+        }
+    }
+    cfg.clock_nets.extend(ev.switching_nets.iter().map(|&n| name(n)));
+    cfg
+}
+
 #[cfg(test)]
 mod tests {
     use super::{classify_nets, rail_of, AnnotationConfig, NetRole};
@@ -236,6 +314,7 @@ mod tests {
     use analog::base::netlist::{Device, DeviceKind, Net, Netlist};
     use analog::base::BipartiteHypergraph;
 
+    /// Oracle: a hand-written name table: each name's rail role.
     #[test]
     fn rail_names() {
         use NetRole::{Ground as G, Supply as S};
@@ -263,6 +342,7 @@ mod tests {
         classify_nets(&BipartiteHypergraph::from_netlist(&nl), &AnnotationConfig::default())
     }
 
+    /// Oracle: the input: PMOS bulks on `a` make it Supply, NMOS bulks on `c` Ground.
     #[test]
     fn bulk_inference() {
         use DeviceKind::{Nmos as N, Pmos as P};
@@ -280,6 +360,7 @@ mod tests {
         assert_eq!(roles(&["a", "b", "c", "d"], &tie), [S, Sig, Sig, Sig]);
     }
 
+    /// Oracle: a hand-written list of clock names.
     #[test]
     fn clock_names() {
         for n in ["clk", "clk_in", "phi1", "phi_2b", "ck", "ckb", "sysclock"] {

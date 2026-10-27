@@ -2,6 +2,31 @@
 //! analog cost of `Requirements`, gated so no step raises hard-rule Φ.
 //! Also owns [`Prices`] (augmented-Lagrangian λ/ρ per budget batch) and the
 //! shared placement primitives in [`mechanics`] that `dp` reuses.
+//!
+//! Contents:
+//! - `pub struct VariantSpace`
+//! - `pub struct Prices`
+//! - `pub const RAIL_UNKNOWN`
+//! - `pub const RAIL_MIN`
+//! - `pub struct PlaceRules`
+//! - `pub struct GpInput<'a>`
+//! - `Prices::new() -> Self`
+//! - `Prices::drift(&self) -> f64`
+//! - `Prices::bind(&mut self, reqs: &Requirements<Layout>)`
+//! - `Prices::settle(&mut self, reqs: &Requirements<Layout>, l: &Layout)`
+//! - `Prices::saturated(&self) -> &[&'static str]`
+//! - `Prices::steps(&self) -> u32`
+//! - `Prices::weight_of(&self, bi: usize) -> f32`
+//! - `Prices::rho_of(&self, bi: usize) -> f32`
+//! - `pub fn net_weights(classes: &[analog::metadata::NetClassification], sens: &[(analog::base::NetId, f32)], current_ua: &[Option<i32>]) -> Vec<f32>`
+//! - `PlaceRules::uniform(grid: i32, clearance: i32) -> Self`
+//! - `PlaceRules::new(grid: i32, spacing: spacing::SpacingTable, profiles: spacing::Profiles) -> Self`
+//! - `PlaceRules::profile_of(&self, c: usize, v: u16, o: analog::base::Orient) -> Option<&spacing::Profile>`
+//! - `PlaceRules::gaps(&self, l: &Layout, a: usize, b: usize) -> (i32, i32)`
+//! - `PlaceRules::encroach(&self, l: &Layout, a: usize, b: usize) -> f64`
+//! - `PlaceRules::encroachment(&self, l: &Layout) -> f64`
+//! - `PlaceRules::halo(&self, l: &Layout, c: usize) -> i32`
+//! - `pub fn place(inp: &GpInput, prices: &mut Prices, seed: u64) -> (Layout, Report)`
 
 pub mod mechanics;
 pub mod spacing;
@@ -17,6 +42,7 @@ use mechanics::{analog_cost, analog_phi, canvas_side, choose_variants, clamp_to_
 /// One placeable cell's pre-drawn alternatives; `layout.variant[i]` indexes
 /// `alternatives`.
 pub struct VariantSpace {
+    /// The drawn variants, each a complete macro; index 0 is the default.
     pub alternatives: Vec<Macro>,
 }
 
@@ -39,6 +65,55 @@ pub struct Prices {
     saturated: Vec<&'static str>,
 }
 
+/// Weight of a rail with no op current. Policy: a rail's HPWL matters for
+/// IR/EM, not for C (EM-11; lienig_em L3457-3462), so it pulls below a signal.
+pub const RAIL_UNKNOWN: f32 = 0.25;
+
+/// Floor of a rail's current weight. Policy: a near-idle rail still stays short.
+pub const RAIL_MIN: f32 = 0.1;
+
+/// Process numbers placement needs, from the deck (shared with `dp`), built
+/// once per run.
+#[derive(Clone, Debug)]
+pub struct PlaceRules {
+    /// Every cell origin snaps to it, nm.
+    pub grid: i32,
+    /// Role × role spacing; its `fallback` is the old scalar clearance.
+    pub spacing: Arc<spacing::SpacingTable>,
+    /// Per (cell, variant, orient) edge profile; empty = every pair at `fallback`.
+    pub profiles: Arc<spacing::Profiles>,
+    /// `spacing.max_gap()`, cached: past it on either axis a pair owes nothing.
+    far: i32,
+    /// `(p0, P)`: the SP decoder puts every symmetry axis at `p0/2 (mod P)`,
+    /// a routing track centreline (PLC-28; the library derives it from dr's
+    /// lattice). `None`: axes only on the lattice.
+    pub axis_grid: Option<(i32, i32)>,
+}
+
+/// Everything [`place`] reads.
+pub struct GpInput<'a> {
+    /// Cell `i`'s drawn macro when `variants[i]` has no alternative for `assignment[i]`.
+    pub macros: &'a [Macro],
+    /// Cell `i`'s alternatives; empty or short means only `macros[i]`.
+    pub variants: &'a [VariantSpace],
+    /// Cell `i`'s starting variant; missing = 0.
+    pub assignment: &'a [u16],
+    /// The analog rules the objective reads.
+    pub reqs: &'a Requirements<Layout>,
+    /// Spacing, lattice and axis grid.
+    pub rules: &'a PlaceRules,
+    /// HPWL weight by `NetId` ([`net_weights`]); short = weight 1.
+    pub net_weight: &'a [f32],
+    /// Symmetry axes, one per block (`Problem::blocks`).
+    pub n_axes: usize,
+    /// Per cell, µW; empty = unpowered.
+    pub power_uw: &'a [i32],
+    /// Unit geometry the matching rules read, shared with the caller.
+    pub units: std::sync::Arc<analog::base::UnitLib>,
+    /// `false`: return the initial pile (`GpMode::Pile`).
+    pub iterate: bool,
+}
+
 /// A priced batch's identity: the stable [`analog::intent::ConstraintId`] when
 /// the annotator tagged it, else its position among untagged same-kind
 /// batches (GAP-10; FLOW-03 step 5).
@@ -58,12 +133,38 @@ struct Price {
 }
 
 const RHO_FLOOR: f32 = 0.25;
+
 const RHO_GAIN: f32 = 2.0;
+
 const RHO_MAX: f32 = 64.0;
+
 // ponytail: flat cap so a physically unsatisfiable budget cannot swamp the
 // objective; a saturated λ reads as settled in `drift`, so it is reported in
 // [`Prices::saturated`] and blocks convergence.
 const LAMBDA_MAX: f32 = 64.0;
+
+const MAX_ITERS: u32 = 500;
+
+const MIN_ITERS: u32 = 60;
+
+const OVERFLOW_TARGET: f32 = 0.15;
+
+const UTILIZATION: f32 = 0.4;
+
+const STEP0: f32 = 0.04;
+
+const STEP_MIN: f32 = 0.002;
+
+const STEP_DECAY: f32 = 0.995;
+
+const MOMENTUM: f32 = 0.85;
+
+const LAMBDA0: f32 = 0.5;
+
+const TARGET_UTIL: f32 = 0.7;
+
+/// Finite-difference probe (nm) for the analog-cost gradient.
+const ANALOG_PROBE: i32 = 64;
 
 impl Default for Prices {
     fn default() -> Self {
@@ -72,6 +173,7 @@ impl Default for Prices {
 }
 
 impl Prices {
+    /// No batch priced yet: every weight 0 and `drift` infinite, so a fresh table never reads as settled.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -158,25 +260,6 @@ impl Prices {
     }
 }
 
-fn keys(reqs: &Requirements<Layout>) -> Vec<PriceKey> {
-    (0..reqs.budget.len())
-        .map(|bi| {
-            if let Some(m) = reqs.budget[bi].meta() {
-                return PriceKey::Id(m.id);
-            }
-            let kind = reqs.budget[bi].kind();
-            let ord = reqs.budget[..bi].iter().filter(|o| o.meta().is_none() && o.kind() == kind).count() as u32;
-            PriceKey::Ord(kind, ord)
-        })
-        .collect()
-}
-
-/// Weight of a rail with no op current. Policy: a rail's HPWL matters for
-/// IR/EM, not for C (EM-11; lienig_em L3457-3462), so it pulls below a signal.
-pub const RAIL_UNKNOWN: f32 = 0.25;
-/// Floor of a rail's current weight. Policy: a near-idle rail still stays short.
-pub const RAIL_MIN: f32 = 0.1;
-
 /// Per-net HPWL weight, indexed by `NetId`, mean `1` over the weighted nets
 /// (unweighted = `1`). A net's weight is the fraction of a budget one aF of it
 /// spends (Lampaert 1999 eq.2.12–2.13, `ΔP = Σ S·Δx`; CRATES #3): the positive
@@ -225,24 +308,6 @@ pub fn net_weights(classes: &[analog::metadata::NetClassification], sens: &[(ana
             (false, _) => r.map_or(1.0, |w| w / mean),
         })
         .collect()
-}
-
-/// Process numbers placement needs, from the deck (shared with `dp`), built
-/// once per run.
-#[derive(Clone, Debug)]
-pub struct PlaceRules {
-    /// Every cell origin snaps to it, nm.
-    pub grid: i32,
-    /// Role × role spacing; its `fallback` is the old scalar clearance.
-    pub spacing: Arc<spacing::SpacingTable>,
-    /// Per (cell, variant, orient) edge profile; empty = every pair at `fallback`.
-    pub profiles: Arc<spacing::Profiles>,
-    /// `spacing.max_gap()`, cached: past it on either axis a pair owes nothing.
-    far: i32,
-    /// `(p0, P)`: the SP decoder puts every symmetry axis at `p0/2 (mod P)`,
-    /// a routing track centreline (PLC-28; the library derives it from dr's
-    /// lattice). `None`: axes only on the lattice.
-    pub axis_grid: Option<(i32, i32)>,
 }
 
 impl PlaceRules {
@@ -319,36 +384,6 @@ impl PlaceRules {
     pub fn halo(&self, l: &Layout, c: usize) -> i32 {
         self.profile(l, c).map_or(self.spacing.fallback, |p| self.spacing.halo(p))
     }
-}
-
-const MAX_ITERS: u32 = 500;
-const MIN_ITERS: u32 = 60;
-const OVERFLOW_TARGET: f32 = 0.15;
-const UTILIZATION: f32 = 0.4;
-const STEP0: f32 = 0.04;
-const STEP_MIN: f32 = 0.002;
-const STEP_DECAY: f32 = 0.995;
-const MOMENTUM: f32 = 0.85;
-const LAMBDA0: f32 = 0.5;
-const TARGET_UTIL: f32 = 0.7;
-/// Finite-difference probe (nm) for the analog-cost gradient.
-const ANALOG_PROBE: i32 = 64;
-
-/// Everything [`place`] reads.
-pub struct GpInput<'a> {
-    pub macros: &'a [Macro],
-    pub variants: &'a [VariantSpace],
-    pub assignment: &'a [u16],
-    pub reqs: &'a Requirements<Layout>,
-    pub rules: &'a PlaceRules,
-    pub net_weight: &'a [f32],
-    /// Symmetry axes, one per block (`Problem::blocks`).
-    pub n_axes: usize,
-    /// Per cell, µW; empty = unpowered.
-    pub power_uw: &'a [i32],
-    pub units: std::sync::Arc<analog::base::UnitLib>,
-    /// `false`: return the initial pile (`GpMode::Pile`).
-    pub iterate: bool,
 }
 
 /// Coarse placement of `macros`, drawn as `assignment` picks from each
@@ -519,6 +554,21 @@ pub fn place(inp: &GpInput, prices: &mut Prices, seed: u64) -> (Layout, Report) 
     (l, rep)
 }
 
+// ---- private ----
+
+fn keys(reqs: &Requirements<Layout>) -> Vec<PriceKey> {
+    (0..reqs.budget.len())
+        .map(|bi| {
+            if let Some(m) = reqs.budget[bi].meta() {
+                return PriceKey::Id(m.id);
+            }
+            let kind = reqs.budget[bi].kind();
+            let ord = reqs.budget[..bi].iter().filter(|o| o.meta().is_none() && o.kind() == kind).count() as u32;
+            PriceKey::Ord(kind, ord)
+        })
+        .collect()
+}
+
 /// Row-major `nb × nb` bin of a point, bins `bw` nm wide from the origin.
 fn bin_of(x: i32, y: i32, nb: usize, bw: f32) -> usize {
     let bx = ((x as f32 / bw) as usize).min(nb - 1);
@@ -551,6 +601,8 @@ mod price_tests {
     /// PLC-11 kept the analytic loop (the flat dp, still the default, starts
     /// from it): 16 equal cells, no nets, no rules, start as a pile at the
     /// centre; the loop must spread them to the density target.
+    /// Oracle: the density target: bin overflow at or under `OVERFLOW_TARGET` after the loop, over it for
+    /// the unspread pile.
     #[test]
     fn gp_spreads_a_pile() {
         let m = Macro { bbox: analog::base::Rect { x: 0, y: 0, w: 1_000, h: 1_000 }, ..Default::default() };
@@ -636,6 +688,7 @@ mod price_tests {
     /// The whole reason λ/ρ are carried instead of recomputed (D9): a budget that has
     /// been binding for several epochs must cost strictly more each epoch. With the
     /// old headroom-only weighting all three epochs below priced identically.
+    /// Oracle: D9's dual update: a constant residual must raise the weight every epoch.
     #[test]
     fn rho_escalates_for_a_residual_that_does_not_shrink() {
         let (reqs, l) = bench();
@@ -663,6 +716,7 @@ mod price_tests {
     /// PLAN §5 terminates on `‖λ_{k+1} − λ_k‖ < δ`. That probe is only usable if it
     /// actually falls as the budget stops binding — a batch that has gone slack must
     /// stop moving its multiplier, and `drift` must say so.
+    /// Oracle: PLAN §5: a shrinking residual must shrink `drift` every epoch.
     #[test]
     fn drift_decreases_as_prices_settle() {
         let (reqs, mut l) = bench();
@@ -683,6 +737,7 @@ mod price_tests {
     /// PLAN.md:124: a budget gone slack loses its price instead of keeping the
     /// one it ratcheted to while violated; λ is projected onto `≤ 0`, so it
     /// stops at exactly zero rather than turning into a reward.
+    /// Oracle: PLAN.md:124: λ projected onto `≤ 0` lands on exactly zero.
     #[test]
     fn a_slack_budget_relaxes_its_price() {
         let (mut reqs, mut l) = bench();
@@ -716,6 +771,7 @@ mod price_tests {
     /// still violated, so it must be reported as binding (ρ ramps 0.25 … 64,
     /// Σ > 64 well inside 30 steps). Two capped batches of one kind (ordinals
     /// 0 and 1) list that kind once.
+    /// Oracle: hand count: ρ ramps 0.25 … 64, so 30 steps reach the cap.
     #[test]
     fn a_saturated_price_is_reported() {
         let (mut reqs, l) = bench(); // residual 1.0 every epoch
@@ -733,6 +789,7 @@ mod price_tests {
 
     /// Prices are keyed by rule kind, not by position, so a batch keeps its price when
     /// the annotator appends an in-loop feedback batch ahead of the next epoch.
+    /// Oracle: the price before the append, compared after.
     #[test]
     fn price_survives_an_appended_batch() {
         let (reqs, l) = bench();
@@ -758,6 +815,7 @@ mod price_tests {
     /// GAP-10: a tagged batch is keyed by its `BatchMeta::id`, so swapping two
     /// tagged batches' positions keeps each its own price instead of the
     /// position-derived one (today's contract for untagged batches only).
+    /// Oracle: metamorphic: swapping two tagged batches swaps nothing in their prices.
     #[test]
     fn reordered_tagged_batches_keep_their_prices() {
         let (_, mut l) = bench();
@@ -785,6 +843,7 @@ mod price_tests {
 
     /// Untagged batches keep today's position-derived keying: a swap moves
     /// the price with the position, not with the batch.
+    /// Oracle: metamorphic: swapping two untagged batches swaps their prices.
     #[test]
     fn untagged_batches_keep_todays_behaviour() {
         let (_, mut l) = bench();
@@ -811,6 +870,7 @@ mod weight_tests {
         NetClassification { net: NetId(net), class: NetClass::Signal, c_budget_af, max_coupling_af: None }
     }
 
+    /// Oracle: hand arithmetic on the weights: mean 1, a 1 fF budget above a 4 fF one.
     #[test]
     fn a_tighter_budget_pulls_harder_and_sensitivities_win() {
         let classes = [class(0, Some(1_000)), class(1, Some(4_000)), class(2, None)];
@@ -830,6 +890,7 @@ mod weight_tests {
 
     /// PLC-17: a rail pulls by its op current over the largest rail's,
     /// floored at `RAIL_MIN`; no current reads `RAIL_UNKNOWN`.
+    /// Oracle: hand arithmetic: 100 µA over 1000 µA is 0.1, clamped at `RAIL_MIN`.
     #[test]
     fn supply_weight_scales_with_current() {
         let classes = [rail(0, NetClass::Supply, None), rail(1, NetClass::Ground, None), rail(2, NetClass::Supply, None), class(3, Some(1_000))];
@@ -845,6 +906,7 @@ mod weight_tests {
     }
 
     /// A rail's C budget does not move the signal nets' mean.
+    /// Oracle: hand arithmetic: the signal nets' weights still sum to 2.
     #[test]
     fn rails_do_not_move_the_signal_mean() {
         let classes = [class(0, Some(1_000)), class(1, Some(4_000)), rail(2, NetClass::Supply, Some(10))];
@@ -879,6 +941,7 @@ mod place_tests {
     }
 
     /// PLC-07: without profiles the per-pair rules are exactly the scalar clearance.
+    /// Oracle: differential: per-pair uniform rules against the scalar clearance scan.
     #[test]
     fn uniform_rules_match_scalar_encroach() {
         let mut rng = SplitMix64::new(11);
@@ -914,6 +977,7 @@ mod place_tests {
         SymmetryGroup(vec![Symmetry { a: Target::Device(DeviceId(a)), b: Target::Device(DeviceId(b)), axis: AxisId(axis), mode: SymMode::Perfect }])
     }
 
+    /// Oracle: the input: two symmetry groups on axes 0 and 1 owe two axes.
     #[test]
     fn gp_keeps_one_axis_per_block() {
         let macros = cells(6);
@@ -933,6 +997,7 @@ mod place_tests {
 
     /// C28 rewrite of the `ThermalGradient` test: a powered cell pushes the
     /// matched pair onto one isotherm.
+    /// Oracle: the analog `MatchedSet` thermal term: both members on one isotherm of the powered cell.
     #[test]
     fn gp_sees_power() {
         let macros = cells(3);

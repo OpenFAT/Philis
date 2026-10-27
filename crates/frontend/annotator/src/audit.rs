@@ -1,5 +1,9 @@
 //! Structure and bias audit (EXT-29): Hastings' checks on a matched set's bias
 //! and geometry, reported as diagnostics. Never alters a constraint.
+//!
+//! Contents:
+//! - `pub const KINDS`
+//! - `pub fn audit(intent: &Intent, nl: &Netlist, cascodes: &[[DeviceId; 4]], op: Option<&OpFacts>) -> Vec<Diagnostic>`
 
 use analog::base::ids::DeviceId;
 use analog::base::Netlist;
@@ -13,16 +17,9 @@ pub const KINDS: [&str; 7] = ["vgst_low", "clm_mismatch", "cascode_ratio", "casc
 
 /// H13-32: a current-matched FET below this overdrive, mV (Hastings: V_GT ≥ 0.1 V for Moderate+).
 const VGST_MIN_MV: f64 = 100.0;
+
 /// H09-23: unequal V_CE across a matched bipolar set, mV (**Philis threshold**).
 const VCE_MAX_MV: f64 = 10.0;
-
-fn mos_current(s: &MatchSpec) -> bool {
-    s.kind == MatchKind::Current && s.class >= MatchClass::Moderate && s.family == Family::Mos
-}
-
-fn bjt(s: &MatchSpec) -> bool {
-    s.family == Family::Bipolar && s.class >= MatchClass::Moderate
-}
 
 /// H13-32/33/34, H09-04/23 checks. `cascodes`: slot order 0 bottom ref, 1 bottom out, 2 top ref, 3 top out.
 /// `vgst_low`: a Moderate+ MOS Current set's members under 100 mV of `|V_GS|−|V_th|` (else `2·Id/gm`);
@@ -140,6 +137,16 @@ pub fn audit(intent: &Intent, nl: &Netlist, cascodes: &[[DeviceId; 4]], op: Opti
     out
 }
 
+// ---- private ----
+
+fn mos_current(s: &MatchSpec) -> bool {
+    s.kind == MatchKind::Current && s.class >= MatchClass::Moderate && s.family == Family::Mos
+}
+
+fn bjt(s: &MatchSpec) -> bool {
+    s.family == Family::Bipolar && s.class >= MatchClass::Moderate
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,6 +195,7 @@ mod tests {
         d.iter().map(|x| x.kind).collect()
     }
 
+    /// Oracle: hand arithmetic: 2·Id/gm = 2·0.6/20 V is under the floor; at gm 10 it is not.
     #[test]
     fn vgst_floor() {
         let (nl, i) = (pair(), intent(set(Family::Mos, MatchClass::Moderate, &[1, 1])));
@@ -197,6 +205,8 @@ mod tests {
         assert!(audit(&i, &nl, &[], Some(&op(0.6, 10.0, Some(1.0), vec![Some(0.0); 4]))).is_empty());
     }
 
+    /// Oracle: the audit rule: an odd ratio (1:7) in a Moderate bipolar set is flagged; 1:8 and Minimal are
+    /// not.
     #[test]
     fn bjt_ratio_odd() {
         let nl = pair(); // the ratio reads units only; no C/E pins, so V_CE is never checked
@@ -206,6 +216,7 @@ mod tests {
         assert_eq!(k(MatchClass::Minimal, &[1, 7]), "");
     }
 
+    /// Oracle: the input: cascode widths that break the mirror's ratio, both arms.
     #[test]
     fn cascode_ratio_mismatch() {
         let n = DeviceKind::Nmos;
@@ -226,6 +237,7 @@ mod tests {
         assert_eq!(kinds(&audit(&Intent::default(), &tied, &c, None)), ["cascode_bulk"]);
     }
 
+    /// Oracle: hand arithmetic: 200 mV · 1 µS / 10 µA = 2 % > 1.5 %; 100 mV is 1 %.
     #[test]
     fn clm_from_vds() {
         let (nl, i) = (pair(), intent(set(Family::Mos, MatchClass::Moderate, &[1, 1])));
@@ -235,6 +247,7 @@ mod tests {
         assert!(audit(&i, &nl, &[], Some(&op(10.0, 1.0, Some(1.0), vds(600.0)))).is_empty());
     }
 
+    /// Oracle: the input: no op point, so the audit reports not checked.
     #[test]
     fn no_op_not_checked() {
         let (nl, i) = (pair(), intent(set(Family::Mos, MatchClass::Moderate, &[1, 1])));
@@ -242,6 +255,7 @@ mod tests {
     }
 
     /// An op point without `gds_us` still reports `clm_mismatch` as not checked.
+    /// Oracle: the input: no `gds_us`, so CLM is not checked and named.
     #[test]
     fn missing_gds_not_checked() {
         let (nl, i) = (pair(), intent(set(Family::Mos, MatchClass::Moderate, &[1, 1])));

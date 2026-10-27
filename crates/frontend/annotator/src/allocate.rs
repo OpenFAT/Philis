@@ -5,6 +5,13 @@
 //! `Σ_k S_jk·δ_k ≤ M_j` for every row (each δ_k is at most its share of every
 //! row touching it). Allowances are 1σ ΔV_T, mV: a Current FET set's ledger
 //! converts them to % itself (`MatchedSet::budget_in`).
+//!
+//! Contents:
+//! - `pub type Allotment`
+//! - `pub struct SetIn`
+//! - `pub(crate) fn margins(s: &SpecSens, beta: f64) -> Vec<(f64, f64, f64)>`
+//! - `pub fn allocate(sets: &[SetIn], sens: &Sensitivities, beta: f64, max_eta: f32) -> (Vec<Allotment>, Vec<Diagnostic>)`
+//! - `pub(crate) fn set_in(s: &MatchSpec, nl: &Netlist, avt: [Option<f32>; 2]) -> Option<SetIn>`
 
 use analog::base::ids::DeviceId;
 use analog::base::Netlist;
@@ -14,9 +21,15 @@ use analog::matching::mismatch::sigma_pair;
 
 use crate::evidence::{Sensitivities, SpecSens};
 
+/// One set's allocation: its offset allowance δ, mV, and its weight, the
+/// largest share of a spec's variance in `[0, 1]`; `None` where unknown.
+pub type Allotment = (Option<f32>, Option<f32>);
+
 /// One allocatable set: compared sides (device lists) and its random 1σ, mV.
 pub struct SetIn {
+    /// Each compared pair of sides; a side of several devices averages their sensitivities.
     pub sides: Vec<(Vec<DeviceId>, Vec<DeviceId>)>,
+    /// The set's random 1σ offset, mV; `None` when the deck's A_VT is unknown.
     pub sigma_mv: Option<f32>,
 }
 
@@ -44,7 +57,7 @@ pub(crate) fn margins(s: &SpecSens, beta: f64) -> Vec<(f64, f64, f64)> {
 /// `S_jk > 0`, `None` unless σ_k and such a spec's σ_f are known: a set no spec's
 /// `d_vt` touches has no evidence of being minor, so D5 leaves it alone.
 #[must_use]
-pub fn allocate(sets: &[SetIn], sens: &Sensitivities, beta: f64, max_eta: f32) -> (Vec<(Option<f32>, Option<f32>)>, Vec<Diagnostic>) {
+pub fn allocate(sets: &[SetIn], sens: &Sensitivities, beta: f64, max_eta: f32) -> (Vec<Allotment>, Vec<Diagnostic>) {
     let n = sets.len();
     let mut delta: Vec<Option<f64>> = vec![None; n];
     let mut weight: Vec<Option<f64>> = vec![None; n];
@@ -134,6 +147,8 @@ mod tests {
         s.iter().enumerate().flat_map(|(k, &v)| [(DeviceId(2 * k as u16), v), (DeviceId(2 * k as u16 + 1), -v)]).collect()
     }
 
+    /// Oracle: certificate: each spec's Σ S·δ from the output stays within its margin; set 3's 5/(3·0.2) by
+    /// hand.
     #[test]
     fn allocation_respects_every_spec() {
         let (sa, sb) = ([2.0, 0.5, 0.0], [1.0, 3.0, 0.2]);
@@ -150,6 +165,7 @@ mod tests {
     }
 
     /// lampaert Table 4.2's first four sensitivities as relative weights.
+    /// Oracle: Lampaert Table 4.2's sensitivities: the allocation orders inversely to them.
     #[test]
     fn lampaert_table_4_2_ordering() {
         let s = [12.0, 2.9, 2.9, 0.2];
@@ -161,6 +177,7 @@ mod tests {
         assert!((used - 10.0).abs() < 1e-6, "{used}");
     }
 
+    /// Oracle: hand arithmetic: a 9 against 10 spec has no margin; the free set keeps its 6 mV.
     #[test]
     fn negative_margin_is_diagnosed() {
         let sens = Sensitivities { specs: vec![spec(9.0, Some(10.0), None, None, dvt(&[1.0, 2.0, 0.0]))] };
@@ -171,6 +188,7 @@ mod tests {
         assert_eq!(diags.iter().filter(|d| d.kind == "spec_infeasible_at_schematic").count(), 1);
     }
 
+    /// Oracle: hand arithmetic: margins 7 and 1 from the corners.
     #[test]
     fn two_sided_spec_takes_the_tighter_bound() {
         let mut s = spec(8.0, Some(0.0), Some(10.0), None, dvt(&[1.0]));
@@ -183,6 +201,7 @@ mod tests {
         assert_eq!(out[0].0, Some(1.0));
     }
 
+    /// Oracle: hand arithmetic: one set's share of a σ = 2 spec is 0.25; an untouched set gets none.
     #[test]
     fn weight_is_variance_share() {
         let sens = Sensitivities { specs: vec![spec(20.0, Some(0.0), None, Some(2.0), dvt(&[1.0]))] };

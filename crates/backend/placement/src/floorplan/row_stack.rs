@@ -1,6 +1,9 @@
 //! FLOOR-RowStack (RECIPES §3): rows by stage, bottom to top; in each row the
 //! self-symmetric tiles centred on the one shared axis, then pairs outward,
 //! the left half mirrored.
+//!
+//! Contents:
+//! - `pub fn row_stack(tiles: &[Macro], stack: &Stack, spacing: &Spacing, lattice: i32) -> Result<Floorplan, Refusal>`
 
 use analog::base::{Macro, Orient, Shape};
 

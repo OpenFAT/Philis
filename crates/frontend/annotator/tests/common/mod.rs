@@ -1,5 +1,20 @@
 //! Shared harness for the recognition corpus (EXT-01): a one-line netlist
 //! format, a seeded permutation, and the id-free views the tests compare.
+//!
+//! Contents:
+//! - `pub const STRONGARM`
+//! - `pub type SetRow`
+//! - `pub struct Canon`
+//! - `pub fn net(src: &str) -> Netlist`
+//! - `pub fn strongarm_cfg() -> annotator::AnnotationConfig`
+//! - `pub fn cfg() -> annotator::AnnotationConfig`
+//! - `pub fn permute(nl: &Netlist, seed: u64) -> Netlist`
+//! - `pub fn sorted(a: &str, b: &str) -> (String, String)`
+//! - `pub fn canon(p: &annotator::Problem, nl: &Netlist) -> Canon`
+//! - `pub fn canon_intent(p: &annotator::Problem, nl: &Netlist) -> Canon`
+//! - `pub fn id_pairs<On>(b: &dyn RuleBatch<On>) -> Vec<(u32, u32)>`
+//! - `pub fn canon_leaves(p: &annotator::Problem, nl: &Netlist) -> BTreeSet<(String, Vec<String>)>`
+
 #![allow(dead_code)] // each test binary uses a different subset
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -7,6 +22,38 @@ use std::collections::{BTreeMap, BTreeSet};
 use analog::base::ids::NetId;
 use analog::base::netlist::{Device, DeviceKind, Net, Netlist};
 use analog::RuleBatch;
+
+/// `benchmarks/competition/ALIGN/examples/high_speed_comparator/high_speed_comparator.sp`:
+/// n→nfet, p→pfet, l=14e-9→14n, nfin/nf dropped, m kept, and `w=1u` on every device, a
+/// Philis placeholder: the .sp carries no w, and leaving it off would, once EXT-11 reads a
+/// missing w as an unknown size, leave no `ExactAs` pattern, hence no seed pair and no matching.
+/// Instance names are the ALIGN gold's.
+pub const STRONGARM: &str = "mn0 vcom clk vss vss nfet w=1u l=14n m=8
+    mn1 vin_d vin vcom vss nfet w=1u l=14n m=16 | mn2 vip_d vip vcom vss nfet w=1u l=14n m=16
+    mn3 vin_o vip_o vin_d vss nfet w=1u l=14n m=8 | mn4 vip_o vin_o vip_d vss nfet w=1u l=14n m=8
+    mp5 vin_o vip_o vcc vcc pfet w=1u l=14n m=4 | mp6 vip_o vin_o vcc vcc pfet w=1u l=14n m=4
+    mp7 vin_d clk vcc vcc pfet w=1u l=14n m=1 | mp8 vip_d clk vcc vcc pfet w=1u l=14n m=1
+    mp9 vin_o clk vcc vcc pfet w=1u l=14n m=1 | mp10 vip_o clk vcc vcc pfet w=1u l=14n m=1
+    mp11 vop vip_o vcc vcc pfet w=1u l=14n m=1 | mn13 vop vip_o vss vss nfet w=1u l=14n m=1
+    mp12 von vin_o vcc vcc pfet w=1u l=14n m=1 | mn14 von vin_o vss vss nfet w=1u l=14n m=1";
+
+/// A matched set by name: members `(name, parallel, series)` sorted, kind, class.
+pub type SetRow = (Vec<(String, u16, u16)>, String, String);
+
+/// Name-level, id-free view of what the annotator decided.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Canon {
+    /// Matched sets `(members (name, parallel, series) sorted, kind, class)` (EXT-15).
+    pub sets: BTreeSet<SetRow>,
+    /// Hard `Symmetry` pairs of two distinct devices, names sorted.
+    pub pairs: BTreeSet<(String, String)>,
+    /// Hard self-symmetric `Symmetry` entries (`a == b`).
+    pub selfs: BTreeSet<String>,
+    /// `Differential` routing pairs from any arm (EXT-09 moves them hard → budget), names sorted.
+    pub net_pairs: BTreeSet<(String, String)>,
+    /// Distinct symmetry axes among the hard pairs.
+    pub axes: usize,
+}
 
 /// Devices separated by newlines or ` | `: `NAME n1 … nk MODEL [w=4u] [l=0.5u] [m=8] [nf=2]`,
 /// SPICE order (the model is the last bare token, as in every corpus line).
@@ -74,20 +121,6 @@ pub fn net(src: &str) -> Netlist {
     Netlist { devices, nets, ..Default::default() }
 }
 
-/// `benchmarks/competition/ALIGN/examples/high_speed_comparator/high_speed_comparator.sp`:
-/// n→nfet, p→pfet, l=14e-9→14n, nfin/nf dropped, m kept, and `w=1u` on every device, a
-/// Philis placeholder: the .sp carries no w, and leaving it off would, once EXT-11 reads a
-/// missing w as an unknown size, leave no `ExactAs` pattern, hence no seed pair and no matching.
-/// Instance names are the ALIGN gold's.
-pub const STRONGARM: &str = "mn0 vcom clk vss vss nfet w=1u l=14n m=8
-    mn1 vin_d vin vcom vss nfet w=1u l=14n m=16 | mn2 vip_d vip vcom vss nfet w=1u l=14n m=16
-    mn3 vin_o vip_o vin_d vss nfet w=1u l=14n m=8 | mn4 vip_o vin_o vip_d vss nfet w=1u l=14n m=8
-    mp5 vin_o vip_o vcc vcc pfet w=1u l=14n m=4 | mp6 vip_o vin_o vcc vcc pfet w=1u l=14n m=4
-    mp7 vin_d clk vcc vcc pfet w=1u l=14n m=1 | mp8 vip_d clk vcc vcc pfet w=1u l=14n m=1
-    mp9 vin_o clk vcc vcc pfet w=1u l=14n m=1 | mp10 vip_o clk vcc vcc pfet w=1u l=14n m=1
-    mp11 vop vip_o vcc vcc pfet w=1u l=14n m=1 | mn13 vop vip_o vss vss nfet w=1u l=14n m=1
-    mp12 von vin_o vcc vcc pfet w=1u l=14n m=1 | mn14 von vin_o vss vss nfet w=1u l=14n m=1";
-
 /// The gold's `PowerPorts`, `GroundPorts` and `ClockPorts`; never its symmetry entries.
 pub fn strongarm_cfg() -> annotator::AnnotationConfig {
     annotator::AnnotationConfig { supply_nets: vec!["VCC".into()], ground_nets: vec!["VSS".into()], clock_nets: vec!["clk".into()], ..cfg() }
@@ -134,21 +167,6 @@ pub fn permute(nl: &Netlist, seed: u64) -> Netlist {
         })
         .collect();
     Netlist { devices, nets, ..Default::default() }
-}
-
-/// Name-level, id-free view of what the annotator decided.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct Canon {
-    /// Matched sets `(members (name, parallel, series) sorted, kind, class)` (EXT-15).
-    pub sets: BTreeSet<(Vec<(String, u16, u16)>, String /*kind*/, String /*class*/)>,
-    /// Hard `Symmetry` pairs of two distinct devices, names sorted.
-    pub pairs: BTreeSet<(String, String)>,
-    /// Hard self-symmetric `Symmetry` entries (`a == b`).
-    pub selfs: BTreeSet<String>,
-    /// `Differential` routing pairs from any arm (EXT-09 moves them hard → budget), names sorted.
-    pub net_pairs: BTreeSet<(String, String)>,
-    /// Distinct symmetry axes among the hard pairs.
-    pub axes: usize,
 }
 
 /// `(a, b)` with the smaller name first.

@@ -1,6 +1,13 @@
 //! What a device draws, as the matcher and the unitization classes compare it:
 //! size, model flavour and bulk net. The one reader of the size convention
 //! ([`analog::base::MosSize`], FLOW-01) inside the annotator's matching.
+//!
+//! Contents:
+//! - `pub struct Drawn`
+//! - `pub fn drawn(dev: &Device, models: &mut Vec<String>) -> Drawn`
+//! - `pub fn unknown_size(kind: DeviceKind, d: &Drawn) -> bool`
+//! - `pub(crate) fn exact_as(kind: DeviceKind, a: &Drawn, b: &Drawn, roles: &[NetRole]) -> bool`
+//! - `pub(crate) fn same_l_as(a: &Drawn, b: &Drawn) -> bool`
 
 use analog::base::ids::NetId;
 use analog::base::netlist::{Device, DeviceKind};
@@ -12,8 +19,11 @@ use crate::param;
 /// devices missing W/L are not "identical" (AA-21).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Drawn {
+    /// One finger's width, nm; `None` when the netlist omits W.
     pub w_finger_nm: Option<i64>,
+    /// Channel length, nm; `None` when the netlist omits L.
     pub l_nm: Option<i64>,
+    /// MOS `nf·m`; other kinds `m`; 1 when unknown.
     pub fingers: u32,
     /// Index into the `models` table [`drawn`] interns into (case-insensitive).
     pub model: u16,
@@ -39,12 +49,6 @@ pub fn drawn(dev: &Device, models: &mut Vec<String>) -> Drawn {
         (p("w"), p("l"), param(dev, "m", 1).clamp(1, i64::from(u32::MAX)) as u32)
     };
     Drawn { w_finger_nm, l_nm, fingers, model, bulk }
-}
-
-/// A bipolar or diode written without W/L: a fixed-geometry PDK device whose
-/// size is its model (`bgr_core`'s `pnp_05v5_W3p40L3p40`).
-fn fixed_geometry(kind: DeviceKind, d: &Drawn) -> bool {
-    matches!(kind, DeviceKind::Npn | DeviceKind::Pnp | DeviceKind::Diode) && d.w_finger_nm.is_none() && d.l_nm.is_none()
 }
 
 /// The size is unknown: never `ExactAs`, and reported as missing `device W/L`.
@@ -73,6 +77,14 @@ pub(crate) fn exact_as(kind: DeviceKind, a: &Drawn, b: &Drawn, roles: &[NetRole]
 /// `SizeMatch::SameLAs`: same known L, same model.
 pub(crate) fn same_l_as(a: &Drawn, b: &Drawn) -> bool {
     a.l_nm.is_some() && a.l_nm == b.l_nm && a.model == b.model
+}
+
+// ---- private ----
+
+/// A bipolar or diode written without W/L: a fixed-geometry PDK device whose
+/// size is its model (`bgr_core`'s `pnp_05v5_W3p40L3p40`).
+fn fixed_geometry(kind: DeviceKind, d: &Drawn) -> bool {
+    matches!(kind, DeviceKind::Npn | DeviceKind::Pnp | DeviceKind::Diode) && d.w_finger_nm.is_none() && d.l_nm.is_none()
 }
 
 #[cfg(test)]
@@ -108,6 +120,7 @@ mod tests {
         block::leaves(&p.blocks).iter().filter(|b| b.kind == BlockKind::DiffPair).count()
     }
 
+    /// Oracle: the model names: `nfet_01v8` and `nfet_01v8_lvt` are different devices.
     #[test]
     fn flavours_do_not_match() {
         let nl = pair([("nfet_01v8", 5), ("nfet_01v8_lvt", 5)], Some(10_000));
@@ -128,6 +141,7 @@ mod tests {
         assert_eq!(diff_pairs(&pair([("nfet_01v8", 5), ("NFET_01V8", 5)], Some(10_000))), 1);
     }
 
+    /// Oracle: the input: no W/L, so no match, and coverage says why.
     #[test]
     fn unknown_size_never_matches() {
         let nl = pair([("nfet_01v8", 5); 2], None);
@@ -139,6 +153,7 @@ mod tests {
         assert!(!missing(&pair([("nfet_01v8", 5); 2], Some(10_000))));
     }
 
+    /// Oracle: the input, both arms: bulks on two signal nets differ; on two rails they match.
     #[test]
     fn split_bulk_does_not_match() {
         assert_eq!(diff_pairs(&pair([("nfet_01v8", 7), ("nfet_01v8", 8)], Some(10_000))), 0);

@@ -1,6 +1,18 @@
 //! Matched sets (EXT-15): shared-bias groups, ratio inference and unitization
 //! (Hastings MOS rules 1, 11 and eq. 13.49; resistor rule 5; BJT unit
 //! emitters; Lampaert: a ratioed group is built of equal units).
+//!
+//! Contents:
+//! - `pub struct UnitDeck`
+//! - `pub(crate) fn diode(hg: &BipartiteHypergraph, d: usize) -> bool`
+//! - `pub fn shared_bias_groups(hg: &BipartiteHypergraph, drawn: &[Drawn], classes: &[NetClassification]) -> Vec<Vec<DeviceId>>`
+//! - `pub(crate) fn group<K: std::hash::Hash + Eq + Clone, T>(items: impl IntoIterator<Item = (K, T)>) -> Vec<(K, Vec<T>)>`
+//! - `pub(crate) fn device_index<'a>(n: usize, items: impl IntoIterator<Item = &'a [DeviceId]>) -> Vec<Vec<usize>>`
+//! - `pub(crate) fn inside(idx: &[Vec<usize>], g: impl IntoIterator<Item = usize>, all_in: impl Fn(usize) -> bool) -> Vec<usize>`
+//! - `pub fn unitize(members: &[DeviceId], drawn: &[Drawn], kind: DeviceKind, class: MatchClass, deck: &UnitDeck) -> Result<(UnitGeom, Vec<(u16, u16)>), Diagnostic>`
+//! - `pub fn matched_sets(reqs: &[Req], compounds: &[Compound], shared: &[Vec<DeviceId>], passive: &[crate::passive::PassiveSet], leaves: &[&Block], canon: &[u64], drawn: &[Drawn], hg: &BipartiteHypergraph, deck: &UnitDeck, diags: &mut Vec<Diagnostic>) -> Vec<MatchSpec>`
+//! - `pub fn unitize_set(members: &[DeviceId], passive: &[crate::passive::PassiveSet], drawn: &[Drawn], kind: DeviceKind, class: MatchClass, deck: &UnitDeck) -> Result<(UnitGeom, Vec<(u16, u16)>), Diagnostic>`
+//! - `pub fn set_pairs(compounds: &mut [Compound], sets: &[MatchSpec])`
 
 use analog::base::ids::DeviceId;
 use analog::base::netlist::DeviceKind;
@@ -20,23 +32,16 @@ use crate::size::Drawn;
 /// missing, and [`unitize`] answers `unit_deck_incomplete`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct UnitDeck {
+    /// Fabrication grid.
     pub grid_nm: i64,
+    /// Cell `min_finger_width`.
     pub min_w_nm: i64,
+    /// Cell `max_finger_width`.
     pub max_w_nm: i64,
+    /// Poly minimum width.
     pub min_l_nm: i64,
+    /// Cell `res_min_segment`.
     pub res_min_segment_nm: i64,
-}
-
-fn fet(k: DeviceKind) -> bool {
-    matches!(k, DeviceKind::Nmos | DeviceKind::Pmos)
-}
-
-fn bjt(k: DeviceKind) -> bool {
-    matches!(k, DeviceKind::Npn | DeviceKind::Pnp)
-}
-
-fn net(hg: &BipartiteHypergraph, d: usize, t: &str) -> Option<analog::base::ids::NetId> {
-    hg.terminals[d].iter().position(|p| p == t).map(|i| hg.device_nets[d][i])
 }
 
 /// Diode-connected: a FET with `D == G`, a BJT with `C == B`.
@@ -116,18 +121,6 @@ pub(crate) fn inside(idx: &[Vec<usize>], g: impl IntoIterator<Item = usize>, all
     c.dedup();
     c.retain(|&i| all_in(i));
     c
-}
-
-fn gcd(a: i64, b: i64) -> i64 {
-    if b == 0 {
-        a.abs()
-    } else {
-        gcd(b, a % b)
-    }
-}
-
-fn err(kind: &'static str, members: &[DeviceId], message: String) -> Diagnostic {
-    Diagnostic { kind, devices: members.to_vec(), message }
 }
 
 /// The ratio as identical units: `(unit, (parallel, series) per member)`.
@@ -435,6 +428,32 @@ pub fn set_pairs(compounds: &mut [Compound], sets: &[MatchSpec]) {
     }
 }
 
+// ---- private ----
+
+fn fet(k: DeviceKind) -> bool {
+    matches!(k, DeviceKind::Nmos | DeviceKind::Pmos)
+}
+
+fn bjt(k: DeviceKind) -> bool {
+    matches!(k, DeviceKind::Npn | DeviceKind::Pnp)
+}
+
+fn net(hg: &BipartiteHypergraph, d: usize, t: &str) -> Option<analog::base::ids::NetId> {
+    hg.terminals[d].iter().position(|p| p == t).map(|i| hg.device_nets[d][i])
+}
+
+fn gcd(a: i64, b: i64) -> i64 {
+    if b == 0 {
+        a.abs()
+    } else {
+        gcd(b, a % b)
+    }
+}
+
+fn err(kind: &'static str, members: &[DeviceId], message: String) -> Diagnostic {
+    Diagnostic { kind, devices: members.to_vec(), message }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -473,6 +492,7 @@ mod tests {
     /// EXT-14 step 8: a compound whose couples carry one set's members onto
     /// another's records `(i, j)`; three_stage's own compound maps each set onto
     /// itself, so it records none.
+    /// Oracle: EXT-14 step 8 on three_stage: the compound maps the M1 set onto the M4 set, by name.
     #[test]
     fn set_pairs_maps_set_onto_set() {
         let nl = crate::tests::three_stage();
@@ -488,6 +508,7 @@ mod tests {
         assert_eq!(cs[0].set_pairs, [(i.min(j), i.max(j))]);
     }
 
+    /// Oracle: hand arithmetic: widths 2, 4, 8 µm over a 2 µm unit are 1, 2, 4.
     #[test]
     fn mirror_ratio_by_width() {
         let nl = mos(&[(2_000, 1_000, 1), (4_000, 1_000, 1), (8_000, 1_000, 1)]);
@@ -495,6 +516,7 @@ mod tests {
         assert_eq!((u.w_nm, par(&units)), (2000, vec![1, 2, 4]));
     }
 
+    /// Oracle: the textbook three-stage op amp: M3, M7, M9 share the bias gate.
     #[test]
     fn three_stage_bias_group() {
         let nl = crate::tests::three_stage();
@@ -519,6 +541,7 @@ mod tests {
         assert_eq!((u.w_nm, par(&units)), (2000, vec![4, 3, 10]));
     }
 
+    /// Oracle: Hastings' unit example: 100 µm and 2×200 µm over a 10 µm unit are 10 and 20.
     #[test]
     fn hastings_unit_example() {
         let nl = mos(&[(100_000, 500, 1), (200_000, 500, 2)]);
@@ -526,6 +549,7 @@ mod tests {
         assert_eq!((u.w_nm, par(&units)), (10_000, vec![10, 20]));
     }
 
+    /// Oracle: hand arithmetic: 4 µm long against 5×1 µm is 20:1 as 4 in series against 5 in parallel.
     #[test]
     fn series_parallel_20_to_1() {
         let nl = mos(&[(10_000, 4_000, 1), (50_000, 1_000, 5)]);
@@ -534,6 +558,7 @@ mod tests {
         assert_eq!(units, [(1, 4), (5, 1)]);
     }
 
+    /// Oracle: hand arithmetic: 10 µm against 40 µm on one unit length is 1:4.
     #[test]
     fn resistor_divider() {
         let r = |name: &str, p: u16, n: u16, l: i64| Device {
@@ -549,6 +574,7 @@ mod tests {
         assert_eq!(units.iter().map(|p| p.1).collect::<Vec<_>>(), [1, 4]);
     }
 
+    /// Oracle: the input deck has `max_w_nm` 0, so the unitizer must refuse with `unit_deck_incomplete`.
     #[test]
     fn missing_deck_key() {
         let nl = mos(&[(2_000, 1_000, 1), (4_000, 1_000, 1)]);
@@ -556,6 +582,7 @@ mod tests {
         assert_eq!(e.kind, "unit_deck_incomplete");
     }
 
+    /// Oracle: hand arithmetic: 2/1 against 3/1.5 µm is no integer ratio.
     #[test]
     fn non_integer() {
         let nl = mos(&[(2_000, 1_000, 1), (3_000, 1_500, 1)]);

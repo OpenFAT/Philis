@@ -1,6 +1,12 @@
 //! Circuit-level symmetry (EXT-14): pairs propagated from seed couples
 //! through mated nets, grouped into compounds that share one axis (survey
 //! §3.2.2.2; the propagation is Philis design, the survey only names it).
+//!
+//! Contents:
+//! - `pub enum Seed`
+//! - `pub(crate) type Sig`
+//! - `pub(crate) fn sig(k: DeviceKind, s: &Drawn) -> Sig`
+//! - `pub fn analyze(hg: &BipartiteHypergraph, drawn: &[Drawn], classes: &[NetClassification], seeds: &[Seed], canon: &[u64]) -> (Vec<Compound>, Vec<Diagnostic>)`
 
 use std::collections::{BTreeSet, VecDeque};
 
@@ -17,33 +23,20 @@ use crate::size::{self, Drawn};
 /// selfs once EXT-26 (M3) builds them. The first device or net is half A.
 #[derive(Clone, Copy, Debug)]
 pub enum Seed {
+    /// Two devices that mirror each other, and the seed's id.
     Devices(DeviceId, DeviceId, ConstraintId),
+    /// Two nets that mirror each other (sidecar), and the seed's id.
     Nets(NetId, NetId, ConstraintId),
+    /// One device on the axis (sidecar), and the seed's id.
     SelfDevice(DeviceId, ConstraintId),
 }
 
 /// What two devices must share to mirror each other (card D-e): kind, model,
 /// finger W, L and finger count. Bulk is left out (a PMOS pair's bulk may be its source).
 pub(crate) type Sig = (DeviceKind, u16, Option<i64>, Option<i64>, u32);
+
 /// `(A device, B device, passive flipped, rank)`.
 type Cand = (u32, u32, bool, (usize, usize));
-
-pub(crate) fn sig(k: DeviceKind, s: &Drawn) -> Sig {
-    (k, s.model, s.w_finger_nm, s.l_nm, s.fingers)
-}
-
-fn passive(k: DeviceKind) -> bool {
-    matches!(k, DeviceKind::Resistor | DeviceKind::Capacitor | DeviceKind::Inductor | DeviceKind::Diode)
-}
-
-/// Channel terminals carry the device's current (D S, C E, P N); the rest are control (G, a BJT's B) or bulk.
-fn channel(t: &str) -> bool {
-    matches!(t, "D" | "S" | "C" | "E" | "P" | "N")
-}
-
-fn control(k: DeviceKind, t: &str) -> bool {
-    t == "G" || (matches!(k, DeviceKind::Npn | DeviceKind::Pnp) && t == "B")
-}
 
 struct State<'a> {
     hg: &'a BipartiteHypergraph,
@@ -64,6 +57,129 @@ struct State<'a> {
     cur: ConstraintId,
     by: Vec<Option<ConstraintId>>,
     net_by: Vec<Option<ConstraintId>>,
+}
+
+pub(crate) fn sig(k: DeviceKind, s: &Drawn) -> Sig {
+    (k, s.model, s.w_finger_nm, s.l_nm, s.fingers)
+}
+
+/// Symmetry analysis over the seeds, in order. Pairs propagate through mated nets
+/// (plan-01 EXT-14 steps 1-7): a candidate pair on a mated net pair shares the
+/// signature and terminal name (either end for a two-terminal passive), and every
+/// other terminal is consistent; the pair is taken only when it is the mutual unique
+/// best by `(shared channel nets, shared control nets)`, never by id. A device whose
+/// channel terminals are all self-symmetric nets or rails is self-symmetric. A
+/// compound is a component of pairs and selfs joined through mated nets (any
+/// terminal) and self-symmetric nets (channel terminals only, so a shared bias net
+/// does not join unrelated structures); one without a pair is dropped. Compounds
+/// are ordered by their smallest pair's canonical labels; `axis` is the index.
+#[must_use]
+pub fn analyze(
+    hg: &BipartiteHypergraph,
+    drawn: &[Drawn],
+    classes: &[NetClassification],
+    seeds: &[Seed],
+    canon: &[u64],
+) -> (Vec<Compound>, Vec<Diagnostic>) {
+    let (nd, nn) = (hg.device_count(), hg.net_devices.len());
+    let rail: Vec<bool> = classes.iter().map(|c| matches!(c.class, NetClass::Supply | NetClass::Ground | NetClass::Substrate)).collect();
+    let mut s = State {
+        hg,
+        rail,
+        pair_of: vec![None; nd],
+        half_a: vec![false; nd],
+        flip: vec![false; nd],
+        is_self: vec![false; nd],
+        mate: vec![None; nn],
+        a_side: vec![false; nn],
+        queue: VecDeque::new(),
+        cur: ConstraintId(0),
+        by: vec![None; nd],
+        net_by: vec![None; nn],
+    };
+    let sigs: Vec<_> = (0..nd).map(|d| sig(hg.kinds[d], &drawn[d])).collect();
+    let pairable = |d: u32| !size::unknown_size(hg.kinds[d as usize], &drawn[d as usize]);
+    let mut diags = Vec::new();
+    let mut ambiguous: BTreeSet<Vec<u32>> = BTreeSet::new();
+
+    for seed in seeds {
+        s.cur = match *seed {
+            Seed::Devices(.., id) | Seed::Nets(.., id) | Seed::SelfDevice(_, id) => id,
+        };
+        match *seed {
+            Seed::Devices(a, b, id) => {
+                let (a, b) = (a.0 as u32, b.0 as u32);
+                if s.pair_of[a as usize] == Some(b) || sigs[a as usize] != sigs[b as usize] {
+                    continue;
+                }
+                if !s.free(a) || !s.free(b) || !s.consistent(a, b, false) {
+                    // GAP-09 (a): the earlier seed wins (user seeds first, in entry order).
+                    let ids: Vec<ConstraintId> = std::iter::once(id).chain(s.owner(a, b)).collect();
+                    diags.push(conflict::diag(
+                        &ids,
+                        vec![DeviceId(a as u16), DeviceId(b as u16)],
+                        "SymmetricBlocks pair contradicts an earlier pairing; dropped",
+                    ));
+                    continue;
+                }
+                s.pair(a, b, false);
+            }
+            Seed::Nets(x, y, _) => {
+                if x == y && !s.rail[x.0 as usize] && s.mate[x.0 as usize].is_none() {
+                    s.mate[x.0 as usize] = Some(x.0 as u32);
+                    s.queue.push_back((x.0 as u32, x.0 as u32));
+                } else {
+                    s.bind(x.0 as u32, y.0 as u32);
+                }
+            }
+            Seed::SelfDevice(d, id) => {
+                let i = d.0 as usize;
+                if s.free(d.0 as u32) {
+                    s.is_self[i] = true;
+                    s.by[i] = Some(id);
+                } else if s.pair_of[i].is_some() {
+                    let ids: Vec<ConstraintId> = std::iter::once(id).chain(s.by[i]).collect();
+                    diags.push(conflict::diag(&ids, vec![d], "self-symmetric device already paired; dropped"));
+                }
+            }
+        }
+        propagate(&mut s, &sigs, &pairable, canon, &mut ambiguous);
+    }
+    // Fixpoint: a pairing can resolve an earlier ambiguity.
+    for _ in 0..nd {
+        let before = s.pair_of.iter().filter(|p| p.is_some()).count() + s.is_self.iter().filter(|&&b| b).count();
+        s.queue.extend(
+            (0..nn as u32).filter_map(|x| s.mate[x as usize].filter(|_| s.a_side[x as usize] || s.mate[x as usize] == Some(x)).map(|y| (x, y))),
+        );
+        propagate(&mut s, &sigs, &pairable, canon, &mut ambiguous);
+        let after = s.pair_of.iter().filter(|p| p.is_some()).count() + s.is_self.iter().filter(|&&b| b).count();
+        if after == before {
+            break;
+        }
+    }
+    for g in ambiguous.into_iter().filter(|g| s.free(g[0])) {
+        diags.push(Diagnostic {
+            kind: "ambiguous_symmetry",
+            devices: g.iter().map(|&d| DeviceId(d as u16)).collect(),
+            message: "no mutual unique best mirror partner".into(),
+        });
+    }
+    (compounds(&s, canon), diags)
+}
+
+// ---- private ----
+
+fn passive(k: DeviceKind) -> bool {
+    matches!(k, DeviceKind::Resistor | DeviceKind::Capacitor | DeviceKind::Inductor | DeviceKind::Diode)
+}
+
+/// Channel terminals carry the device's current (D S, C E, P N); the rest are control (G, a BJT's B) or bulk.
+fn channel(t: &str) -> bool {
+    matches!(t, "D" | "S" | "C" | "E" | "P" | "N")
+}
+
+fn control(k: DeviceKind, t: &str) -> bool {
+    t == "G" || (matches!(k, DeviceKind::Npn | DeviceKind::Pnp) && t == "B")
 }
 
 impl State<'_> {
@@ -170,110 +286,6 @@ impl State<'_> {
         }
         v
     }
-}
-
-/// Symmetry analysis over the seeds, in order. Pairs propagate through mated nets
-/// (plan-01 EXT-14 steps 1-7): a candidate pair on a mated net pair shares the
-/// signature and terminal name (either end for a two-terminal passive), and every
-/// other terminal is consistent; the pair is taken only when it is the mutual unique
-/// best by `(shared channel nets, shared control nets)`, never by id. A device whose
-/// channel terminals are all self-symmetric nets or rails is self-symmetric. A
-/// compound is a component of pairs and selfs joined through mated nets (any
-/// terminal) and self-symmetric nets (channel terminals only, so a shared bias net
-/// does not join unrelated structures); one without a pair is dropped. Compounds
-/// are ordered by their smallest pair's canonical labels; `axis` is the index.
-#[must_use]
-pub fn analyze(
-    hg: &BipartiteHypergraph,
-    drawn: &[Drawn],
-    classes: &[NetClassification],
-    seeds: &[Seed],
-    canon: &[u64],
-) -> (Vec<Compound>, Vec<Diagnostic>) {
-    let (nd, nn) = (hg.device_count(), hg.net_devices.len());
-    let rail: Vec<bool> = classes.iter().map(|c| matches!(c.class, NetClass::Supply | NetClass::Ground | NetClass::Substrate)).collect();
-    let mut s = State {
-        hg,
-        rail,
-        pair_of: vec![None; nd],
-        half_a: vec![false; nd],
-        flip: vec![false; nd],
-        is_self: vec![false; nd],
-        mate: vec![None; nn],
-        a_side: vec![false; nn],
-        queue: VecDeque::new(),
-        cur: ConstraintId(0),
-        by: vec![None; nd],
-        net_by: vec![None; nn],
-    };
-    let sigs: Vec<_> = (0..nd).map(|d| sig(hg.kinds[d], &drawn[d])).collect();
-    let pairable = |d: u32| !size::unknown_size(hg.kinds[d as usize], &drawn[d as usize]);
-    let mut diags = Vec::new();
-    let mut ambiguous: BTreeSet<Vec<u32>> = BTreeSet::new();
-
-    for seed in seeds {
-        s.cur = match *seed {
-            Seed::Devices(.., id) | Seed::Nets(.., id) | Seed::SelfDevice(_, id) => id,
-        };
-        match *seed {
-            Seed::Devices(a, b, id) => {
-                let (a, b) = (a.0 as u32, b.0 as u32);
-                if s.pair_of[a as usize] == Some(b) || sigs[a as usize] != sigs[b as usize] {
-                    continue;
-                }
-                if !s.free(a) || !s.free(b) || !s.consistent(a, b, false) {
-                    // GAP-09 (a): the earlier seed wins (user seeds first, in entry order).
-                    let ids: Vec<ConstraintId> = std::iter::once(id).chain(s.owner(a, b)).collect();
-                    diags.push(conflict::diag(
-                        &ids,
-                        vec![DeviceId(a as u16), DeviceId(b as u16)],
-                        "SymmetricBlocks pair contradicts an earlier pairing; dropped",
-                    ));
-                    continue;
-                }
-                s.pair(a, b, false);
-            }
-            Seed::Nets(x, y, _) => {
-                if x == y && !s.rail[x.0 as usize] && s.mate[x.0 as usize].is_none() {
-                    s.mate[x.0 as usize] = Some(x.0 as u32);
-                    s.queue.push_back((x.0 as u32, x.0 as u32));
-                } else {
-                    s.bind(x.0 as u32, y.0 as u32);
-                }
-            }
-            Seed::SelfDevice(d, id) => {
-                let i = d.0 as usize;
-                if s.free(d.0 as u32) {
-                    s.is_self[i] = true;
-                    s.by[i] = Some(id);
-                } else if s.pair_of[i].is_some() {
-                    let ids: Vec<ConstraintId> = std::iter::once(id).chain(s.by[i]).collect();
-                    diags.push(conflict::diag(&ids, vec![d], "self-symmetric device already paired; dropped"));
-                }
-            }
-        }
-        propagate(&mut s, &sigs, &pairable, canon, &mut ambiguous);
-    }
-    // Fixpoint: a pairing can resolve an earlier ambiguity.
-    for _ in 0..nd {
-        let before = s.pair_of.iter().filter(|p| p.is_some()).count() + s.is_self.iter().filter(|&&b| b).count();
-        s.queue.extend(
-            (0..nn as u32).filter_map(|x| s.mate[x as usize].filter(|_| s.a_side[x as usize] || s.mate[x as usize] == Some(x)).map(|y| (x, y))),
-        );
-        propagate(&mut s, &sigs, &pairable, canon, &mut ambiguous);
-        let after = s.pair_of.iter().filter(|p| p.is_some()).count() + s.is_self.iter().filter(|&&b| b).count();
-        if after == before {
-            break;
-        }
-    }
-    for g in ambiguous.into_iter().filter(|g| s.free(g[0])) {
-        diags.push(Diagnostic {
-            kind: "ambiguous_symmetry",
-            devices: g.iter().map(|&d| DeviceId(d as u16)).collect(),
-            message: "no mutual unique best mirror partner".into(),
-        });
-    }
-    (compounds(&s, canon), diags)
 }
 
 /// Drains the queue: a self-symmetric net (x, x) makes selfs (step 5); a mated
@@ -436,6 +448,7 @@ mod tests {
 
     /// A diff pair whose drains each carry two identical loads: no mutual unique
     /// best, so the loads stay unpaired and are reported, never paired by id.
+    /// Oracle: the input: two identical loads per drain have no unique best mate.
     #[test]
     fn tied_candidates_are_ambiguous() {
         // Nets: 0=a 1=inp 2=t 3=VSS 4=b 5=inn 6=vb 7=g.

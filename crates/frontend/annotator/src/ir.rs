@@ -7,6 +7,9 @@
 //! (Lampaert 1999 §2.5.3.2 eq.(2.33)). `ΔV_allowed` is spent from the
 //! saturation headroom `V_DS − V_DSsat` of the devices the net feeds: a drop
 //! past it pushes a device into triode.
+//!
+//! Contents:
+//! - `pub fn budgets(classes: &[NetClassification], current_ua: &[Option<i32>], headroom_mv: &[Option<f64>], supply_mv: f64, policy: &crate::policy::Policy) -> Vec<(NetId, i32, i64)>`
 
 use analog::base::NetId;
 use analog::metadata::{NetClass, NetClassification};
@@ -50,6 +53,7 @@ mod tests {
         NetClassification { net: NetId(net), class, c_budget_af: None, max_coupling_af: None }
     }
 
+    /// Oracle: hand arithmetic: 20 mV / 1 mA = 20 Ω, 18 mV / 500 µA = 36 Ω.
     #[test]
     fn resistance_budget_is_the_allowed_drop_over_the_current() {
         let classes = [class(0, NetClass::Supply), class(1, NetClass::Signal), class(2, NetClass::Signal), class(3, NetClass::Ground)];

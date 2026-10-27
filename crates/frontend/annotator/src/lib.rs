@@ -6,6 +6,20 @@
 //! ([`catalog::roles_of`]), and emits placement ([`emit`]), routing ([`extract`]), net-class
 //! ([`classify`]) and cell-tier ([`constraints`]) constraints from them, then
 //! reports conflicts ([`conflict`]).
+//!
+//! Contents:
+//! - `pub use block::{Block, BlockKind}`
+//! - `pub use evidence::{Evidence, OpFacts}`
+//! - `pub use netrole::{rail_of, AnnotationConfig, NetRole, ProcessNumbers}`
+//! - `pub use policy::Policy`
+//! - `pub struct Problem`
+//! - `pub enum Coverage`
+//! - `pub fn annotate(netlist: &Netlist, cfg: &AnnotationConfig) -> Problem`
+//! - `pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -> Problem`
+//! - `pub(crate) fn gate_um2(dev: &analog::base::netlist::Device) -> f32`
+//! - `pub(crate) fn param(dev: &analog::base::netlist::Device, key: &str, default: i64) -> i64`
+
+#![warn(missing_docs)]
 
 pub mod allocate;
 pub mod audit;
@@ -28,6 +42,7 @@ pub mod passive;
 pub mod pattern;
 pub mod policy;
 pub mod rings;
+mod seeds;
 pub mod sets;
 pub mod sidecar;
 pub mod size;
@@ -35,15 +50,12 @@ pub mod substrate;
 pub mod symmetry;
 pub mod terms;
 
-#[cfg(test)]
-mod tests;
-
 pub use block::{Block, BlockKind};
 pub use evidence::{Evidence, OpFacts};
 pub use netrole::{rail_of, AnnotationConfig, NetRole, ProcessNumbers};
 pub use policy::Policy;
 
-use analog::base::ids::{DeviceId, NetId};
+use analog::base::ids::DeviceId;
 use analog::base::Netlist;
 
 /// Everything the annotator hands the generators, placer and router.
@@ -53,7 +65,9 @@ pub struct Problem {
     pub blocks: Vec<Block>,
     /// Cell-tier directives (unitization, dummies, guard rings), read by `cells`.
     pub constraints: analog::Constraints,
+    /// Placement rules, every batch tagged with a stable id in emission order (EXT-10).
     pub placement: analog::Requirements<analog::base::Layout>,
+    /// Routing rules, tagged after the placement batches.
     pub routing: analog::Requirements<analog::base::Routes>,
     /// Per-net class + budgets, indexed by [`analog::base::NetId`].
     pub net_classes: Vec<analog::metadata::NetClassification>,
@@ -86,39 +100,6 @@ pub enum Coverage {
     Unconstrained(&'static str),
 }
 
-/// What the netlist needs, so `missing` lists only families that would apply.
-struct Needs {
-    /// A matched leaf (DiffPair, CurrentMirror, Load, CascodePair) exists.
-    matched: bool,
-    /// A FET exists: gate nets an antenna rule would check.
-    gate_nets: bool,
-    /// A device has gate area: `classify` would budget nets (its own precondition).
-    budgeted_nets: bool,
-}
-
-/// Rule families [`ProcessNumbers`] cannot instantiate, among those `needs`
-/// says apply. DTI is absent from the list: a process without trenches makes
-/// `DtiBand` inapplicable, not unknown.
-fn missing(p: &ProcessNumbers, needs: &Needs) -> Vec<(&'static str, &'static str)> {
-    let mut out = Vec::new();
-    if needs.matched && p.svt_uv_per_um.is_none() && p.svt_fit.is_none() {
-        out.push(("MatchedSet", "deck svt_uv_per_um — distance term unknown"));
-    }
-    if needs.matched && p.avt_mv_um.iter().any(Option::is_none) {
-        out.push(("MatchedSet", "deck avt_n_mv_um/avt_p_mv_um"));
-    }
-    if needs.gate_nets && p.antenna_max_ratio.is_none() {
-        out.push(("Antenna", "deck antenna ratio"));
-    }
-    if needs.budgeted_nets && p.gate_af_per_um2.is_none() {
-        out.push(("ParasiticBudget", "deck gate_cap_af_um2"));
-        out.push(("CouplingBudget", "deck gate_cap_af_um2"));
-    } else if needs.budgeted_nets && p.wire_af_per_um.is_none() {
-        out.push(("ParasiticBudget", "deck wire capacitance"));
-    }
-    out
-}
-
 /// Assemble the [`Problem`] from structure alone: [`annotate_with`] and no evidence.
 ///
 /// # Panics
@@ -144,7 +125,7 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
     let drawn: Vec<size::Drawn> = netlist.devices.iter().map(|d| size::drawn(d, &mut models)).collect();
     let named = |n: &String| [&cfg.supply_nets, &cfg.ground_nets, &cfg.clock_nets].iter().any(|l| l.iter().any(|s| s.eq_ignore_ascii_case(n)));
     let user: Vec<bool> = hg.net_names.iter().map(named).collect();
-    let cfg = &with_testbench(netlist, cfg, ev);
+    let cfg = &netrole::with_testbench(netlist, cfg, ev);
     let roles = netrole::classify_nets(&hg, cfg);
 
     // Recognised blocks in selection order, each composite with its primitive children.
@@ -212,14 +193,14 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
     let mut net_classes = classify::classify(&hg, &roles, &sensitive, &gates, cfg.process.gate_af_per_um2, &cfg.loads);
 
     let fet = |k: analog::base::DeviceKind| matches!(k, analog::base::DeviceKind::Nmos | analog::base::DeviceKind::Pmos);
-    let needs = Needs {
+    let needs = netrole::Needs {
         matched: block::leaves(&blocks)
             .iter()
             .any(|b| matches!(b.kind, BlockKind::DiffPair | BlockKind::CurrentMirror | BlockKind::Load | BlockKind::CascodePair)),
         gate_nets: netlist.devices.iter().any(|d| fet(d.kind)),
         budgeted_nets: gates.iter().any(|&g| g > 0.0),
     };
-    let mut missing = missing(&cfg.process, &needs);
+    let mut missing = netrole::missing(&cfg.process, &needs);
     // The matcher pairs FETs only: an unsized FET is a pair nobody could check.
     if netlist.devices.iter().zip(&drawn).any(|(d, s)| fet(d.kind) && size::unknown_size(d.kind, s)) {
         missing.push(("MatchedSet", "device W/L"));
@@ -228,47 +209,7 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
         missing.push(("ParasiticBudget", "capacitor-plate nets: settling / code-error spec (ARR-03, ARR-05)"));
     }
     let mut intent = analog::intent::Intent::default();
-    // Symmetry seeds: the disjoint DiffPair/Load/CascodePair leaves (never contradictory),
-    // each couple and the list in canonical order, names breaking exact ties.
-    let ck = |d: DeviceId| (canon[d.0 as usize], names[d.0 as usize]);
-    let mut seeds: Vec<(DeviceId, DeviceId, usize)> = block::leaves(&blocks)
-        .iter()
-        .enumerate()
-        .filter(|(_, b)| matches!(b.kind, BlockKind::DiffPair | BlockKind::Load | BlockKind::CascodePair))
-        .map(|(i, b)| if ck(b.devices[0]) <= ck(b.devices[1]) { (b.devices[0], b.devices[1], i) } else { (b.devices[1], b.devices[0], i) })
-        .collect();
-    seeds.sort_by_key(|&(a, b, _)| (ck(a), ck(b)));
-    // User seeds first (EXT-26).
-    let mut seeds: Vec<symmetry::Seed> = cfg
-        .seeds
-        .iter()
-        .copied()
-        .chain(seeds.into_iter().map(|(a, b, i)| symmetry::Seed::Devices(a, b, analog::intent::ConstraintId(i as u32))))
-        .collect();
-    // EXT-27: couples of identical instance pairs whose ports pair up, after the leaf seeds;
-    // a device already seeded (leaf symmetry inside an instance) keeps its own couple.
-    let inst_pairs = hier::same_template(netlist, &drawn);
-    let hier_couples: Vec<(DeviceId, DeviceId)> =
-        inst_pairs.iter().flat_map(|&(a, b)| hier::corresponding(netlist, &drawn, a, b).unwrap_or_default()).collect();
-    let seeded: std::collections::HashSet<DeviceId> = seeds
-        .iter()
-        .flat_map(|s| match *s {
-            symmetry::Seed::Devices(a, b, _) => vec![a, b],
-            symmetry::Seed::SelfDevice(a, _) => vec![a],
-            symmetry::Seed::Nets(..) => vec![],
-        })
-        .collect();
-    let mut k = 0;
-    for &(a, b) in &inst_pairs {
-        if hier::ports_pair(netlist, a, b) {
-            for (x, y) in hier::corresponding(netlist, &drawn, a, b).unwrap_or_default() {
-                if !seeded.contains(&x) && !seeded.contains(&y) {
-                    seeds.push(symmetry::Seed::Devices(x, y, analog::intent::ConstraintId(u32::MAX / 2 + k)));
-                    k += 1;
-                }
-            }
-        }
-    }
+    let (seeds, hier_couples) = seeds::seeds(netlist, &drawn, &blocks, &canon, &names, &cfg.seeds);
     let (compounds, diags) = symmetry::analyze(&hg, &drawn, &net_classes, &seeds, &canon);
     intent.compounds = compounds;
     if let (Some(dir), [c]) = (cfg.symmetry_dir, intent.compounds.as_mut_slice()) {
@@ -291,23 +232,7 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
     passive_sets.extend(passive::diode_sets(&hg, &drawn));
     let passive_groups: Vec<Vec<DeviceId>> = passive_sets.iter().map(|p| p.devices.clone()).collect();
     // EXT-27 arrays: one ProxBlock group and one horizontal, reversible order step per instance.
-    let ck2 = |d: &DeviceId| (canon[d.0 as usize], d.0);
-    let array_steps: Vec<Vec<Vec<DeviceId>>> = hier::arrays(netlist, &drawn, &{
-        use analog::metadata::NetClass as C;
-        let fixed = |c: C| matches!(c, C::Supply | C::Ground | C::Substrate | C::Clock);
-        classify::bias_lines(&hg).into_iter().zip(&net_classes).map(|(b, c)| b && !fixed(c.class)).collect::<Vec<bool>>()
-    })
-    .into_iter()
-    .map(|a| {
-        a.into_iter()
-            .map(|i| {
-                let mut v: Vec<DeviceId> = hier::devices(netlist, i).into_iter().map(|(d, _)| d).collect();
-                v.sort_by_key(ck2);
-                v
-            })
-            .collect()
-    })
-    .collect();
+    let array_steps = hier::array_steps(netlist, &drawn, &hg, &net_classes, &canon);
     let array_devs: Vec<Vec<DeviceId>> = array_steps.iter().map(|a| a.concat()).collect();
     let array_orders: Vec<analog::intent::Order> = array_steps
         .into_iter()
@@ -376,11 +301,12 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
     let mut set_roles = Vec::with_capacity(intent.sets.len());
     let input_compounds: std::collections::HashSet<u16> =
         (0..intent.sets.len()).filter(|&j| input(j)).filter_map(|j| intent.sets[j].compound).collect();
-    for i in 0..intent.sets.len() {
+    assert_eq!(roles.len(), intent.sets.len(), "one role list per set");
+    for (i, kinds) in roles.iter().enumerate() {
         let s = &intent.sets[i];
         let role = if input(i) {
             class::SetRole::InputPair
-        } else if roles[i].iter().any(|k| matches!(k, BlockKind::Load | BlockKind::CascodePair))
+        } else if kinds.iter().any(|k| matches!(k, BlockKind::Load | BlockKind::CascodePair))
             && s.compound.is_some_and(|c| input_compounds.contains(&c))
         {
             class::SetRole::LoadOfPair
@@ -393,7 +319,7 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
         } else if matches!(s.origin, analog::intent::Origin::Pattern { template } if template.starts_with("bjt_ratioed_pair")) {
             // A ratioed pair's ΔV_BE is a bandgap core (H09-01).
             class::SetRole::BandgapCore
-        } else if roles[i].contains(&BlockKind::CurrentMirror) || s.origin == analog::intent::Origin::SharedBias {
+        } else if kinds.contains(&BlockKind::CurrentMirror) || s.origin == analog::intent::Origin::SharedBias {
             class::SetRole::BiasMirror
         } else {
             class::SetRole::Other
@@ -602,44 +528,7 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
         emit::substrate_balance(&aggressor, &blocks, &block_of, &mut placement);
     }
 
-    // Stable ids in emission order (permutation-invariant since EXT-06). A
-    // pre-tagged batch (sidecar `GroupBlocks`) keeps its origin; else a
-    // placement batch whose first touched device is in a recognised block came
-    // from that block's pattern; Isolation and SubstrateBalance are cross-block,
-    // and the rest are net-class.
-    let mut next = 0u32;
-    let mut id = |origin| {
-        next += 1;
-        analog::intent::BatchMeta { id: analog::intent::ConstraintId(next - 1), origin }
-    };
-    let mut touched = vec![false; netlist.devices.len()];
-    for arm in [&mut placement.hard, &mut placement.budget, &mut placement.cost] {
-        *arm = std::mem::take(arm)
-            .into_iter()
-            .map(|inner| -> Box<dyn analog::RuleBatch<analog::base::Layout>> {
-                let mut ids = Vec::new();
-                inner.touched(&mut ids);
-                ids.iter().for_each(|&d| touched[d as usize] = true);
-                let bi = ids.first().map_or(usize::MAX, |&d| block_of[d as usize]);
-                let origin = if let Some(m) = inner.meta() {
-                    m.origin
-                } else if bi == usize::MAX || inner.kind().ends_with("::Isolation") || inner.kind().ends_with("::SubstrateBalance") {
-                    analog::intent::Origin::NetClass
-                } else {
-                    analog::intent::Origin::Pattern { template: blocks[bi].template }
-                };
-                Box::new(analog::rule::Tagged { meta: id(origin), inner })
-            })
-            .collect();
-    }
-    for arm in [&mut routing.hard, &mut routing.budget, &mut routing.cost] {
-        *arm = std::mem::take(arm)
-            .into_iter()
-            .map(|inner| -> Box<dyn analog::RuleBatch<analog::base::Routes>> {
-                Box::new(analog::rule::Tagged { meta: id(analog::intent::Origin::NetClass), inner })
-            })
-            .collect();
-    }
+    let touched = emit::tag_batches(&mut placement, &mut routing, &blocks, &block_of);
 
     // GAP-09 (b) report: the user pull's id, then the Isolation batch's (left
     // out when the dropped pairs were its only ones, so no batch was emitted).
@@ -673,51 +562,9 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
 
     // REL-07: guard rings by role, from the EXT-23 tags.
     let mut constraints = constraints::assemble(netlist, &drawn, &blocks, &intent.sets);
-    {
-        use analog::metadata::NetClass;
-        let of_class = |c: NetClass| net_classes.iter().filter(move |k| k.class == c).map(|k| k.net);
-        let mut injector = vec![None; netlist.devices.len()];
-        for a in &intent.aggressors {
-            match a.inject {
-                analog::intent::Inject::MinorityElectron => injector[a.device.0 as usize] = Some(rings::Carrier::Electrons),
-                analog::intent::Inject::MinorityHole => injector[a.device.0 as usize] = Some(rings::Carrier::Holes),
-                _ => {}
-            }
-        }
-        let touched_by_aggressor = |n: NetId| netlist.devices.iter().zip(&aggressor).any(|(d, &a)| a && d.terminals.iter().any(|t| t.1 == n));
-        let name = |n: NetId| netlist.nets[n.0 as usize].name.to_lowercase();
-        let quiet_ring_net = match &cfg.quiet_ring_net {
-            Some(q) => (0..netlist.nets.len()).map(|n| NetId(n as u16)).find(|&n| name(n) == q.to_lowercase()),
-            None => of_class(NetClass::Ground)
-                .filter(|&n| ["avss", "vssa", "agnd"].iter().any(|k| name(n).contains(k)))
-                .find(|&n| !touched_by_aggressor(n)),
-        };
-        let p = &cfg.process;
-        // GAP-14: the tie is a quiet supply; any other net is drawn as asked and reported.
-        if cfg.tubs.iter().any(|(_, t)| !of_class(NetClass::Supply).chain(of_class(NetClass::Ground)).any(|n| n == *t)) {
-            missing.push(("IsolatedTub", "tie is not a supply net"));
-        }
-        let (rings, notes) = rings::plan(&rings::RingInputs {
-            netlist,
-            aggressor: &aggressor,
-            victim: &victim,
-            injector: &injector,
-            substrate: p.substrate,
-            quiet_ring_net,
-            // The Supply net at the highest known DC level; the lowest id
-            // when the op point gives none.
-            highest_supply: of_class(NetClass::Supply).max_by_key(|n| (intent.nets[n.0 as usize].dc_mv.map(|v| v.0), std::cmp::Reverse(n.0))),
-            ground: of_class(NetClass::Ground).min_by_key(|n| n.0),
-            min_ring_width_nm: p.min_ring_width_nm,
-            ecgr_min_width_nm: p.ecgr_min_width_nm,
-            ecgr_drawable: p.ecgr_drawable,
-            hcgr_drawable: p.hcgr_drawable,
-            tubs: &cfg.tubs,
-            tub_drawable: p.tub_drawable,
-        });
-        constraints.guard_rings.extend(rings);
-        missing.extend(notes);
-    }
+    let (rings, notes) = rings::plan_tagged(netlist, &net_classes, &intent, &aggressor, &victim, cfg);
+    constraints.guard_rings.extend(rings);
+    missing.extend(notes);
 
     let mut out = Problem {
         // One axis per compound (`Compound.axis`); a spare one when there is none.
@@ -738,27 +585,6 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
     out
 }
 
-/// `cfg` plus the testbench's rails and clocks (EXT-17): with ≥ 2 distinct DC
-/// source levels, the nets at the highest (lowest) level that [`rail_of`] gives
-/// no role join `supply_nets` (`ground_nets`); switching-source nets join
-/// `clock_nets`. Names, so [`netrole::classify_nets`] runs unchanged.
-fn with_testbench(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -> AnnotationConfig {
-    let mut cfg = cfg.clone();
-    let name = |n: NetId| netlist.nets[n.0 as usize].name.clone();
-    let (lo, hi) = ev.dc_sources.iter().map(|&(_, v)| v).fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), v| (a.min(v), b.max(v)));
-    if lo < hi {
-        for &(n, v) in ev.dc_sources.iter().filter(|(n, _)| rail_of(&netlist.nets[n.0 as usize].name).is_none()) {
-            if v == hi {
-                cfg.supply_nets.push(name(n));
-            } else if v == lo {
-                cfg.ground_nets.push(name(n));
-            }
-        }
-    }
-    cfg.clock_nets.extend(ev.switching_nets.iter().map(|&n| name(n)));
-    cfg
-}
-
 /// Gate area `W_total·L·m` of a FET, µm²; `0` for anything else or when the
 /// netlist omits W/L.
 pub(crate) fn gate_um2(dev: &analog::base::netlist::Device) -> f32 {
@@ -769,3 +595,6 @@ pub(crate) fn gate_um2(dev: &analog::base::netlist::Device) -> f32 {
 pub(crate) fn param(dev: &analog::base::netlist::Device, key: &str, default: i64) -> i64 {
     dev.params.iter().find(|(k, _)| k == key).map_or(default, |&(_, v)| v)
 }
+
+#[cfg(test)]
+mod tests;

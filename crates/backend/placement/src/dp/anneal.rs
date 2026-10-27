@@ -3,40 +3,56 @@
 //! ([`sp::decode`]), so a placement is always overlap-free, gap-exact and
 //! mirror-exact; no projection, no legalizer. A code the decoder rejects is a
 //! rejected move ([`PlaceStats::decode_fail`]).
+//!
+//! Contents:
+//! - `pub struct PlaceInput<'a>`
+//! - `pub enum Start<'a>`
+//! - `pub enum DpMode`
+//! - `pub fn place_sp(inp: &PlaceInput, start: Start, schedule: Schedule, prices: &mut crate::gp::Prices, seed: u64) -> (Layout, Tree, Report, PlaceStats)`
 
 use std::sync::Arc;
 
-use crate::gp::mechanics::{choose_variants, report, Nets, SplitMix64};
-use crate::gp::spacing::Profile;
 use analog::base::{DeviceId, Layout, Macro, Orient, Report, UnitLib, Violation};
 use analog::Requirements;
 
 use crate::dp::eval::Eval;
-use crate::dp::sp::{self, decode, Geo, Out, Scratch, Tree};
-use crate::dp::{locks, quarter_turn, seed_branches, PlaceStats, Schedule};
+use crate::dp::moves::quarter_turn;
+use crate::dp::sp::{self, decode, m1, m2, m3, Geo, Out, Scratch, Tree};
+use crate::dp::{locks, seed_branches, PlaceStats, Schedule};
+use crate::gp::mechanics::{choose_variants, report, Nets, SplitMix64};
+use crate::gp::spacing::Profile;
 
 /// Everything [`place_sp`] reads.
 pub struct PlaceInput<'a> {
+    /// Cell `i`'s drawn macro, used when `variants[i]` has no alternative for its variant.
     pub macros: &'a [Macro],
+    /// Cell `i`'s alternatives; empty or short means the cell has only `macros[i]`.
     pub variants: &'a [crate::gp::VariantSpace],
     /// Per cell variant for [`Start::Constructive`] (missing = 0); the other
     /// starts carry their own.
     pub assignment: &'a [u16],
+    /// The analog rules the key and energy read; `hard` symmetry groups become tree nodes.
     pub reqs: &'a Requirements<Layout>,
+    /// `fixed[i]`: cell `i` keeps its variant and orient (it still moves); short = free.
     pub fixed: &'a [bool],
     /// Recognition blocks, glue last ([`sp::Tree::build`]).
     pub blocks: &'a [Vec<DeviceId>],
+    /// Pairwise spacing and the lattice every decoded coordinate lands on.
     pub rules: crate::gp::PlaceRules,
+    /// Orient and shape locks: a rotate or reshape moves every member of a set together.
     pub locks: &'a locks::Locks,
     /// Static routing halo (PLC-15) per cell and variant, by [`crate::gp::spacing::Face`]
     /// in the R0 frame; re-oriented with the cell. Empty or short = zero.
     pub halo: &'a [Vec<[i32; 4]>],
     /// Congestion halo (PLC-15) per cell by face, placed (world) frame; empty = zero.
     pub halo_dyn: &'a [[i32; 4]],
+    /// HPWL weight by `NetId` ([`crate::gp::net_weights`]); short = weight 1.
     pub net_weight: &'a [f32],
+    /// Symmetry axes in the output `Layout::axis`; at least one is always allocated.
     pub n_axes: usize,
     /// Per cell, µW; empty = unpowered.
     pub power_uw: &'a [i32],
+    /// Unit geometry the matching rules read, shared with the caller.
     pub units: Arc<UnitLib>,
 }
 
@@ -44,9 +60,20 @@ pub struct PlaceInput<'a> {
 /// ([`Tree::seed_from`]), the deterministic [`Tree::seed_constructive`], or an
 /// incumbent's code.
 pub enum Start<'a> {
+    /// Embed a coordinate placement (gp's or a previous flat dp's) into a code.
     Cold(&'a Layout),
+    /// The deterministic constructive code: rows by recognition block.
     Constructive,
-    Warm { tree: &'a Tree, variant: &'a [u16], orient: &'a [Orient] },
+    /// An incumbent's code; falls back to [`Start::Constructive`] (and sets
+    /// [`PlaceStats::warm_fallback`]) when the cells or symmetry groups changed.
+    Warm {
+        /// The incumbent's code.
+        tree: &'a Tree,
+        /// The incumbent's variant per cell.
+        variant: &'a [u16],
+        /// The incumbent's orient per cell.
+        orient: &'a [Orient],
+    },
 }
 
 /// Which detailed placer the flow runs.
@@ -57,69 +84,6 @@ pub enum DpMode {
     Flat,
     /// [`place_sp`].
     Sp,
-}
-
-/// `E = HPWL/L_ref + (A_bb/A_cells − 1) + augmented_cost`, dimensionless:
-/// `A_cells = Σ 4·hw·hh = L_ref²`; the area term gives netless fixtures a pull
-/// toward a small footprint (BAL1-33). The reference [`Eval::energy`] must
-/// reproduce bit for bit (PLC-10).
-#[cfg(test)]
-fn energy(nets: &Nets, reqs: &Requirements<Layout>, l: &Layout, prices: &crate::gp::Prices) -> f64 {
-    let cells: f64 = l.hw.iter().zip(&l.hh).map(|(&w, &h)| 4.0 * f64::from(w) * f64::from(h)).sum();
-    let area = if cells > 0.0 { l.footprint_nm2() / cells - 1.0 } else { 0.0 };
-    crate::gp::mechanics::hpwl(nets, l) / f64::from(l.l_ref()) + area + crate::gp::mechanics::augmented_cost(reqs, l, prices)
-}
-
-/// Two distinct uniform indices below `k` (`k ≥ 2`).
-fn two(rng: &mut SplitMix64, k: usize) -> (usize, usize) {
-    let i = rng.below(k);
-    let j = (i + 1 + rng.below(k - 1)) % k;
-    (i, j)
-}
-
-/// M1: swap two kids in α; a symmetry node then rewrites β ([`Tree::make_sf`]),
-/// which swaps their mates there (Balasa §1.3.3).
-fn m1(t: &mut Tree, node: usize, rng: &mut SplitMix64) {
-    let (i, j) = two(rng, t.nodes[node].alpha.len());
-    t.nodes[node].alpha.swap(i, j);
-    t.make_sf(node as u16);
-}
-
-/// M2: swap two kids in β; a symmetry node then rewrites α as β reversed
-/// through `mate` (the same S-F relation read the other way).
-fn m2(t: &mut Tree, node: usize, rng: &mut SplitMix64) {
-    let nd = &mut t.nodes[node];
-    let (i, j) = two(rng, nd.beta.len());
-    nd.beta.swap(i, j);
-    if let Some(s) = &nd.sym {
-        nd.alpha = nd.beta.iter().rev().map(|&g| s.mate[usize::from(g)]).collect();
-    }
-}
-
-/// M3: swap two kids in both sequences; in a symmetry node, a pair flip
-/// `x ↔ mate[x]` (relabelling by the involution keeps eq 1.1). `false` when
-/// the node has no pair.
-fn m3(t: &mut Tree, node: usize, rng: &mut SplitMix64) -> bool {
-    let nd = &mut t.nodes[node];
-    let (a, b) = match &nd.sym {
-        Some(s) => {
-            let paired: Vec<u16> = (0..s.mate.len() as u16).filter(|&x| s.mate[usize::from(x)] != x).collect();
-            if paired.is_empty() {
-                return false;
-            }
-            let x = paired[rng.below(paired.len())];
-            (x, s.mate[usize::from(x)])
-        }
-        None => {
-            let (i, j) = two(rng, nd.kids.len());
-            (i as u16, j as u16)
-        }
-    };
-    for seq in [&mut nd.alpha, &mut nd.beta] {
-        let (i, j) = (seq.iter().position(|&g| g == a).unwrap(), seq.iter().position(|&g| g == b).unwrap());
-        seq.swap(i, j);
-    }
-    true
 }
 
 /// Gate key: `(hard batches, Σ hard residual, Θ)`; Θ is `0` outside the quench.
@@ -157,6 +121,129 @@ struct St<'a> {
     branches: Vec<usize>,
     stats: PlaceStats,
 }
+
+/// Snapshot of the best state seen, by `(Φ, Θ, E)`.
+struct Best {
+    key: (Key, f64),
+    tree: Tree,
+    variant: Vec<u16>,
+    orient: Vec<Orient>,
+    branch: Vec<bool>,
+}
+
+/// Detailed placement over hierarchical S-F sequence pairs (plan-04 PLC-09),
+/// seed-deterministic. Moves M1–M6 (node ∝ kid count); gate lexicographic on
+/// `(hard batches, Σ hard residual)`, then Metropolis on [`energy`]; a final
+/// 3-temperature quench gates on `(…, Θ)` too, and the best `(Φ, Θ, E)` state
+/// seen is returned, so Θ is never traded for PEX. `T0 = −mean(ΔE⁺)/ln p0`
+/// over `32·m` probe moves (`m = Σ kids`; `1e-12` when none is uphill), `T ←
+/// alpha·T` after `moves_per_kid·m` moves; stop at `T < 1e-3·T0`, after 5
+/// temperatures that improve the best E by ≤ 0.1 %, or at `max_temps`.
+/// `stats.temps` counts the temperatures before the quench. Prices are bound
+/// once and read only. A cell on two symmetry axes is a hard report row.
+pub fn place_sp(inp: &PlaceInput, start: Start, schedule: Schedule, prices: &mut crate::gp::Prices, seed: u64) -> (Layout, Tree, Report, PlaceStats) {
+    let reqs = inp.reqs;
+    let n = inp.macros.len();
+    prices.bind(reqs);
+    let prices: &crate::gp::Prices = prices;
+    let mut rng = SplitMix64::new(seed);
+    let (mut st, errs, ok) = init(inp, &start, prices);
+    if !ok {
+        // ponytail: never seen (100 % of random S-F codes decode); reported, not hidden.
+        let St { l, nets, tree, stats, .. } = st;
+        let mut rep = report(&nets, reqs, &l, prices, &inp.rules);
+        rep.hard_violations.push(Violation { rule: "sp decode failed".into(), margin: 1 });
+        return (l, tree, rep, stats);
+    }
+    let m: usize = st.tree.nodes.iter().map(|nd| nd.kids.len()).sum();
+    let mut cur = (st.key(false), st.energy());
+    // T0 from probe moves, each undone.
+    let (mut up, mut n_up) = (0.0, 0u32);
+    for _ in 0..32 * m {
+        if !st.propose(&mut rng) {
+            continue;
+        }
+        if st.realize().is_ok() {
+            st.rescore();
+            let de = st.energy() - cur.1;
+            if de > 0.0 {
+                up += de;
+                n_up += 1;
+            }
+        }
+        st.undo();
+    }
+    let t0 = if n_up > 0 { -(up / f64::from(n_up)) / schedule.p0.ln() } else { 1e-12 };
+    let n_t = schedule.moves_per_kid as usize * m;
+    let mut temp = t0;
+    let snap =
+        |st: &St, key| Best { key, tree: st.tree.clone(), variant: st.l.variant.clone(), orient: st.l.orient.clone(), branch: st.l.branch.clone() };
+    let qkey = |st: &St| (st.key(true), st.energy());
+    let mut best = snap(&st, qkey(&st));
+    let mut best_e = cur.1;
+    let mut hist: Vec<f64> = Vec::new();
+    let mut quench_left = None::<u32>;
+    loop {
+        let quench = quench_left.is_some();
+        if quench {
+            cur = qkey(&st);
+        }
+        for _ in 0..n_t {
+            if st.trial(&mut rng, &mut cur, temp, quench).is_some() {
+                best_e = best_e.min(cur.1);
+                let k = if quench { cur } else { qkey(&st) };
+                if k < best.key {
+                    best = snap(&st, k);
+                }
+            }
+        }
+        // Thermal field is global: refresh per temperature, never per move.
+        st.l.refresh_temps();
+        st.rescore_all();
+        cur = (st.key(quench), st.energy());
+        temp *= schedule.alpha;
+        match &mut quench_left {
+            Some(0) => break,
+            Some(q) => *q -= 1,
+            None => {
+                st.stats.temps += 1;
+                hist.push(best_e);
+                let t = hist.len() - 1;
+                let flat = t >= 5 && (hist[t] - hist[t - 5]).abs() <= 1e-3 * hist[t - 5].abs().max(1e-12);
+                if flat || temp < 1e-3 * t0 || st.stats.temps >= schedule.max_temps {
+                    quench_left = Some(2);
+                }
+            }
+        }
+    }
+    if best.key < qkey(&st) {
+        st.tree = best.tree;
+        (st.l.variant, st.l.orient, st.l.branch) = (best.variant, best.orient, best.branch);
+        for c in 0..n {
+            st.set_geom(c);
+        }
+        st.nets = Nets::from_macros(&choose_variants(inp.macros, inp.variants, &st.l.variant)).weigh(inp.net_weight);
+        st.scratch.invalidate();
+        st.realize().expect("the best state decoded once");
+        st.l.refresh_temps();
+    }
+    let St { l, nets, tree, mut stats, .. } = st;
+    for nd in &tree.nodes {
+        if let Some(sym) = &nd.sym {
+            stats.axes += 1;
+            let on = inp.rules.axis_grid.is_some_and(|(p0, p)| l.axis_x(sym.axis).rem_euclid(p) == p0 / 2);
+            stats.axes_on_lattice += u32::from(on);
+        }
+    }
+    let mut rep = report(&nets, reqs, &l, prices, &inp.rules);
+    for e in errs {
+        let sp::TreeError::CellInTwoAxes { cell, .. } = e;
+        rep.hard_violations.push(Violation { rule: format!("conflicting symmetry cell {cell}"), margin: 1 });
+    }
+    (l, tree, rep, stats)
+}
+
+// ---- private ----
 
 impl<'a> St<'a> {
     fn macro_of(&self, c: usize, v: u16) -> &'a Macro {
@@ -404,15 +491,6 @@ impl<'a> St<'a> {
     }
 }
 
-/// Snapshot of the best state seen, by `(Φ, Θ, E)`.
-struct Best {
-    key: (Key, f64),
-    tree: Tree,
-    variant: Vec<u16>,
-    orient: Vec<Orient>,
-    branch: Vec<bool>,
-}
-
 /// The start state, decoded and scored: the tree built on `inp`, coded per
 /// `start` (a [`Start::Warm`] whose tree no longer fits the inputs falls back
 /// to [`Tree::seed_constructive`] and sets [`PlaceStats::warm_fallback`]).
@@ -512,116 +590,15 @@ fn init<'a>(inp: &'a PlaceInput<'a>, start: &Start, prices: &'a crate::gp::Price
     (st, errs, true)
 }
 
-/// Detailed placement over hierarchical S-F sequence pairs (plan-04 PLC-09),
-/// seed-deterministic. Moves M1–M6 (node ∝ kid count); gate lexicographic on
-/// `(hard batches, Σ hard residual)`, then Metropolis on [`energy`]; a final
-/// 3-temperature quench gates on `(…, Θ)` too, and the best `(Φ, Θ, E)` state
-/// seen is returned, so Θ is never traded for PEX. `T0 = −mean(ΔE⁺)/ln p0`
-/// over `32·m` probe moves (`m = Σ kids`; `1e-12` when none is uphill), `T ←
-/// alpha·T` after `moves_per_kid·m` moves; stop at `T < 1e-3·T0`, after 5
-/// temperatures that improve the best E by ≤ 0.1 %, or at `max_temps`.
-/// `stats.temps` counts the temperatures before the quench. Prices are bound
-/// once and read only. A cell on two symmetry axes is a hard report row.
-pub fn place_sp(inp: &PlaceInput, start: Start, schedule: Schedule, prices: &mut crate::gp::Prices, seed: u64) -> (Layout, Tree, Report, PlaceStats) {
-    let reqs = inp.reqs;
-    let n = inp.macros.len();
-    prices.bind(reqs);
-    let prices: &crate::gp::Prices = prices;
-    let mut rng = SplitMix64::new(seed);
-    let (mut st, errs, ok) = init(inp, &start, prices);
-    if !ok {
-        // ponytail: never seen (100 % of random S-F codes decode); reported, not hidden.
-        let St { l, nets, tree, stats, .. } = st;
-        let mut rep = report(&nets, reqs, &l, prices, &inp.rules);
-        rep.hard_violations.push(Violation { rule: "sp decode failed".into(), margin: 1 });
-        return (l, tree, rep, stats);
-    }
-    let m: usize = st.tree.nodes.iter().map(|nd| nd.kids.len()).sum();
-    let mut cur = (st.key(false), st.energy());
-    // T0 from probe moves, each undone.
-    let (mut up, mut n_up) = (0.0, 0u32);
-    for _ in 0..32 * m {
-        if !st.propose(&mut rng) {
-            continue;
-        }
-        if st.realize().is_ok() {
-            st.rescore();
-            let de = st.energy() - cur.1;
-            if de > 0.0 {
-                up += de;
-                n_up += 1;
-            }
-        }
-        st.undo();
-    }
-    let t0 = if n_up > 0 { -(up / f64::from(n_up)) / schedule.p0.ln() } else { 1e-12 };
-    let n_t = schedule.moves_per_kid as usize * m;
-    let mut temp = t0;
-    let snap =
-        |st: &St, key| Best { key, tree: st.tree.clone(), variant: st.l.variant.clone(), orient: st.l.orient.clone(), branch: st.l.branch.clone() };
-    let qkey = |st: &St| (st.key(true), st.energy());
-    let mut best = snap(&st, qkey(&st));
-    let mut best_e = cur.1;
-    let mut hist: Vec<f64> = Vec::new();
-    let mut quench_left = None::<u32>;
-    loop {
-        let quench = quench_left.is_some();
-        if quench {
-            cur = qkey(&st);
-        }
-        for _ in 0..n_t {
-            if st.trial(&mut rng, &mut cur, temp, quench).is_some() {
-                best_e = best_e.min(cur.1);
-                let k = if quench { cur } else { qkey(&st) };
-                if k < best.key {
-                    best = snap(&st, k);
-                }
-            }
-        }
-        // Thermal field is global: refresh per temperature, never per move.
-        st.l.refresh_temps();
-        st.rescore_all();
-        cur = (st.key(quench), st.energy());
-        temp *= schedule.alpha;
-        match &mut quench_left {
-            Some(0) => break,
-            Some(q) => *q -= 1,
-            None => {
-                st.stats.temps += 1;
-                hist.push(best_e);
-                let t = hist.len() - 1;
-                let flat = t >= 5 && (hist[t] - hist[t - 5]).abs() <= 1e-3 * hist[t - 5].abs().max(1e-12);
-                if flat || temp < 1e-3 * t0 || st.stats.temps >= schedule.max_temps {
-                    quench_left = Some(2);
-                }
-            }
-        }
-    }
-    if best.key < qkey(&st) {
-        st.tree = best.tree;
-        (st.l.variant, st.l.orient, st.l.branch) = (best.variant, best.orient, best.branch);
-        for c in 0..n {
-            st.set_geom(c);
-        }
-        st.nets = Nets::from_macros(&choose_variants(inp.macros, inp.variants, &st.l.variant)).weigh(inp.net_weight);
-        st.scratch.invalidate();
-        st.realize().expect("the best state decoded once");
-        st.l.refresh_temps();
-    }
-    let St { l, nets, tree, mut stats, .. } = st;
-    for nd in &tree.nodes {
-        if let Some(sym) = &nd.sym {
-            stats.axes += 1;
-            let on = inp.rules.axis_grid.is_some_and(|(p0, p)| l.axis_x(sym.axis).rem_euclid(p) == p0 / 2);
-            stats.axes_on_lattice += u32::from(on);
-        }
-    }
-    let mut rep = report(&nets, reqs, &l, prices, &inp.rules);
-    for e in errs {
-        let sp::TreeError::CellInTwoAxes { cell, .. } = e;
-        rep.hard_violations.push(Violation { rule: format!("conflicting symmetry cell {cell}"), margin: 1 });
-    }
-    (l, tree, rep, stats)
+/// `E = HPWL/L_ref + (A_bb/A_cells − 1) + augmented_cost`, dimensionless:
+/// `A_cells = Σ 4·hw·hh = L_ref²`; the area term gives netless fixtures a pull
+/// toward a small footprint (BAL1-33). The reference [`Eval::energy`] must
+/// reproduce bit for bit (PLC-10).
+#[cfg(test)]
+fn energy(nets: &Nets, reqs: &Requirements<Layout>, l: &Layout, prices: &crate::gp::Prices) -> f64 {
+    let cells: f64 = l.hw.iter().zip(&l.hh).map(|(&w, &h)| 4.0 * f64::from(w) * f64::from(h)).sum();
+    let area = if cells > 0.0 { l.footprint_nm2() / cells - 1.0 } else { 0.0 };
+    crate::gp::mechanics::hpwl(nets, l) / f64::from(l.l_ref()) + area + crate::gp::mechanics::augmented_cost(reqs, l, prices)
 }
 
 #[cfg(test)]
@@ -684,29 +661,12 @@ mod tests {
         }
     }
 
-    #[test]
-    fn sf_moves_preserve_sf() {
-        let mut rng = SplitMix64::new(7);
-        for _ in 0..10_000 {
-            let (p, s) = (1 + rng.below(4), rng.below(3));
-            let mut pairs: Vec<(u32, u32, u16)> = (0..p as u32).map(|i| (2 * i, 2 * i + 1, 0)).collect();
-            pairs.extend((2 * p..2 * p + s).map(|c| (c as u32, c as u32, 0)));
-            let (mut t, _) = Tree::build(2 * p + s, &pairs, &[]);
-            match rng.below(3) {
-                0 => m1(&mut t, 0, &mut rng),
-                1 => m2(&mut t, 0, &mut rng),
-                _ => {
-                    m3(&mut t, 0, &mut rng);
-                }
-            }
-            assert!(t.is_sf(0), "{:?}", t.nodes[0]);
-        }
-    }
-
     fn sym(a: u16, b: u16) -> Symmetry {
         Symmetry { a: Target::Device(DeviceId(a)), b: Target::Device(DeviceId(b)), axis: AxisId(0), mode: SymMode::Perfect }
     }
 
+    /// Oracle: metamorphic: the same seed twice gives the same code and layout; the analog `SymmetryGroup`
+    /// rule reports no hard violation.
     #[test]
     fn anneal_is_deterministic() {
         let macros: Vec<Macro> = (0..6).map(|i| cell(1_000 + 200 * (i % 3), 2_000, Some((i % 2) as u16))).collect();
@@ -737,6 +697,7 @@ mod tests {
     /// Cells 0 and 1 share a net (HPWL pulls them together) and a budget wants
     /// their centres ≥ 2000 apart. Start row 0, 2, 1 at gap 0: centres 500 and
     /// 2500, Θ = 0. Θ is unpriced, so the anneal proper may trade it away.
+    /// Oracle: hand-built start with Θ = 0; the analog rules' Θ on the result must not exceed it.
     #[test]
     fn quench_never_returns_worse_theta_than_start() {
         let macros = [cell(1_000, 1_000, Some(0)), cell(1_000, 1_000, Some(0)), cell(1_000, 1_000, None)];
@@ -751,6 +712,8 @@ mod tests {
         }
     }
 
+    /// Oracle: hand count: two unconnected cells give a flat energy, so the schedule's early stop fires at
+    /// the sixth temperature.
     #[test]
     fn schedule_stops_early_on_a_flat_landscape() {
         let macros = [cell(1_000, 1_000, None), cell(1_000, 1_000, None)];
@@ -763,6 +726,7 @@ mod tests {
 
     /// Four 1000 nm squares, every gap 200 (no abutment): α = ABCD, β = CDAB is
     /// a 2×2 block of 2200² nm; α = β = ABCD one row of 4600 × 1000 nm.
+    /// Oracle: hand-worked energies from the stated 2×2 block and 1×4 row areas.
     #[test]
     fn area_term_is_bbox_over_cell_area() {
         let e = |alpha: Vec<u16>, beta: Vec<u16>| {
@@ -830,6 +794,8 @@ mod tests {
         }
     }
 
+    /// Oracle: differential: `Eval`'s incremental energy against the full re-evaluation after every
+    /// accepted move.
     #[test]
     fn incremental_matches_full_evaluation() {
         let (macros, mut reqs) = bench14();
@@ -861,6 +827,7 @@ mod tests {
 
     /// Profiles that differ by face and orient (an n-well on the R0 right face,
     /// three bulk nets), so a turn changes gaps and a stale cached gap shows.
+    /// Oracle: differential: a fresh `decode` with an empty `Scratch` against the anneal's cached state.
     #[test]
     fn cached_decode_equals_fresh_decode() {
         use crate::gp::spacing::{Profile, Profiles, SpacingTable};
@@ -891,6 +858,7 @@ mod tests {
         }
     }
 
+    /// Oracle: the incumbent's key, recomputed from the analog rules and energy, bounds the warm restart's.
     #[test]
     fn warm_start_at_zero_temperature_never_worsens_the_incumbent_key() {
         let (macros, reqs) = bench14();
@@ -935,6 +903,8 @@ mod tests {
         assert!(accepted > 0 && uphill > 0, "accepted {accepted}, uphill proposals {uphill}");
     }
 
+    /// Oracle: the input: a warm tree with two pairs cannot hold three, so the fallback flag and a new root
+    /// are owed.
     #[test]
     fn warm_start_falls_back_on_changed_groups() {
         let macros: Vec<Macro> = (0..6).map(|_| cell(1_000, 1_000, None)).collect();

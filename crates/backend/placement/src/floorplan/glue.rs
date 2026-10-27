@@ -3,6 +3,9 @@
 //! on the cut lattice. On a fin deck every tile's gates join one gate
 //! lattice and the breaks between tiles carry field gates, so the deck's
 //! exact pitches hold across tile boundaries (ASAP7 GATE.S.1, FIN.S.1).
+//!
+//! Contents:
+//! - `pub fn glue(tiles: &[Macro], process: &dyn Process, spacing: &Spacing, lattice: i32) -> Result<(Floorplan, Macro), Refusal>`
 
 use analog::base::{LayerId, Macro, Orient, Process, Rect, Shape};
 
@@ -122,6 +125,8 @@ pub fn glue(tiles: &[Macro], process: &dyn Process, spacing: &Spacing, lattice: 
     fill.bbox = fill.shapes.iter().map(|s| s.rect).reduce(union).unwrap_or_default();
     Ok((f, fill))
 }
+
+// ---- private ----
 
 /// The box around `m`'s shapes on `layer` (zero when it has none).
 fn extent(m: &Macro, layer: LayerId) -> Rect {

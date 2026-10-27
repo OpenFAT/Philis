@@ -5,12 +5,22 @@
 //! every gap from the shapes that face across it ([`Spacing`]). Each returns a
 //! [`Floorplan`] table, one row per tile, that [`Floorplan::layout`] turns
 //! into the `Layout` columns `place_macros` stamps.
+//!
+//! Contents:
+//! - `pub use glue::glue`
+//! - `pub use row_stack::row_stack`
+//! - `pub use spacing::Spacing`
+//! - `pub enum Side`
+//! - `pub struct Stack`
+//! - `pub struct Floorplan`
+//! - `pub enum Refusal`
+//! - `pub struct Targets`
+//! - `Floorplan::layout(&self) -> Layout`
+//! - `pub fn targets(stack: &Stack, bounds: (i32, i32), gap: i32) -> Targets`
 
 mod glue;
 mod row_stack;
 mod spacing;
-#[cfg(test)]
-mod tests;
 
 pub use glue::glue;
 pub use row_stack::row_stack;
@@ -36,6 +46,7 @@ pub struct Stack {
     /// Stage index along the signal or current flow (`Order`); row 0 is the
     /// bottom row. ≤ 255 stages.
     pub row: Vec<u8>,
+    /// The tile's place relative to the row's axis.
     pub side: Vec<Side>,
 }
 
@@ -50,10 +61,40 @@ pub struct Floorplan {
     pub w: Vec<i32>,
     /// Outline height after `orient`, nm.
     pub h: Vec<i32>,
+    /// `Mx180` for a `Left` half, `R0` otherwise.
     pub orient: Vec<Orient>,
     /// The tile's row (stage index).
     pub row: Vec<u8>,
     /// Vertical symmetry axes' x by `AxisId`, nm; empty for a glue row.
+    pub axis: Vec<i32>,
+}
+
+/// Why a floorplan recipe cannot place its tiles.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Refusal {
+    /// A row's `Left` and `Right` counts differ, or a pair's two outlines do.
+    PairMismatch {
+        /// The row's stage index.
+        row: u8,
+    },
+    /// A fin-deck glue tile whose gates share no height with its left
+    /// neighbour's: no field gate can link the two gate columns, so an exact
+    /// gate pitch (ASAP7 GATE.S.1) reads a missing gate.
+    GateSpan {
+        /// The tile's input index; its left neighbour is `tile - 1`.
+        tile: u16,
+    },
+}
+
+/// Top-down bounds per set (Q22), parallel to the [`Stack`].
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
+pub struct Targets {
+    /// Width bound, nm: the set recipe folds to fit it.
+    pub w: Vec<i32>,
+    /// Height bound, nm: the set's row height.
+    pub h: Vec<i32>,
+    /// x of the vertical axis the set is symmetric about, nm. The row stack
+    /// has one shared axis; nested symmetry (P-06) would give a set its own.
     pub axis: Vec<i32>,
 }
 
@@ -83,17 +124,6 @@ impl Floorplan {
     }
 }
 
-/// Why a floorplan recipe cannot place its tiles.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Refusal {
-    /// A row's `Left` and `Right` counts differ, or a pair's two outlines do.
-    PairMismatch { row: u8 },
-    /// A fin-deck glue tile whose gates share no height with its left
-    /// neighbour's: no field gate can link the two gate columns, so an exact
-    /// gate pitch (ASAP7 GATE.S.1) reads a missing gate.
-    GateSpan { tile: u16 },
-}
-
 impl std::fmt::Display for Refusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -101,18 +131,6 @@ impl std::fmt::Display for Refusal {
             Refusal::GateSpan { tile } => write!(f, "glue tile {tile}: gates share no height with its left neighbour's"),
         }
     }
-}
-
-/// Top-down bounds per set (Q22), parallel to the [`Stack`].
-#[derive(Clone, Default, Debug, PartialEq, Eq)]
-pub struct Targets {
-    /// Width bound, nm: the set recipe folds to fit it.
-    pub w: Vec<i32>,
-    /// Height bound, nm: the set's row height.
-    pub h: Vec<i32>,
-    /// x of the vertical axis the set is symmetric about, nm. The row stack
-    /// has one shared axis; nested symmetry (P-06) would give a set its own.
-    pub axis: Vec<i32>,
 }
 
 /// Each set's bounds inside a `bounds = (width, height)` block, tiles `gap`
@@ -137,7 +155,12 @@ pub fn targets(stack: &Stack, bounds: (i32, i32), gap: i32) -> Targets {
     }
 }
 
+// ---- private ----
+
 /// `v` rounded up onto the `lattice`.
 fn up(v: i32, lattice: i32) -> i32 {
     (v + lattice - 1).div_euclid(lattice) * lattice
 }
+
+#[cfg(test)]
+mod tests;

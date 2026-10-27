@@ -1,5 +1,9 @@
 //! Signal-flow and current-flow ordering (EXT-28): device steps a placer lines
 //! up, inputs to outputs (horizontal) and ground to supply (vertical).
+//!
+//! Contents:
+//! - `pub fn stage_order(hg: &BipartiteHypergraph, classes: &[NetClassification], ports: &[NetId], canon: &[u64]) -> Vec<Vec<DeviceId>>`
+//! - `pub fn current_paths(hg: &BipartiteHypergraph, op: Option<&OpFacts>, classes: &[NetClassification], canon: &[u64]) -> Vec<(Vec<Vec<DeviceId>>, f64)>`
 
 use std::collections::VecDeque;
 
@@ -10,14 +14,6 @@ use analog::metadata::{NetClass, NetClassification};
 
 use crate::evidence::OpFacts;
 use crate::pattern::pin_net;
-
-fn rail(c: NetClass) -> bool {
-    matches!(c, NetClass::Supply | NetClass::Ground | NetClass::Substrate)
-}
-
-fn sort_steps(steps: &mut [Vec<DeviceId>], canon: &[u64]) {
-    steps.iter_mut().for_each(|s| s.sort_by_key(|d| (canon[d.0 as usize], d.0)));
-}
 
 /// Signal stages: BFS from input nets over net edges control→drain (FET G→D, BJT B→C) and
 /// source→drain (S→D, E→C), rails never traversed. Inputs: nets touched only by G/B terminals,
@@ -171,6 +167,16 @@ pub fn current_paths(hg: &BipartiteHypergraph, op: Option<&OpFacts>, classes: &[
     out
 }
 
+// ---- private ----
+
+fn rail(c: NetClass) -> bool {
+    matches!(c, NetClass::Supply | NetClass::Ground | NetClass::Substrate)
+}
+
+fn sort_steps(steps: &mut [Vec<DeviceId>], canon: &[u64]) {
+    steps.iter_mut().for_each(|s| s.sort_by_key(|d| (canon[d.0 as usize], d.0)));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,6 +205,7 @@ mod tests {
             .collect()
     }
 
+    /// Oracle: the textbook three-stage op amp's stages, by name; ports seed level 0.
     #[test]
     fn three_stage_stage_order() {
         let nl = crate::tests::three_stage();
@@ -210,6 +217,7 @@ mod tests {
         assert_eq!(st, [vec!["M1", "M4"], vec!["M2", "M5"], vec!["M6", "M7"], vec!["M8", "M9"]]);
     }
 
+    /// Oracle: the input op point: a zero-current branch is no current path.
     #[test]
     fn op_drops_idle_branch() {
         let nl = crate::tests::three_stage();

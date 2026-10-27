@@ -1,6 +1,16 @@
 //! Per-net class + budgets. Name gives rails/clocks ([`crate::netrole`]);
 //! structure gives the two classes a name can't: **Sensitive** (feeds a matched
 //! device's gate, or gates-only = a bias rail) and **Substrate** (bulk-only).
+//!
+//! Contents:
+//! - `pub struct RefineCtx<'a>`
+//! - `pub(crate) fn budgets(class: NetClass, c_load_af: f32) -> (Option<i64>, Option<i64>)`
+//! - `pub fn classify(hg: &BipartiteHypergraph, roles: &[NetRole], sensitive_devices: &[bool], gate_um2: &[f32], gate_af_per_um2: Option<f32>, loads: &[(NetId, f32)]) -> Vec<NetClassification>`
+//! - `pub(crate) fn net_load_af(hg: &BipartiteHypergraph, gate_um2: &[f32], gate_af_per_um2: Option<f32>, loads: &[(NetId, f32)]) -> Vec<Option<f32>>`
+//! - `pub fn bias_lines(hg: &BipartiteHypergraph) -> Vec<bool>`
+//! - `pub fn refine(classes: &mut [NetClassification], cx: &RefineCtx) -> Vec<NetFacts>`
+//! - `pub(crate) fn set_class(c: &mut NetClassification, class: NetClass, load_af: Option<f32>)`
+//! - `pub fn census(classes: &[NetClassification]) -> Vec<(NetClass, usize)>`
 
 use analog::base::ids::NetId;
 use analog::base::BipartiteHypergraph;
@@ -10,6 +20,36 @@ use analog::metadata::{NetClass, NetClassification};
 use crate::class::SetRole;
 use crate::evidence::Evidence;
 use crate::netrole::NetRole;
+
+/// What [`refine`] reads: everything that exists only once sets are built.
+pub struct RefineCtx<'a> {
+    /// The netlist's device–net incidence.
+    pub hg: &'a BipartiteHypergraph,
+    /// Every pattern match, overlapping (`recognize_all`).
+    pub matches: &'a [crate::pattern::PatternMatch],
+    /// The final matched sets.
+    pub sets: &'a [MatchSpec],
+    /// Role per `sets` entry (`MatchSpec` does not carry it).
+    pub set_roles: &'a [SetRole],
+    /// The procedural passive sets.
+    pub passive: &'a [crate::passive::PassiveSet],
+    /// Net named in the caller's config (testbench-derived names excluded).
+    pub user: &'a [bool],
+    /// Simulation evidence; empty means structure alone decides.
+    pub ev: &'a Evidence,
+    /// Sidecar `NetClass` overrides (EXT-26): first, over every rule, `User` evidence.
+    pub user_classes: &'a [(NetId, NetClass)],
+    /// The netlist's ports: a port is driven from outside.
+    pub ports: &'a [NetId],
+    /// [`net_load_af`].
+    pub load_af: &'a [Option<f32>],
+}
+
+/// Gate-level logic templates: their nets are digital (EXT-18).
+const LOGIC: [&str; 3] = ["cmos_inverter", "nand_gate", "nor_gate"];
+
+/// A Signal net at or above this impedance is Sensitive (EXT-18; Philis policy).
+const HIGH_Z_OHM: f32 = 100_000.0;
 
 /// Budgets as multiples of the capacitive load `c_load_af` the net drives:
 /// `(wire C, total coupling)`, aF. A sensitive net (matched gate, bias rail)
@@ -119,31 +159,6 @@ pub(crate) fn net_load_af(hg: &BipartiteHypergraph, gate_um2: &[f32], gate_af_pe
         })
         .collect()
 }
-
-/// What [`refine`] reads: everything that exists only once sets are built.
-pub struct RefineCtx<'a> {
-    pub hg: &'a BipartiteHypergraph,
-    /// Every pattern match, overlapping (`recognize_all`).
-    pub matches: &'a [crate::pattern::PatternMatch],
-    pub sets: &'a [MatchSpec],
-    /// Role per `sets` entry (`MatchSpec` does not carry it).
-    pub set_roles: &'a [SetRole],
-    pub passive: &'a [crate::passive::PassiveSet],
-    /// Net named in the caller's config (testbench-derived names excluded).
-    pub user: &'a [bool],
-    pub ev: &'a Evidence,
-    /// Sidecar `NetClass` overrides (EXT-26): first, over every rule, `User` evidence.
-    pub user_classes: &'a [(NetId, NetClass)],
-    pub ports: &'a [NetId],
-    /// [`net_load_af`].
-    pub load_af: &'a [Option<f32>],
-}
-
-/// Gate-level logic templates: their nets are digital (EXT-18).
-const LOGIC: [&str; 3] = ["cmos_inverter", "nand_gate", "nor_gate"];
-
-/// A Signal net at or above this impedance is Sensitive (EXT-18; Philis policy).
-const HIGH_Z_OHM: f32 = 100_000.0;
 
 /// Nets touched only by FET gates and diode-connected drains: the structural Bias rule of
 /// [`refine`] step 7 (rails not excluded), readable before `refine` runs (EXT-27 arrays).
@@ -312,6 +327,21 @@ pub(crate) fn set_class(c: &mut NetClassification, class: NetClass, load_af: Opt
     (c.c_budget_af, c.max_coupling_af) = load_af.map_or((None, None), |l| budgets(class, l));
 }
 
+/// Count of each class, for reporting.
+#[must_use]
+pub fn census(classes: &[NetClassification]) -> Vec<(NetClass, usize)> {
+    let mut out: Vec<(NetClass, usize)> = Vec::new();
+    for c in classes {
+        match out.iter_mut().find(|(k, _)| *k == c.class) {
+            Some((_, n)) => *n += 1,
+            None => out.push((c.class, 1)),
+        }
+    }
+    out
+}
+
+// ---- private ----
+
 /// Small-signal impedance to AC ground per net, Ω: `1/(Σ gds of FETs with D on
 /// the net + Σ gm of diode FETs on it)`, known only when every such gds is.
 fn impedance(hg: &BipartiteHypergraph, op: Option<&crate::evidence::OpFacts>) -> Vec<Option<f32>> {
@@ -356,23 +386,11 @@ fn classify_one(role: NetRole, gate_of_sensitive: bool, touches_gate: bool, touc
     }
 }
 
-/// Count of each class, for reporting.
-#[must_use]
-pub fn census(classes: &[NetClassification]) -> Vec<(NetClass, usize)> {
-    let mut out: Vec<(NetClass, usize)> = Vec::new();
-    for c in classes {
-        match out.iter_mut().find(|(k, _)| *k == c.class) {
-            Some((_, n)) => *n += 1,
-            None => out.push((c.class, 1)),
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Oracle: the input roles: a named rail or clock keeps its class.
     #[test]
     fn rails_keep_their_named_role() {
         assert_eq!(classify_one(NetRole::Supply, false, false, true, false), NetClass::Supply);
@@ -380,12 +398,14 @@ mod tests {
         assert_eq!(classify_one(NetRole::Clock, false, true, false, false), NetClass::Clock);
     }
 
+    /// Oracle: the class rule: a gate-only net has no DC path, so Sensitive.
     #[test]
     fn a_gate_only_net_is_a_sensitive_reference() {
         // No DC path — gates only. This is a bias rail, the classic victim.
         assert_eq!(classify_one(NetRole::Signal, false, true, false, false), NetClass::Sensitive);
     }
 
+    /// Oracle: the class rule, both arms: with and without the matched gate.
     #[test]
     fn driving_a_matched_gate_makes_a_net_sensitive_even_with_a_dc_path() {
         // A differential input is driven *and* feeds a matched gate: still the
@@ -395,11 +415,13 @@ mod tests {
         assert_eq!(classify_one(NetRole::Signal, false, true, true, false), NetClass::Signal);
     }
 
+    /// Oracle: the class rule: a bulk-only net is Substrate.
     #[test]
     fn bulk_only_nets_are_substrate() {
         assert_eq!(classify_one(NetRole::Signal, false, false, false, true), NetClass::Substrate);
     }
 
+    /// Oracle: hand arithmetic: 100 fF of gate gives 100 fF of wire and coupling on a Sensitive net.
     #[test]
     fn budgets_scale_with_the_load_and_tighten_on_sensitive_nets() {
         let (c_s, k_s) = budgets(NetClass::Sensitive, 100_000.0);
@@ -424,6 +446,7 @@ mod tests {
         classes[i].class
     }
 
+    /// Oracle: the device kind: a BJT base is not a gate, by construction.
     #[test]
     fn bjt_terminals_are_not_gates() {
         use analog::base::ids::NetId;
@@ -455,6 +478,7 @@ mod tests {
         assert_eq!(class_of(&nl, &classes, "in"), NetClass::Signal);
     }
 
+    /// Oracle: the device kind: resistor ends conduct, so its nets have a DC path.
     #[test]
     fn resistor_ends_are_channels() {
         use analog::base::ids::NetId;
@@ -483,6 +507,7 @@ mod tests {
         (p.net_classes[i].class, p.intent.nets[i].evidence)
     }
 
+    /// Oracle: the class rule: an aggressor has no coupling budget; Bias equals Sensitive.
     #[test]
     fn aggressors_get_no_coupling_budget() {
         let c = 50_000.0;
@@ -492,6 +517,7 @@ mod tests {
 
     /// EXT-18: configured clocks keep their class with `User` evidence, and
     /// gate the triode switches.
+    /// Oracle: EXT-18: configured clocks are User evidence and gate the triode switches.
     #[test]
     fn sc_switches_clocks_are_user_evidence() {
         use crate::evidence::DeviceOp;
@@ -524,6 +550,7 @@ mod tests {
         assert!(p.intent.devices.iter().all(|f| f.role == analog::intent::DeviceRole::Switch));
     }
 
+    /// Oracle: the naming rule: a `_n` suffix alone, with no `_p` twin, is not a differential half.
     #[test]
     fn noisy_suffix_needs_no_p_twin() {
         use analog::base::netlist::{DeviceKind, Netlist};
@@ -548,6 +575,7 @@ mod tests {
 
     /// EXT-18 `z_ohm`: inert in the flow (PERF-09 has no gds), so tested on
     /// synthetic evidence. 5 µS is 200 kΩ (Sensitive); 20 µS is 50 kΩ (Signal).
+    /// Oracle: hand arithmetic: 5 µS is 200 kΩ (Sensitive), 20 µS is 50 kΩ (Signal).
     #[test]
     fn z_ohm_marks_high_impedance_sensitive() {
         use crate::evidence::DeviceOp;

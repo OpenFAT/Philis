@@ -1,3 +1,9 @@
+//! Floorplan recipe tests: tiles and a `Stack` → `row_stack`, `glue` and
+//! `targets` output, checked against mirror geometry, the input's own shape,
+//! and GPurify DRC on the sky130 and asap7 decks (docs/TESTING.md, geometry rows).
+//!
+//! Contents: none public.
+
 use analog::base::{place_macros, DeviceGroup, DeviceId, DeviceKind, LayerId, Macro, Orient, Process, Rect, Shape};
 use analog::cell::{SeriesParallel, Unitization};
 use substrate3::cells::finfet::FinFet;
@@ -5,6 +11,14 @@ use substrate3::cells::mosfet::Mosfet;
 use substrate3::cells::{Cell, Pattern};
 
 use super::{glue, row_stack, targets, Refusal, Side, Spacing, Stack};
+
+/// The roles a FinFet tile draws.
+const ASAP7_ROLES: [&str; 13] = ["fin", "poly", "diff", "sdt", "lisd", "lig", "licon", "li", "mcon", "met1", "nsdm", "psdm", "nwell"];
+
+/// sky130's drawn front-end and first-metal layers.
+const SKY130_ROLES: [&str; 11] = ["nwell", "diff", "tap", "poly", "licon", "li", "mcon", "met1", "nsdm", "psdm", "npc"];
+
+// ---- private ----
 
 /// Solid tiles of `size` on one layer that keeps 10 nm from itself: every
 /// facing gap is 10.
@@ -46,6 +60,7 @@ fn pairs_mirror_about_the_axis() {
 }
 
 /// Negative control: a pair whose halves differ refuses.
+/// Oracle: the input: halves 60 and 62 wide, or two `Left` halves, are a mismatch by construction.
 #[test]
 fn unequal_halves_refuse() {
     let stack = Stack { row: vec![3, 3], side: vec![Side::Left, Side::Right] };
@@ -110,9 +125,6 @@ fn unit(kind: DeviceKind, nf: u16, w: i32, l: i32) -> Unitization {
     }
 }
 
-/// The roles a FinFet tile draws.
-const ASAP7_ROLES: [&str; 13] = ["fin", "poly", "diff", "sdt", "lisd", "lig", "licon", "li", "mcon", "met1", "nsdm", "psdm", "nwell"];
-
 /// The glued row's DRC rule ids, density rules aside, with or without fill.
 fn glued_findings(tiles: &[Macro], with_fill: bool, pdk: &verify::Pdk) -> Vec<String> {
     let (f, fill) = glue(tiles, pdk, &Spacing::of(pdk, &ASAP7_ROLES), 2).expect("the gates share a band");
@@ -144,6 +156,8 @@ fn glued_finfets_keep_the_pitches_on_asap7() {
 
 /// Glued actives sit exactly ACTIVE.S.2A apart, the fill 9 nm clear of
 /// each (GATE.ACTIVE.S.4), every gate on the 54 nm lattice.
+/// Oracle: the asap7 DRM numbers (ACTIVE.S.2A 92 nm, GATE.ACTIVE.S.4 9 nm, GATE.S.1 54 nm pitch), measured
+/// on the placed shapes.
 #[test]
 fn glue_spacing_is_the_decks() {
     let pdk = asap7();
@@ -185,6 +199,7 @@ fn different_fin_counts_glue_on_asap7() {
 }
 
 /// Negative control: gates that share no height refuse.
+/// Oracle: the input: gates moved 10 µm up share no height with the left tile's by construction.
 #[test]
 fn disjoint_gate_spans_refuse() {
     let pdk = asap7();
@@ -194,9 +209,6 @@ fn disjoint_gate_spans_refuse() {
     far.shapes.iter_mut().filter(|s| s.layer == poly).for_each(|s| s.rect.y += 10_000);
     assert_eq!(glue(&[short, far], &pdk, &Spacing::of(&pdk, &ASAP7_ROLES), 2).map(|_| ()), Err(Refusal::GateSpan { tile: 1 }));
 }
-
-/// sky130's drawn front-end and first-metal layers.
-const SKY130_ROLES: [&str; 11] = ["nwell", "diff", "tap", "poly", "licon", "li", "mcon", "met1", "nsdm", "psdm", "npc"];
 
 /// One planar single-row tile of `kind`, 2 fingers of 1 µm by 150 nm.
 fn mosfet(kind: DeviceKind, pdk: &verify::Pdk) -> Macro {

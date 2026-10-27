@@ -1,5 +1,12 @@
 //! Matched cells move as one (PLC-03): a set rotates together and, when the
 //! members' variant spaces agree index by index, reshapes together.
+//!
+//! Contents:
+//! - `pub struct Locks`
+//! - `pub fn locks(reqs: &Requirements<Layout>, n: usize, variants: &[crate::gp::VariantSpace]) -> Locks`
+//! - `Locks::members(&self, c: usize, shape: bool) -> Vec<usize>`
+//! - `Locks::align(&self, orient: &mut [Orient])`
+//! - `Locks::unify(&self, assignment: &mut [u16])`
 
 use analog::base::{Layout, Orient, UnionFind};
 use analog::Requirements;
@@ -58,6 +65,45 @@ pub fn locks(reqs: &Requirements<Layout>, n: usize, variants: &[crate::gp::Varia
     Locks { orient, shape, orient_of, shape_of, incompatible, rel }
 }
 
+impl Locks {
+    /// Cells sharing `c`'s orient (`shape = false`) or shape set; `[c]` when unlocked.
+    #[must_use]
+    pub fn members(&self, c: usize, shape: bool) -> Vec<usize> {
+        let (sets, of) = if shape { (&self.shape, &self.shape_of) } else { (&self.orient, &self.orient_of) };
+        match of.get(c).copied().flatten() {
+            Some(s) => sets[usize::from(s)].iter().map(|&m| usize::from(m)).collect(),
+            None => vec![c],
+        }
+    }
+
+    /// Re-derive every orient set's members from its first member:
+    /// `orient[m] = orient[set[0]].then(rel[m])`.
+    pub fn align(&self, orient: &mut [Orient]) {
+        for set in &self.orient {
+            let Some(&o0) = orient.get(usize::from(set[0])) else { continue };
+            for &m in &set[1..] {
+                if let (Some(o), Some(&r)) = (orient.get_mut(usize::from(m)), self.rel.get(usize::from(m))) {
+                    *o = o0.then(r);
+                }
+            }
+        }
+    }
+
+    /// Set every shape set's members to its first member's variant.
+    pub fn unify(&self, assignment: &mut [u16]) {
+        for set in &self.shape {
+            let Some(&v) = assignment.get(usize::from(set[0])) else { continue };
+            for &m in &set[1..] {
+                if let Some(a) = assignment.get_mut(usize::from(m)) {
+                    *a = v;
+                }
+            }
+        }
+    }
+}
+
+// ---- private ----
+
 /// BFS from each set's first member over the pair edges: a Mirror edge
 /// composes `Mx180`, any other keeps the orient. First assignment wins.
 // ponytail: an inconsistent cycle (odd Mirror loop) is left to `Symmetry::satisfied` to report.
@@ -107,43 +153,6 @@ fn sets(uf: &mut UnionFind, n: usize) -> (Vec<Vec<u16>>, Vec<Option<u16>>) {
     (out, of)
 }
 
-impl Locks {
-    /// Cells sharing `c`'s orient (`shape = false`) or shape set; `[c]` when unlocked.
-    #[must_use]
-    pub fn members(&self, c: usize, shape: bool) -> Vec<usize> {
-        let (sets, of) = if shape { (&self.shape, &self.shape_of) } else { (&self.orient, &self.orient_of) };
-        match of.get(c).copied().flatten() {
-            Some(s) => sets[usize::from(s)].iter().map(|&m| usize::from(m)).collect(),
-            None => vec![c],
-        }
-    }
-
-    /// Re-derive every orient set's members from its first member:
-    /// `orient[m] = orient[set[0]].then(rel[m])`.
-    pub fn align(&self, orient: &mut [Orient]) {
-        for set in &self.orient {
-            let Some(&o0) = orient.get(usize::from(set[0])) else { continue };
-            for &m in &set[1..] {
-                if let (Some(o), Some(&r)) = (orient.get_mut(usize::from(m)), self.rel.get(usize::from(m))) {
-                    *o = o0.then(r);
-                }
-            }
-        }
-    }
-
-    /// Set every shape set's members to its first member's variant.
-    pub fn unify(&self, assignment: &mut [u16]) {
-        for set in &self.shape {
-            let Some(&v) = assignment.get(usize::from(set[0])) else { continue };
-            for &m in &set[1..] {
-                if let Some(a) = assignment.get_mut(usize::from(m)) {
-                    *a = v;
-                }
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,6 +170,7 @@ mod tests {
         VariantSpace { alternatives: vec![Macro { bbox: Rect { x: 0, y: 0, w, h }, ..Default::default() }] }
     }
 
+    /// Oracle: hand-worked lock sets from the three variant spaces (two equal, one not).
     #[test]
     fn locks_join_only_compatible_shapes() {
         let reqs = Requirements::<Layout> { cost: vec![Box::new(vec![sym(0, 1), sym(0, 2)])], ..Default::default() };
@@ -175,6 +185,7 @@ mod tests {
         assert_eq!(a, [2, 2, 1]);
     }
 
+    /// Oracle: the orientation group: a mirror partner is `orient.then(Mx180)`.
     #[test]
     fn mirror_partner_is_related_by_mx180() {
         let reqs = Requirements::<Layout> {
