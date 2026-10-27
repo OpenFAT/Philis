@@ -20,6 +20,22 @@ pub enum Fill {
     Balanced,
 }
 
+/// A row-major unit grid under construction. Point reflection through the
+/// centre is index reversal: `(R-1-r)·C + (C-1-c) = RC-1-i`.
+pub struct Grid {
+    pub cols: usize,
+    pub slot: Vec<Option<u8>>,
+}
+
+/// Which region the row's two ends are: `Drain` = multi-device rows (region
+/// `i` is S iff `i` is odd), `Source` = mirror-pins rows (region 0 = S); in
+/// both, every boundary between two devices is a shared source.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Outer {
+    Drain,
+    Source,
+}
+
 /// Grids `(rows, cols)` that can hold `counts` point-symmetrically, nearest
 /// square first (aspect compared exactly), then fewest empty cells, then
 /// fewest rows; the `1 × T` row always last. With exactly one odd member both
@@ -177,13 +193,6 @@ pub fn scale2(counts: &[u16]) -> Vec<u16> {
     counts.iter().map(|&c| c * k).collect()
 }
 
-/// A row-major unit grid under construction. Point reflection through the
-/// centre is index reversal: `(R-1-r)·C + (C-1-c) = RC-1-i`.
-pub struct Grid {
-    pub cols: usize,
-    pub slot: Vec<Option<u8>>,
-}
-
 impl Grid {
     pub fn refl(&self, i: usize) -> usize {
         self.slot.len() - 1 - i
@@ -286,15 +295,6 @@ impl Grid {
     }
 }
 
-/// Which region the row's two ends are: `Drain` = multi-device rows (region
-/// `i` is S iff `i` is odd), `Source` = mirror-pins rows (region 0 = S); in
-/// both, every boundary between two devices is a shared source.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Outer {
-    Drain,
-    Source,
-}
-
 /// Whether `s` never joins two different devices across the wrong region:
 /// the boundary between fingers `i, i+1` is region `i+1`, legal only on a
 /// source: even (`S`) when `outer` is `Source`, odd (`S`) when `outer` is
@@ -351,63 +351,6 @@ pub fn partial_segments(r_n_ohm: f64, r_m_ohm: f64, r0_ohm: f64) -> (u16, u16, f
     let (m, n) = (qm.floor(), qn.floor());
     let (j, k) = (qm - m, qn - n);
     (m as u16, n as u16, j, k, ((n + 1.0) / (n + k) - (m + 1.0) / (m + j)).abs())
-}
-
-/// Deals `p` reflected pairs of fingers at `seq[off..off + 2p]` in quads
-/// (token `t` with its mirror `p − 1 − t`), each quad to the member whose
-/// share of the centred weight `Σ(2i − n + 1)²` is furthest ahead of what it
-/// already holds in `seq`. `h[d]` is device `d`'s remaining quad count.
-fn deal(counts: &[u16], n: usize, seq: &mut [Option<usize>], p: usize, h: &mut [usize], off: usize) {
-    let k = |i: usize| -> i64 {
-        let v = 2 * i as i64 - n as i64 + 1;
-        v * v
-    };
-    // Q is the weight not yet committed to any device: it starts at the
-    // row's total and shrinks by every quad dealt (and by what the caller
-    // pre-placed), so each pick compares against what is still in play.
-    let mut q: i64 = (0..n).map(k).sum();
-    let mut s = vec![0i64; counts.len()];
-    for (i, slot) in seq.iter().enumerate() {
-        if let Some(d) = *slot {
-            let ki = k(i);
-            s[d] += ki;
-            q -= ki;
-        }
-    }
-    for t in 0..p / 2 {
-        let mut best_d = None;
-        let mut best_val = i64::MIN;
-        for (d, &hd) in h.iter().enumerate() {
-            if hd == 0 {
-                continue;
-            }
-            let val = i64::from(counts[d]) * q - n as i64 * s[d];
-            if val > best_val {
-                best_val = val;
-                best_d = Some(d);
-            }
-        }
-        let d = best_d.expect("a device with quads left");
-        let fingers = [off + 2 * t, off + 2 * t + 1, off + 2 * (p - 1 - t), off + 2 * (p - 1 - t) + 1];
-        let sum_k: i64 = fingers.iter().map(|&f| k(f)).sum();
-        for &f in &fingers {
-            seq[f] = Some(d);
-        }
-        s[d] += sum_k;
-        q -= sum_k;
-        h[d] -= 1;
-    }
-}
-
-/// The second-moment residual (Hastings §13.3) of `seq`'s per-member finger
-/// indices, treated as unit weights on a line: lower is a tighter centroid.
-fn row_r2(seq: &[usize], ndev: usize) -> f64 {
-    let mut by_member: Vec<Vec<moments::Pt>> = vec![Vec::new(); ndev];
-    for (i, &d) in seq.iter().enumerate() {
-        by_member[d].push(moments::Pt { x: i as f64, y: 0.0, w: 1.0, phi: (0, 0) });
-    }
-    let refs: Vec<&[moments::Pt]> = by_member.iter().map(Vec::as_slice).collect();
-    moments::cancelled_order(&refs, 2, 0.0).1[2]
 }
 
 /// A diffusion-legal common-centroid finger row for a ratioed MOS mirror
@@ -506,6 +449,65 @@ pub fn diffusion_interdig_row(counts: &[u16]) -> Option<(Vec<usize>, Outer)> {
     seq.extend(pairs.iter().flat_map(|&(_, d)| [d, d]));
     seq.extend(odd.get(1).copied());
     Some((seq, if odd.is_empty() { Outer::Source } else { Outer::Drain }))
+}
+
+// ---- private ----
+
+/// Deals `p` reflected pairs of fingers at `seq[off..off + 2p]` in quads
+/// (token `t` with its mirror `p − 1 − t`), each quad to the member whose
+/// share of the centred weight `Σ(2i − n + 1)²` is furthest ahead of what it
+/// already holds in `seq`. `h[d]` is device `d`'s remaining quad count.
+fn deal(counts: &[u16], n: usize, seq: &mut [Option<usize>], p: usize, h: &mut [usize], off: usize) {
+    let k = |i: usize| -> i64 {
+        let v = 2 * i as i64 - n as i64 + 1;
+        v * v
+    };
+    // Q is the weight not yet committed to any device: it starts at the
+    // row's total and shrinks by every quad dealt (and by what the caller
+    // pre-placed), so each pick compares against what is still in play.
+    let mut q: i64 = (0..n).map(k).sum();
+    let mut s = vec![0i64; counts.len()];
+    for (i, slot) in seq.iter().enumerate() {
+        if let Some(d) = *slot {
+            let ki = k(i);
+            s[d] += ki;
+            q -= ki;
+        }
+    }
+    for t in 0..p / 2 {
+        let mut best_d = None;
+        let mut best_val = i64::MIN;
+        for (d, &hd) in h.iter().enumerate() {
+            if hd == 0 {
+                continue;
+            }
+            let val = i64::from(counts[d]) * q - n as i64 * s[d];
+            if val > best_val {
+                best_val = val;
+                best_d = Some(d);
+            }
+        }
+        let d = best_d.expect("a device with quads left");
+        let fingers = [off + 2 * t, off + 2 * t + 1, off + 2 * (p - 1 - t), off + 2 * (p - 1 - t) + 1];
+        let sum_k: i64 = fingers.iter().map(|&f| k(f)).sum();
+        for &f in &fingers {
+            seq[f] = Some(d);
+        }
+        s[d] += sum_k;
+        q -= sum_k;
+        h[d] -= 1;
+    }
+}
+
+/// The second-moment residual (Hastings §13.3) of `seq`'s per-member finger
+/// indices, treated as unit weights on a line: lower is a tighter centroid.
+fn row_r2(seq: &[usize], ndev: usize) -> f64 {
+    let mut by_member: Vec<Vec<moments::Pt>> = vec![Vec::new(); ndev];
+    for (i, &d) in seq.iter().enumerate() {
+        by_member[d].push(moments::Pt { x: i as f64, y: 0.0, w: 1.0, phi: (0, 0) });
+    }
+    let refs: Vec<&[moments::Pt]> = by_member.iter().map(Vec::as_slice).collect();
+    moments::cancelled_order(&refs, 2, 0.0).1[2]
 }
 
 #[cfg(test)]

@@ -13,18 +13,6 @@ pub struct Pt {
     pub phi: (i8, i8),
 }
 
-impl From<crate::base::PlacedUnit> for Pt {
-    fn from(u: crate::base::PlacedUnit) -> Self {
-        Pt { x: f64::from(u.x), y: f64::from(u.y), w: u.weight as f64, phi: u.phi }
-    }
-}
-
-impl From<crate::base::Unit> for Pt {
-    fn from(u: crate::base::Unit) -> Self {
-        Pt { x: f64::from(u.x), y: f64::from(u.y), w: u.weight as f64, phi: u.phi }
-    }
-}
-
 /// Which axes a unit set's current runs on, ignoring zero-φ units (a
 /// capacitor or an axis that carries no current says nothing about layout
 /// symmetry there).
@@ -51,6 +39,18 @@ pub struct Sums {
     pub phi_y: i32,
     pub n: u32,
     pub axis: Axis,
+}
+
+impl From<crate::base::PlacedUnit> for Pt {
+    fn from(u: crate::base::PlacedUnit) -> Self {
+        Pt { x: f64::from(u.x), y: f64::from(u.y), w: u.weight as f64, phi: u.phi }
+    }
+}
+
+impl From<crate::base::Unit> for Pt {
+    fn from(u: crate::base::Unit) -> Self {
+        Pt { x: f64::from(u.x), y: f64::from(u.y), w: u.weight as f64, phi: u.phi }
+    }
 }
 
 /// One pass over a unit set's points: weighted sums plus the current axes.
@@ -149,14 +149,6 @@ pub fn mirror_allowed_units(units: &[crate::base::Unit]) -> bool {
     mirror_allowed(&per)
 }
 
-fn moment(pts: &[Pt], c: (f64, f64), l: f64, p: i32, q: i32) -> f64 {
-    let w: f64 = pts.iter().map(|pt| pt.w).sum();
-    if w <= 0.0 {
-        return 0.0;
-    }
-    pts.iter().map(|pt| pt.w * ((pt.x - c.0) / l).powi(p) * ((pt.y - c.1) / l).powi(q)).sum::<f64>() / w
-}
-
 /// How many leading moment orders (1, 2, …) cancel between every pair of
 /// devices in a figure, Hastings §13.3: order 1 is a common centroid, order 2
 /// also equalises second moments (ABBA/BAAB), and so on up to `nmax` (<= 4).
@@ -199,6 +191,16 @@ pub fn cancelled_order(devs: &[&[Pt]], nmax: u8, tol: f64) -> (u8, [f64; 5]) {
         }
     }
     (order, r)
+}
+
+// ---- private ----
+
+fn moment(pts: &[Pt], c: (f64, f64), l: f64, p: i32, q: i32) -> f64 {
+    let w: f64 = pts.iter().map(|pt| pt.w).sum();
+    if w <= 0.0 {
+        return 0.0;
+    }
+    pts.iter().map(|pt| pt.w * ((pt.x - c.0) / l).powi(p) * ((pt.y - c.1) / l).powi(q)).sum::<f64>() / w
 }
 
 #[cfg(test)]

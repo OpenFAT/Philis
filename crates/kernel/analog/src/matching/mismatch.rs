@@ -3,16 +3,7 @@
 //! allowance they share (plan-02 MAT-04). Pure math, mV (or % of a
 //! mirror current, MAT-09).
 
-/// Pelgrom pair σ of two devices of unequal gate area, mV:
-/// `A·√((1/a1 + 1/a2)/2)`, `A` = pair constant mV·µm, `a` µm² (LDM eq. 4,
-/// PDF p.3; Hastings eq. 13.49, PDF p.688). `0` when an area is not positive.
-#[must_use]
-pub fn sigma_pair(a_pair: f32, a1_um2: f32, a2_um2: f32) -> f32 {
-    if a1_um2 <= 0.0 || a2_um2 <= 0.0 {
-        return 0.0;
-    }
-    a_pair * ((1.0 / a1_um2 + 1.0 / a2_um2) / 2.0).sqrt()
-}
+use crate::matching::class::ClassLimit;
 
 /// Voltage matching (a diff pair: V_GS at equal I) or current matching (a
 /// mirror/load: I at equal V_GS), Hastings §13.2 eqs 13.40–13.41; `Ratio` for
@@ -24,8 +15,6 @@ pub enum MatchKind {
     Ratio,
 }
 
-use crate::matching::class::ClassLimit;
-
 /// What a ledger's σ and allowance are in: input-referred mV, or a current
 /// ratio in % (a mirror whose G = g_m/I is known, MAT-09).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -33,29 +22,6 @@ pub enum LedgerUnit {
     #[default]
     Mv,
     Pct,
-}
-
-impl LedgerUnit {
-    /// `"mV"` | `"%"`.
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            LedgerUnit::Mv => "mV",
-            LedgerUnit::Pct => "%",
-        }
-    }
-}
-
-/// Current-domain random σ, %: √((0.1·G·σ_VT)² + σ_β²) (Hastings eq. 13.43; 1/V·mV ×100 = 0.1).
-#[must_use]
-pub fn sigma_current_pct(sigma_vt_mv: f32, g_per_v: f32, sigma_beta_pct: f32) -> f32 {
-    (0.1 * g_per_v * sigma_vt_mv).hypot(sigma_beta_pct)
-}
-
-/// Voltage-domain random σ, mV: √(σ_VT² + (10·σ_β/G)²) (eq. 13.42).
-#[must_use]
-pub fn sigma_voltage_mv(sigma_vt_mv: f32, g_per_v: f32, sigma_beta_pct: f32) -> f32 {
-    sigma_vt_mv.hypot(10.0 * sigma_beta_pct / g_per_v)
 }
 
 /// Placement's share η of a matched pair's mismatch when no offset budget is
@@ -78,60 +44,6 @@ pub enum Budget {
     /// Total 1σ budget `b`, % of a current ratio: [`Budget::to_pct`] of a
     /// `Sigma1Mv` on a % ledger.
     Sigma1Pct(f32),
-}
-
-impl Budget {
-    /// A class limit as a budget: a voltage limit in mV is 6σ (Hastings
-    /// §13.3, hastings.txt L42333–42350), so the 1σ total is a sixth of it.
-    /// A % limit (mirror, R/C ratio) is 6σ too: `Sigma1Pct(v/6)`, which only a
-    /// % ledger spends (an mV ledger reads it as `Eta(GRADIENT_SHARE)`,
-    /// `MatchedSet::budget_in`). An mV limit on a non-voltage pair:
-    /// `Eta(GRADIENT_SHARE)`.
-    #[must_use]
-    pub fn from_class(limit: ClassLimit, kind: MatchKind) -> Budget {
-        match (limit, kind) {
-            (ClassLimit::Mv(v), MatchKind::Voltage) => Budget::Sigma1Mv(v / 6.0),
-            (ClassLimit::Pct(v), _) => Budget::Sigma1Pct(v / 6.0),
-            _ => Budget::Eta(GRADIENT_SHARE),
-        }
-    }
-
-    /// The systematic allowance, mV, given the pair's random σ.
-    #[must_use]
-    pub fn allowance(self, sigma_rand: f32) -> f32 {
-        match self {
-            Budget::Eta(eta) => eta * sigma_rand,
-            Budget::Sigma1Mv(b) | Budget::Sigma1Pct(b) => (b * b - sigma_rand * sigma_rand).max(0.0).sqrt(),
-            Budget::Allowance(a) => a,
-        }
-    }
-
-    /// An mV budget on a % ledger of transconductance efficiency `g_per_v`
-    /// (1/V): ΔI/I = G·ΔV, ×0.1 for mV → %. `Eta` and `Sigma1Pct` unchanged.
-    #[must_use]
-    pub fn to_pct(self, g_per_v: f32) -> Budget {
-        match self {
-            Budget::Sigma1Mv(b) => Budget::Sigma1Pct(0.1 * g_per_v * b),
-            Budget::Allowance(a) => Budget::Allowance(0.1 * g_per_v * a),
-            other => other,
-        }
-    }
-}
-
-/// The pair budget, first source given wins: the circuit's 1σ offset
-/// (`Sigma1Mv`), an explicit allowance, the class limit, else
-/// `Eta(GRADIENT_SHARE)`. The caller passes `class_limit` only when the class
-/// came from the user or a spec: a role-default Moderate (3 mV → 0.5 mV 1σ)
-/// is under sky130's 2.124 mV σ_rand of a 20 µm² pair and would fail every
-/// Moderate pair.
-#[must_use]
-pub fn choose(offset_sigma_mv: Option<f32>, allowance: Option<f32>, class_limit: Option<ClassLimit>, kind: MatchKind) -> Budget {
-    match (offset_sigma_mv, allowance, class_limit) {
-        (Some(b), _, _) => Budget::Sigma1Mv(b),
-        (None, Some(a), _) => Budget::Allowance(a),
-        (None, None, Some(c)) => Budget::from_class(c, kind),
-        (None, None, None) => Budget::Eta(GRADIENT_SHARE),
-    }
 }
 
 /// Process numbers of one set (deck, per polarity); `None` = not given, that
@@ -163,44 +75,6 @@ pub struct Coeffs {
     pub mobility_exp: Option<f32>,
     /// Die temperature, K (`Config.op`); `None` skips the mobility term.
     pub die_temp_k: Option<f32>,
-}
-
-/// Distance coefficient at gate length `l_um`, µV/µm: `√(a + b/L²)` (S_D²
-/// grows with 1/L², Schaper & Linnenbank Fig. 8; MM-25).
-#[must_use]
-pub fn svt_of_l(a_uv2_per_um2: f32, b_uv2: f32, l_um: f32) -> f32 {
-    (a_uv2_per_um2 + b_uv2 / (l_um * l_um)).sqrt()
-}
-
-/// Gradient σ of a centroid offset `(dx, dy)` nm under `(S_x, S_y)` µV/µm, mV:
-/// `‖(S_x·dx, S_y·dy)‖·1e-6`.
-#[must_use]
-pub fn sigma_grad_mv(s_xy_uv_per_um: (f32, f32), dx_nm: f32, dy_nm: f32) -> f32 {
-    (s_xy_uv_per_um.0 * dx_nm).hypot(s_xy_uv_per_um.1 * dy_nm) * 1e-6
-}
-
-/// Current-factor change of a member `dt_k` warmer than its partner, %:
-/// `−100·exp·ΔT/T` for `k ∝ T^−exp` (Hastings §12.1.1, PDF p.578). Signed,
-/// ΔT of member a minus b.
-#[must_use]
-pub fn mobility_pct(exp: f32, dt_k: f32, t_abs_k: f32) -> f32 {
-    -100.0 * exp * dt_k / t_abs_k
-}
-
-/// ΔV_BE σ of a bipolar/diode pair from its ΔI_S/I_S σ, mV: `V_T·ln(1 + σ/100)`
-/// (Hastings eq. 10.9).
-///
-/// ponytail: V_T fixed at 25.7 mV (25 °C); REL-05 brings the junction temperature.
-#[must_use]
-pub fn bjt_sigma_vbe_mv(sigma_i_pct: f32) -> f32 {
-    25.7 * (sigma_i_pct / 100.0).ln_1p()
-}
-
-/// Ratio error of a passive pair whose members sit `dt_mk` apart, %:
-/// `TC·ΔT` (eq. 8.23; ppm/K · mK → ×1e-7).
-#[must_use]
-pub fn ratio_thermal_pct(tc_ppm_per_k: f32, dt_mk: f32) -> f32 {
-    tc_ppm_per_k * dt_mk * 1e-7
 }
 
 /// One pair's ledger, in `unit` (mV unless a mirror's G and `A_β` are known).
@@ -258,6 +132,132 @@ pub struct LedgerRow {
     pub known: bool,
     pub sigma_source: &'static str,
     pub sizing_limited: bool,
+}
+
+/// Pelgrom pair σ of two devices of unequal gate area, mV:
+/// `A·√((1/a1 + 1/a2)/2)`, `A` = pair constant mV·µm, `a` µm² (LDM eq. 4,
+/// PDF p.3; Hastings eq. 13.49, PDF p.688). `0` when an area is not positive.
+#[must_use]
+pub fn sigma_pair(a_pair: f32, a1_um2: f32, a2_um2: f32) -> f32 {
+    if a1_um2 <= 0.0 || a2_um2 <= 0.0 {
+        return 0.0;
+    }
+    a_pair * ((1.0 / a1_um2 + 1.0 / a2_um2) / 2.0).sqrt()
+}
+
+impl LedgerUnit {
+    /// `"mV"` | `"%"`.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LedgerUnit::Mv => "mV",
+            LedgerUnit::Pct => "%",
+        }
+    }
+}
+
+/// Current-domain random σ, %: √((0.1·G·σ_VT)² + σ_β²) (Hastings eq. 13.43; 1/V·mV ×100 = 0.1).
+#[must_use]
+pub fn sigma_current_pct(sigma_vt_mv: f32, g_per_v: f32, sigma_beta_pct: f32) -> f32 {
+    (0.1 * g_per_v * sigma_vt_mv).hypot(sigma_beta_pct)
+}
+
+/// Voltage-domain random σ, mV: √(σ_VT² + (10·σ_β/G)²) (eq. 13.42).
+#[must_use]
+pub fn sigma_voltage_mv(sigma_vt_mv: f32, g_per_v: f32, sigma_beta_pct: f32) -> f32 {
+    sigma_vt_mv.hypot(10.0 * sigma_beta_pct / g_per_v)
+}
+
+impl Budget {
+    /// A class limit as a budget: a voltage limit in mV is 6σ (Hastings
+    /// §13.3, hastings.txt L42333–42350), so the 1σ total is a sixth of it.
+    /// A % limit (mirror, R/C ratio) is 6σ too: `Sigma1Pct(v/6)`, which only a
+    /// % ledger spends (an mV ledger reads it as `Eta(GRADIENT_SHARE)`,
+    /// `MatchedSet::budget_in`). An mV limit on a non-voltage pair:
+    /// `Eta(GRADIENT_SHARE)`.
+    #[must_use]
+    pub fn from_class(limit: ClassLimit, kind: MatchKind) -> Budget {
+        match (limit, kind) {
+            (ClassLimit::Mv(v), MatchKind::Voltage) => Budget::Sigma1Mv(v / 6.0),
+            (ClassLimit::Pct(v), _) => Budget::Sigma1Pct(v / 6.0),
+            _ => Budget::Eta(GRADIENT_SHARE),
+        }
+    }
+
+    /// The systematic allowance, mV, given the pair's random σ.
+    #[must_use]
+    pub fn allowance(self, sigma_rand: f32) -> f32 {
+        match self {
+            Budget::Eta(eta) => eta * sigma_rand,
+            Budget::Sigma1Mv(b) | Budget::Sigma1Pct(b) => (b * b - sigma_rand * sigma_rand).max(0.0).sqrt(),
+            Budget::Allowance(a) => a,
+        }
+    }
+
+    /// An mV budget on a % ledger of transconductance efficiency `g_per_v`
+    /// (1/V): ΔI/I = G·ΔV, ×0.1 for mV → %. `Eta` and `Sigma1Pct` unchanged.
+    #[must_use]
+    pub fn to_pct(self, g_per_v: f32) -> Budget {
+        match self {
+            Budget::Sigma1Mv(b) => Budget::Sigma1Pct(0.1 * g_per_v * b),
+            Budget::Allowance(a) => Budget::Allowance(0.1 * g_per_v * a),
+            other => other,
+        }
+    }
+}
+
+/// The pair budget, first source given wins: the circuit's 1σ offset
+/// (`Sigma1Mv`), an explicit allowance, the class limit, else
+/// `Eta(GRADIENT_SHARE)`. The caller passes `class_limit` only when the class
+/// came from the user or a spec: a role-default Moderate (3 mV → 0.5 mV 1σ)
+/// is under sky130's 2.124 mV σ_rand of a 20 µm² pair and would fail every
+/// Moderate pair.
+#[must_use]
+pub fn choose(offset_sigma_mv: Option<f32>, allowance: Option<f32>, class_limit: Option<ClassLimit>, kind: MatchKind) -> Budget {
+    match (offset_sigma_mv, allowance, class_limit) {
+        (Some(b), _, _) => Budget::Sigma1Mv(b),
+        (None, Some(a), _) => Budget::Allowance(a),
+        (None, None, Some(c)) => Budget::from_class(c, kind),
+        (None, None, None) => Budget::Eta(GRADIENT_SHARE),
+    }
+}
+
+/// Distance coefficient at gate length `l_um`, µV/µm: `√(a + b/L²)` (S_D²
+/// grows with 1/L², Schaper & Linnenbank Fig. 8; MM-25).
+#[must_use]
+pub fn svt_of_l(a_uv2_per_um2: f32, b_uv2: f32, l_um: f32) -> f32 {
+    (a_uv2_per_um2 + b_uv2 / (l_um * l_um)).sqrt()
+}
+
+/// Gradient σ of a centroid offset `(dx, dy)` nm under `(S_x, S_y)` µV/µm, mV:
+/// `‖(S_x·dx, S_y·dy)‖·1e-6`.
+#[must_use]
+pub fn sigma_grad_mv(s_xy_uv_per_um: (f32, f32), dx_nm: f32, dy_nm: f32) -> f32 {
+    (s_xy_uv_per_um.0 * dx_nm).hypot(s_xy_uv_per_um.1 * dy_nm) * 1e-6
+}
+
+/// Current-factor change of a member `dt_k` warmer than its partner, %:
+/// `−100·exp·ΔT/T` for `k ∝ T^−exp` (Hastings §12.1.1, PDF p.578). Signed,
+/// ΔT of member a minus b.
+#[must_use]
+pub fn mobility_pct(exp: f32, dt_k: f32, t_abs_k: f32) -> f32 {
+    -100.0 * exp * dt_k / t_abs_k
+}
+
+/// ΔV_BE σ of a bipolar/diode pair from its ΔI_S/I_S σ, mV: `V_T·ln(1 + σ/100)`
+/// (Hastings eq. 10.9).
+///
+/// ponytail: V_T fixed at 25.7 mV (25 °C); REL-05 brings the junction temperature.
+#[must_use]
+pub fn bjt_sigma_vbe_mv(sigma_i_pct: f32) -> f32 {
+    25.7 * (sigma_i_pct / 100.0).ln_1p()
+}
+
+/// Ratio error of a passive pair whose members sit `dt_mk` apart, %:
+/// `TC·ΔT` (eq. 8.23; ppm/K · mK → ×1e-7).
+#[must_use]
+pub fn ratio_thermal_pct(tc_ppm_per_k: f32, dt_mk: f32) -> f32 {
+    tc_ppm_per_k * dt_mk * 1e-7
 }
 
 impl Ledger {

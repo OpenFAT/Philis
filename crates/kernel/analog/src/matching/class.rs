@@ -17,21 +17,6 @@ pub enum Family {
     Capacitor,
 }
 
-impl Family {
-    /// `None` for an inductor: no class table, never matched.
-    #[must_use]
-    pub fn of(k: DeviceKind) -> Option<Family> {
-        match k {
-            DeviceKind::Nmos | DeviceKind::Pmos => Some(Family::Mos),
-            DeviceKind::Npn | DeviceKind::Pnp => Some(Family::Bipolar),
-            DeviceKind::Diode => Some(Family::Diode),
-            DeviceKind::Resistor => Some(Family::Resistor),
-            DeviceKind::Capacitor => Some(Family::Capacitor),
-            DeviceKind::Inductor => None,
-        }
-    }
-}
-
 /// How matched gates are strapped: MIN a poly bar, MOD a poly bar ≥ 1 µm
 /// from the gates (CELL-11 step 4), EXC each gate contacted in metal with
 /// no shared poly (Hastings §13.3 rule 22, hastings.txt L42638–42647).
@@ -57,6 +42,27 @@ pub struct MosEnv {
     pub gate_strap: GateStrap,
 }
 
+/// What a matched resistor array of one class asks (Hastings §8, H08-13,
+/// H08-41).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PassiveEnv {
+    /// Dummies per array end: one on every class; EXC also spans
+    /// `dummy_span_nm`, so its count is `ceil(span / pitch)` (the caller's).
+    pub min_dummies: u8,
+    pub dummy_span_nm: i32,
+    /// Segment width floor, ‰ of the deck's minimum width.
+    pub width_floor_permille: i32,
+    /// Segment length floor, multiples of the deck's minimum length.
+    pub length_floor_x: i32,
+}
+
+/// A class limit: an offset in mV or a mismatch in %, both 6σ.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ClassLimit {
+    Mv(f32),
+    Pct(f32),
+}
+
 /// Hastings' MOS tiers, `[MIN, MOD, EXC]`, nm; class policy, the same on
 /// every process (Q59).
 /// - dummy reach, §13.3 rule 12 (H13-47): MIN dummies optional, MOD one full
@@ -79,6 +85,21 @@ const RES_DUMMY_SPAN_NM: [i32; 3] = [0, 0, 10000];
 const RES_WIDTH_FLOOR_PERMILLE: [i32; 3] = [1500, 2000, 4000];
 const RES_LENGTH_FLOOR_X: [i32; 3] = [3, 5, 10];
 
+impl Family {
+    /// `None` for an inductor: no class table, never matched.
+    #[must_use]
+    pub fn of(k: DeviceKind) -> Option<Family> {
+        match k {
+            DeviceKind::Nmos | DeviceKind::Pmos => Some(Family::Mos),
+            DeviceKind::Npn | DeviceKind::Pnp => Some(Family::Bipolar),
+            DeviceKind::Diode => Some(Family::Diode),
+            DeviceKind::Resistor => Some(Family::Resistor),
+            DeviceKind::Capacitor => Some(Family::Capacitor),
+            DeviceKind::Inductor => None,
+        }
+    }
+}
+
 /// `c`'s MOS environment.
 #[must_use]
 pub fn mos_env(c: MatchClass) -> MosEnv {
@@ -94,20 +115,6 @@ pub fn mos_env(c: MatchClass) -> MosEnv {
             MatchClass::Exceptional => GateStrap::MetalIsolated,
         },
     }
-}
-
-/// What a matched resistor array of one class asks (Hastings §8, H08-13,
-/// H08-41).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct PassiveEnv {
-    /// Dummies per array end: one on every class; EXC also spans
-    /// `dummy_span_nm`, so its count is `ceil(span / pitch)` (the caller's).
-    pub min_dummies: u8,
-    pub dummy_span_nm: i32,
-    /// Segment width floor, ‰ of the deck's minimum width.
-    pub width_floor_permille: i32,
-    /// Segment length floor, multiples of the deck's minimum length.
-    pub length_floor_x: i32,
 }
 
 /// `c`'s resistor environment.
@@ -132,13 +139,6 @@ pub fn phi_arm(c: MatchClass) -> Option<bool> {
         MatchClass::Moderate => Some(false),
         MatchClass::Minimal => None,
     }
-}
-
-/// A class limit: an offset in mV or a mismatch in %, both 6σ.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ClassLimit {
-    Mv(f32),
-    Pct(f32),
 }
 
 /// Hastings' class limit for `(f, k)` at `c` (C2): MOS §13.3 (hastings.txt
