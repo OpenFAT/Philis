@@ -2,14 +2,36 @@
 //! moments a common-centroid row must equalise, the signed-current (Φ) test a
 //! mirrored finger order must pass, and the cancelled-moment order a figure
 //! (ABBA, ABBA/BAAB, …) achieves.
+//!
+//! In → out: weighted unit points → [`Sums`] (moments, Φ, current axes) and the
+//! cancelled moment order of a figure. Cites: Hastings §13.3 (centroid, Φ);
+//! the Nth-order central-symmetry paper (fig. 3) for orders above 2.
+//!
+//! Contents:
+//! - `pub struct Pt`
+//! - `pub enum Axis`
+//! - `pub struct Sums`
+//! - `pub fn sums(pts: impl IntoIterator<Item = Pt>) -> Sums`
+//! - `Sums::centroid(&self) -> Option<(f64, f64)>`
+//! - `Sums::second(&self, c: (f64, f64)) -> [f64; 3]`
+//! - `Sums::phi(&self) -> (f64, f64)`
+//! - `pub fn phi_equal(a: &Sums, b: &Sums) -> bool`
+//! - `pub fn phi_equal_all(units: &[crate::base::Unit], members: usize) -> bool`
+//! - `pub fn mirror_allowed(members: &[Sums]) -> bool`
+//! - `pub fn mirror_allowed_units(units: &[crate::base::Unit]) -> bool`
+//! - `pub fn cancelled_order(devs: &[&[Pt]], nmax: u8, tol: f64) -> (u8, [f64; 5])`
 
 /// One active unit in a common frame: `w` is its electrical weight (never the
 /// drawn outline), `phi` its signed S→D direction.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pt {
+    /// Position x, in whatever frame every point of the set shares.
     pub x: f64,
+    /// Position y, same frame as `x`.
     pub y: f64,
+    /// Electrical weight (MOS gate area); ≥ 0.
     pub w: f64,
+    /// Signed S→D direction, each component in `{-1, 0, 1}`.
     pub phi: (i8, i8),
 }
 
@@ -18,10 +40,14 @@ pub struct Pt {
 /// symmetry there).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Axis {
+    /// No unit carries current (or the set is empty).
     #[default]
     None,
+    /// Every current runs along x.
     H,
+    /// Every current runs along y.
     V,
+    /// Currents on both axes.
     Mixed,
 }
 
@@ -29,15 +55,25 @@ pub enum Axis {
 /// current and how many units carried a non-zero φ on each axis.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Sums {
+    /// Σw.
     pub w: f64,
+    /// Σw·x (raw, not divided by Σw).
     pub x: f64,
+    /// Σw·y.
     pub y: f64,
+    /// Σw·x², about the frame origin.
     pub xx: f64,
+    /// Σw·x·y, about the frame origin.
     pub xy: f64,
+    /// Σw·y², about the frame origin.
     pub yy: f64,
+    /// Σφx, unweighted.
     pub phi_x: i32,
+    /// Σφy, unweighted.
     pub phi_y: i32,
+    /// Units summed, zero-φ ones included.
     pub n: u32,
+    /// The axes the non-zero φ run on.
     pub axis: Axis,
 }
 
@@ -153,7 +189,10 @@ pub fn mirror_allowed_units(units: &[crate::base::Unit]) -> bool {
 /// devices in a figure, Hastings §13.3: order 1 is a common centroid, order 2
 /// also equalises second moments (ABBA/BAAB), and so on up to `nmax` (<= 4).
 /// Returns `(order, r)` where `r[n]` is the worst residual at order `n`
-/// (`r[0] = 0`, unused entries above `nmax` are `0.0`).
+/// (`r[0] = 0`, unused entries above `nmax` are `0.0`). O(devices² · nmax² · units).
+///
+/// # Panics
+/// When `nmax > 4` (a debug assert; past it `r` is indexed out of range).
 #[must_use]
 pub fn cancelled_order(devs: &[&[Pt]], nmax: u8, tol: f64) -> (u8, [f64; 5]) {
     debug_assert!(nmax <= 4);
@@ -207,6 +246,7 @@ fn moment(pts: &[Pt], c: (f64, f64), l: f64, p: i32, q: i32) -> f64 {
 mod tests {
     use super::*;
 
+    /// Oracle: spec example, the net φx of each finger set counted by hand.
     /// Mx180 negates φx: an odd finger pair keeps a net φx and must not mirror.
     #[test]
     fn mirror_is_refused_for_an_odd_finger_pair() {
@@ -222,6 +262,7 @@ mod tests {
         Pt { x, y, w: 1.0, phi: (0, 0) }
     }
 
+    /// Oracle: theory, ABBA is a common centroid but not second-order symmetric (Hastings §13.3).
     #[test]
     fn abba_cancels_first_order_only() {
         let a: Vec<Pt> = [0.0, 3000.0].iter().map(|&x| pt(x, 0.0)).collect();
@@ -243,6 +284,7 @@ mod tests {
         }
     }
 
+    /// Oracle: theory, ABBA over BAAB equalises second moments (Hastings §13.3).
     #[test]
     fn abba_baab_cancels_second_order() {
         let (a0, b0) = row(true, 0.0);
@@ -254,6 +296,7 @@ mod tests {
         assert!(r[3] > 0.2, "r[3] = {}", r[3]);
     }
 
+    /// Oracle: spec example, the Nth-order paper's fig. 3 4×4 pattern.
     #[test]
     fn nth_fig3_4x4_cancels_third_order() {
         let (a0, b0) = row(true, 0.0);
@@ -266,6 +309,7 @@ mod tests {
         assert!(order >= 3, "order = {order}");
     }
 
+    /// Oracle: spec example, xx moments of two crossed pairs by hand.
     #[test]
     fn radial_equal_is_not_second_order() {
         let a: Vec<Pt> = [-2000.0, 2000.0].iter().map(|&x| pt(x, 0.0)).collect();
@@ -278,16 +322,18 @@ mod tests {
         assert_eq!(sb.second((0.0, 0.0))[0], 0.0);
     }
 
+    /// Oracle: spec example, Hastings §13.3's Φ example (3:1 over 4 equals 9:3 over 12).
     #[test]
     fn hastings_phi_example() {
         let mk = |xs: &[i8]| -> Sums { sums(xs.iter().map(|&s| Pt { x: 0.0, y: 0.0, w: 1.0, phi: (s, 0) })) };
         let a = mk(&[1, 1, 1, -1]);
-        let b = mk(&[1; 9].iter().chain([-1; 3].iter()).copied().collect::<Vec<i8>>().as_slice());
+        let b = mk(&[[1i8; 9].as_slice(), &[-1; 3]].concat());
         assert!(phi_equal(&a, &b));
         let c = mk(&[-1, -1, -1, 1]);
         assert!(!phi_equal(&a, &c));
     }
 
+    /// Oracle: spec example, two single points by hand (r1 > 0, r2 = 0).
     #[test]
     fn order_counts_leading_orders_only() {
         // Two single points: r1 > 0 but every second moment is equal (r2 = 0).
@@ -296,6 +342,7 @@ mod tests {
         assert_eq!((order, r[2]), (0, 0.0), "r = {r:?}");
     }
 
+    /// Oracle: theory, a 1:2 set with the single unit at the pair's centroid.
     #[test]
     fn ratio_weights_make_one_to_two_exact() {
         let a = vec![pt(0.0, 0.0)];
@@ -304,6 +351,7 @@ mod tests {
         assert!(order >= 1);
     }
 
+    /// Oracle: spec example, each φ combination by hand.
     #[test]
     fn axis_ignores_zero_phi_units() {
         let s = sums([Pt { x: 0.0, y: 0.0, w: 1.0, phi: (1, 0) }, Pt { x: 0.0, y: 0.0, w: 1.0, phi: (0, 0) }]);

@@ -1,5 +1,14 @@
 //! Sizing-reach diagnostics (GAP-02): where a matched pair's sizing, not its
 //! layout, decides the mismatch. Reported, never charged to Θ.
+//!
+//! In → out: a [`MatchedSet`] on a [`Layout`] → [`SizingNote`]s. Cites:
+//! Hastings Table 13.4 (H13-43); Pelgrom D* (MM-06); MM-14, MM-21.
+//!
+//! Contents:
+//! - `pub struct SizingNote`
+//! - `pub fn area_need_um2(avt_mv_um: f32, dv_mv: f32) -> f32`
+//! - `pub fn dstar_um(avt_mv_um: f32, svt_uv_per_um: f32, wl_um2: f32) -> f32`
+//! - `pub fn notes(set: &MatchedSet, l: &Layout, class_limit_mv: Option<f32>) -> Vec<SizingNote>`
 
 use crate::base::layout::Layout;
 
@@ -13,10 +22,16 @@ use crate::placement::matched_set::MatchedSet;
 /// placed centroid distance vs Pelgrom's D*). `lever` names what to change.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SizingNote {
+    /// Schematic ids, reference first.
     pub members: (u32, u32),
+    /// `"area"`, `"budget_area"` or `"dstar"`.
     pub kind: &'static str,
+    /// What the pair has, in `kind`'s unit.
     pub have: f32,
+    /// What meets the limit, in `kind`'s unit.
     pub need: f32,
+    /// What to change: `"area"`, `"length"`, `"distance"`, or
+    /// `"distance term non-binding"`.
     pub lever: &'static str,
 }
 
@@ -82,16 +97,19 @@ mod tests {
         MatchedSet { kind: MatchKind::Voltage, budget: Budget::Sigma1Mv(1.0), ..pair(0, 1) }
     }
 
+    /// Oracle: spec example, Hastings Table 13.4 (5 V, EXC).
     #[test]
     fn table_13_4_5v_exc() {
         assert!((area_need_um2(12.5, 1.0) - 5625.0).abs() < 1e-2);
     }
 
+    /// Oracle: spec example, Pelgrom D* with sky130's A_VT and S_VT, by hand.
     #[test]
     fn dstar_sky130() {
         assert!((dstar_um(9.5, 1.63, 100.0) - 583.0).abs() < 1.0);
     }
 
+    /// Oracle: spec example, (σ_rand / b)² = (2.124 / 1)² by hand (MM-14).
     #[test]
     fn budget_below_random_gives_multiplier() {
         let l = layout(&[0, 5_000], &[0, 0], 100);
@@ -101,6 +119,7 @@ mod tests {
         assert!((n[0].need / n[0].have - 4.51).abs() < 0.01, "{n:?}");
     }
 
+    /// Oracle: spec example, MM-21 (a mirror's lever is length).
     #[test]
     fn mirror_names_length() {
         let l = layout(&[0, 5_000], &[0, 0], 100);
@@ -110,6 +129,8 @@ mod tests {
 
     /// Units drawn, 20 µm² each: D* = 1303 µm; 1 µm apart is non-binding,
     /// 200 µm apart is not.
+    /// Oracle: spec example, D* by hand and the placed distance; the `need`
+    /// equality reuses `dstar_um`, which `dstar_sky130` pins.
     #[test]
     fn dstar_names_the_distance_lever() {
         for (dx, lever) in [(1_000, "distance term non-binding"), (200_000, "distance")] {
@@ -125,12 +146,14 @@ mod tests {
         }
     }
 
+    /// Oracle: spec example, (6·9.5/3)² = 361 µm² by hand.
     #[test]
     fn area_note_only_with_class_limit() {
         let l = layout(&[0, 5_000], &[0, 0], 100);
         assert!(notes(&voltage(), &l, None).iter().all(|n| n.kind != "area"));
         let n: Vec<_> = notes(&voltage(), &l, Some(3.0)).into_iter().filter(|n| n.kind == "area").collect();
         assert_eq!(n.len(), 1);
-        assert!((n[0].need - 361.0).abs() < 0.1 && n[0].have == 20.0, "{n:?}");
+        assert!((n[0].need - 361.0).abs() < 0.1, "{n:?}");
+        assert_eq!(n[0].have, 20.0, "{n:?}");
     }
 }

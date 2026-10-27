@@ -2,6 +2,36 @@
 //! systematic terms placement spends (gradient, thermal, LOD) and the single
 //! allowance they share (plan-02 MAT-04). Pure math, mV (or % of a
 //! mirror current, MAT-09).
+//!
+//! In → out: process coefficients, areas and placed offsets → one pair's
+//! [`Ledger`] terms and its [`Budget`]. Cites: Pelgrom eq. 1; LDM eq. 4;
+//! Hastings eqs 8.8, 8.12, 8.15, 8.23, 10.9, 13.40–13.43, 13.49, §12.1.1;
+//! Lampaert eq. 4.25; DVP eq. 1, Table 1; REV eq. 11; Schaper & Linnenbank fig. 8.
+//!
+//! Contents:
+//! - `pub enum MatchKind`
+//! - `pub enum LedgerUnit`
+//! - `pub const GRADIENT_SHARE: f32`
+//! - `pub enum Budget`
+//! - `pub struct Coeffs`
+//! - `pub struct Ledger`
+//! - `pub struct LedgerRow`
+//! - `pub fn sigma_pair(a_pair: f32, a1_um2: f32, a2_um2: f32) -> f32`
+//! - `LedgerUnit::as_str(self) -> &'static str`
+//! - `pub fn sigma_current_pct(sigma_vt_mv: f32, g_per_v: f32, sigma_beta_pct: f32) -> f32`
+//! - `pub fn sigma_voltage_mv(sigma_vt_mv: f32, g_per_v: f32, sigma_beta_pct: f32) -> f32`
+//! - `Budget::from_class(limit: ClassLimit, kind: MatchKind) -> Budget`
+//! - `Budget::allowance(self, sigma_rand: f32) -> f32`
+//! - `Budget::to_pct(self, g_per_v: f32) -> Budget`
+//! - `pub fn choose(offset_sigma_mv: Option<f32>, allowance: Option<f32>, class_limit: Option<ClassLimit>, kind: MatchKind) -> Budget`
+//! - `pub fn svt_of_l(a_uv2_per_um2: f32, b_uv2: f32, l_um: f32) -> f32`
+//! - `pub fn sigma_grad_mv(s_xy_uv_per_um: (f32, f32), dx_nm: f32, dy_nm: f32) -> f32`
+//! - `pub fn mobility_pct(exp: f32, dt_k: f32, t_abs_k: f32) -> f32`
+//! - `pub fn bjt_sigma_vbe_mv(sigma_i_pct: f32) -> f32`
+//! - `pub fn ratio_thermal_pct(tc_ppm_per_k: f32, dt_mk: f32) -> f32`
+//! - `Ledger::spent(&self) -> f32`
+//! - `Ledger::usage(&self) -> f32`
+//! - `Ledger::residual(&self) -> f32`
 
 use crate::matching::class::ClassLimit;
 
@@ -10,8 +40,11 @@ use crate::matching::class::ClassLimit;
 /// passives (MAT-10).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MatchKind {
+    /// V_GS at equal I: a diff pair; the ledger is input-referred mV.
     Voltage,
+    /// I at equal V_GS: a mirror or load; % once G is known.
     Current,
+    /// A passive ratio, %.
     Ratio,
 }
 
@@ -19,8 +52,10 @@ pub enum MatchKind {
 /// ratio in % (a mirror whose G = g_m/I is known, MAT-09).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LedgerUnit {
+    /// Input-referred millivolts.
     #[default]
     Mv,
+    /// Percent of a current or passive ratio.
     Pct,
 }
 
@@ -94,15 +129,25 @@ pub struct Coeffs {
 ///   equivalent centroid offset (cost and report only; no deck has a coefficient).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ledger {
+    /// Random σ the sizing bought.
     pub sigma_rand: f32,
+    /// Gradient σ of the placed centroid offset.
     pub sigma_grad: f32,
+    /// Thermal mean offset.
     pub mu_thermal: f32,
+    /// LOD-stress mean offset.
     pub mu_lod: f32,
+    /// The 1σ systematic allowance [`Budget::allowance`] left; ≥ 0.
     pub allowance: f32,
+    /// `|Δm|/tol` when a common-centroid row is possible; binds at 1.
     pub coincidence: Option<f32>,
+    /// Second-moment residue as an equivalent centroid offset, nm.
     pub second_order_nm: f32,
+    /// Placed centroid distance between the members, nm.
     pub delta_m_nm: f32,
+    /// Units drawn for both members (the distance terms are measured, not estimated).
     pub known: bool,
+    /// What every σ and μ above is in.
     pub unit: LedgerUnit,
 }
 
@@ -118,19 +163,33 @@ pub struct Ledger {
 /// family) or `"MC"` (`MatchedSet::sigma_rand_override`, MAT-21).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LedgerRow {
+    /// Schematic ids `(reference, member)`.
     pub members: (u32, u32),
+    /// [`LedgerUnit::as_str`] of the ledger.
     pub unit: &'static str,
+    /// [`Ledger::sigma_rand`].
     pub sigma_rand: f32,
+    /// [`Ledger::sigma_grad`].
     pub sigma_layout: f32,
+    /// [`Ledger::mu_thermal`].
     pub mu_thermal: f32,
+    /// [`Ledger::mu_lod`].
     pub mu_lod: f32,
+    /// [`Ledger::allowance`].
     pub allowance: f32,
+    /// [`Ledger::usage`]; > 1 is a violation.
     pub usage: f32,
+    /// Cancelled moment order; 0 without units.
     pub order: u8,
+    /// [`Ledger::second_order_nm`].
     pub second_order_nm: f32,
+    /// Orientation counts agree; `None` without units.
     pub phi_equal: Option<bool>,
+    /// [`Ledger::known`].
     pub known: bool,
+    /// `"Pelgrom"` or `"MC"`.
     pub sigma_source: &'static str,
+    /// The random σ alone meets or exceeds the budget.
     pub sizing_limited: bool,
 }
 
@@ -286,11 +345,13 @@ impl Ledger {
 mod tests {
     use super::*;
 
+    /// Oracle: spec example, LDM eq. 4 by hand.
     #[test]
     fn unequal_areas_use_the_per_device_variance() {
         assert!((sigma_pair(10.0, 4.0, 16.0) - 3.953).abs() < 1e-3);
     }
 
+    /// Oracle: spec example, (0.4 + 0.4)/0.637 by hand.
     #[test]
     fn one_allowance_is_spent_once() {
         let l = Ledger { mu_thermal: 0.4, mu_lod: 0.4, allowance: 0.637, ..Ledger::default() };
@@ -298,12 +359,14 @@ mod tests {
         assert!((l.residual() - 0.256).abs() < 1e-3, "{}", l.residual());
     }
 
+    /// Oracle: spec example, √(b² − σ²) by hand.
     #[test]
     fn sigma1_budget_leaves_the_quadrature_share() {
         assert!((Budget::Sigma1Mv(3.0 * 1.09f32.sqrt()).allowance(3.0) - 0.9).abs() < 1e-3);
         assert_eq!(Budget::Sigma1Mv(2.0).allowance(3.0), 0.0);
     }
 
+    /// Oracle: spec example, Hastings §13.3 (limits are 6σ).
     #[test]
     fn class_budget_is_one_sixth_of_the_limit() {
         assert_eq!(Budget::from_class(ClassLimit::Mv(3.0), MatchKind::Voltage), Budget::Sigma1Mv(0.5));
@@ -311,6 +374,7 @@ mod tests {
         assert_eq!(Budget::from_class(ClassLimit::Mv(3.0), MatchKind::Current), Budget::Eta(0.3));
     }
 
+    /// Oracle: spec example, the documented precedence of `choose`.
     #[test]
     fn role_default_keeps_eta() {
         let v = MatchKind::Voltage;
@@ -320,11 +384,13 @@ mod tests {
         assert_eq!(choose(None, None, Some(ClassLimit::Mv(3.0)), v), Budget::Sigma1Mv(0.5));
     }
 
+    /// Oracle: spec example, Hastings eq. 8.12.
     #[test]
     fn hastings_eq_8_12_capacitor_pair() {
         assert!((sigma_pair(1.0, 1.0, 4.0) - 0.791).abs() < 1e-3);
     }
 
+    /// Oracle: spec example, Hastings eq. 10.9.
     #[test]
     fn bjt_eq_10_9() {
         let s = sigma_pair(2.0, 36.0, 36.0);
@@ -332,6 +398,7 @@ mod tests {
         assert!((bjt_sigma_vbe_mv(s) - 0.0855).abs() < 5e-4, "{}", bjt_sigma_vbe_mv(s));
     }
 
+    /// Oracle: spec example, DVP Table 1.
     #[test]
     fn svt_fit_reproduces_dvp_table_1() {
         for (l, s) in [(0.12, 1.624), (0.24, 0.893), (0.48, 0.580)] {
@@ -339,28 +406,33 @@ mod tests {
         }
     }
 
+    /// Oracle: spec example, √5·10⁻³ mV by hand.
     #[test]
     fn anisotropic_grad() {
         assert!((sigma_grad_mv((1.0, 2.0), 1000.0, 1000.0) - 5f32.sqrt() * 1e-3).abs() < 1e-6);
     }
 
+    /// Oracle: spec example, Hastings §12.1.1 by hand.
     #[test]
     fn mobility_term_sign() {
         assert!((mobility_pct(1.7, 1.0, 300.0) + 0.5667).abs() < 1e-3);
         assert!((mobility_pct(1.5, 1.0, 300.0) + 0.5).abs() < 1e-6);
     }
 
+    /// Oracle: spec example, eq. 8.23 by hand.
     #[test]
     fn resistor_thermal_ppm() {
         assert!((ratio_thermal_pct(100.0, 500.0) - 0.005).abs() < 1e-7);
     }
 
+    /// Oracle: spec example, Hastings eqs 13.42–13.43.
     #[test]
     fn current_domain_matches_hastings_13_43() {
         assert!((sigma_current_pct(1.0, 10.0, 0.5) - 1.118).abs() < 1e-3);
         assert!((sigma_voltage_mv(1.0, 10.0, 0.5) - 1.118).abs() < 1e-3);
     }
 
+    /// Oracle: metamorphic, scaling every term by 0.1·G leaves usage unchanged.
     #[test]
     fn without_abeta_usage_is_domain_invariant() {
         let mv = Ledger {
@@ -386,6 +458,7 @@ mod tests {
         }
     }
 
+    /// Oracle: the NaN gate: a zero allowance reads 1, never NaN.
     #[test]
     fn zero_allowance_is_a_violation_not_nan() {
         let l = Ledger { mu_lod: 0.01, ..Ledger::default() };

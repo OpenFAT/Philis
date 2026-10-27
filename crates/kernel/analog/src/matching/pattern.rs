@@ -2,6 +2,36 @@
 //! hold a matched set point-symmetrically ([`grids`]) and which member owns
 //! each cell ([`centro_assign`]). Doubled offsets from the grid centre
 //! (`2r − rows + 1`, `2c − cols + 1`) keep every moment an integer.
+//!
+//! In → out: member unit counts → admissible grids, per-cell owners and
+//! diffusion-legal rows; resistances → segmentations. Cites: Hastings Table
+//! 8.5, fig. 8.19, fig. 10.24A; DACP (spiral, chessboard fills); the Nth-order
+//! central-symmetry paper (fig. 3b).
+//!
+//! Contents:
+//! - `pub enum Fill`
+//! - `pub struct Grid`
+//! - `pub enum Outer`
+//! - `pub fn grids(counts: &[u16], max_aspect: f64) -> Vec<(usize, usize)>`
+//! - `pub fn cc_feasible(counts: &[u16]) -> bool`
+//! - `pub fn spiral(rows: usize, cols: usize) -> Vec<usize>`
+//! - `pub fn centro_assign(counts: &[u16], rows: usize, cols: usize, fill: Fill) -> (Vec<Option<u8>>, bool)`
+//! - `pub fn segment_row(counts: &[u16]) -> (Vec<usize>, bool)`
+//! - `pub fn scale2(counts: &[u16]) -> Vec<u16>`
+//! - `Grid::refl(&self, i: usize) -> usize`
+//! - `Grid::free_pair(&self, i: usize) -> bool`
+//! - `Grid::put_pair(&mut self, i: usize, s: u8)`
+//! - `Grid::rect(&self, (r0, c0, rows, cols): (usize, usize, usize, usize)) -> Vec<usize>`
+//! - `Grid::rc(&self, i: usize) -> (i64, i64)`
+//! - `Grid::chessboard(&mut self, rect: (usize, usize, usize, usize), top: u8)`
+//! - `Grid::spread(&mut self, cells: &[usize], s: u8, count: usize)`
+//! - `Grid::corridor(&mut self, outer: (usize, usize, usize, usize), inner: (usize, usize, usize, usize), i: u8, bs: usize)`
+//! - `pub fn diffusion_legal(s: &[usize], outer: Outer) -> bool`
+//! - `pub fn nth_order_rows(order: u8, row: &[u8]) -> Vec<Vec<u8>>`
+//! - `pub fn segmentation(r_n_ohm: f64, r_m_ohm: f64, n_max: u16) -> Vec<(u16, u16, f64)>`
+//! - `pub fn partial_segments(r_n_ohm: f64, r_m_ohm: f64, r0_ohm: f64) -> (u16, u16, f64, f64, f64)`
+//! - `pub fn diffusion_cc_row(counts: &[u16], outer: Outer) -> Option<Vec<usize>>`
+//! - `pub fn diffusion_interdig_row(counts: &[u16]) -> Option<(Vec<usize>, Outer)>`
 
 use std::cmp::Reverse;
 
@@ -23,7 +53,9 @@ pub enum Fill {
 /// A row-major unit grid under construction. Point reflection through the
 /// centre is index reversal: `(R-1-r)·C + (C-1-c) = RC-1-i`.
 pub struct Grid {
+    /// Cells per row; `slot.len()` is a multiple of it.
     pub cols: usize,
+    /// Owner per cell, row-major; `None` = free (or a dummy once done).
     pub slot: Vec<Option<u8>>,
 }
 
@@ -32,7 +64,9 @@ pub struct Grid {
 /// both, every boundary between two devices is a shared source.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Outer {
+    /// The row's ends are drains (multi-device rows).
     Drain,
+    /// The row's ends are sources (mirror-pin rows).
     Source,
 }
 
@@ -194,15 +228,19 @@ pub fn scale2(counts: &[u16]) -> Vec<u16> {
 }
 
 impl Grid {
+    /// Cell `i`'s point reflection through the grid centre.
     pub fn refl(&self, i: usize) -> usize {
         self.slot.len() - 1 - i
     }
 
+    /// Whether `i` and its reflection are two distinct free cells (the centre
+    /// cell of an odd grid is never a pair).
     pub fn free_pair(&self, i: usize) -> bool {
         let j = self.refl(i);
         i != j && self.slot[i].is_none() && self.slot[j].is_none()
     }
 
+    /// Gives `i` and its reflection to `s`, overwriting whatever held them.
     pub fn put_pair(&mut self, i: usize, s: u8) {
         let j = self.refl(i);
         self.slot[i] = Some(s);
@@ -214,6 +252,7 @@ impl Grid {
         (r0..r0 + rows).flat_map(|r| (c0..c0 + cols).map(move |c| (r, c))).map(|(r, c)| r * self.cols + c).collect()
     }
 
+    /// `(row, col)` of cell `i`.
     pub fn rc(&self, i: usize) -> (i64, i64) {
         ((i / self.cols) as i64, (i % self.cols) as i64)
     }
@@ -362,7 +401,7 @@ pub fn diffusion_cc_row(counts: &[u16], outer: Outer) -> Option<Vec<usize>> {
     match outer {
         Outer::Drain => {
             let n: usize = counts.iter().map(|&c| usize::from(c)).sum();
-            if n == 0 || n % 2 != 0 || counts.iter().any(|&c| c % 2 != 0) {
+            if n == 0 || !n.is_multiple_of(2) || counts.iter().any(|&c| c % 2 != 0) {
                 return None;
             }
             let p = (n - 2) / 2;
@@ -529,6 +568,7 @@ mod tests {
         (m2(&a) - m2(&b)).abs()
     }
 
+    /// Oracle: spec example, Hastings Table 8.5 (counts and |ΔM| of the book strings), plus `cancelled_order` as an independent moment check.
     #[test]
     fn table_8_5_every_ratio_is_exact_and_no_worse() {
         // (counts, Hastings Table 8.5 book string, generated, generated |ΔM|).
@@ -557,6 +597,7 @@ mod tests {
         }
     }
 
+    /// Oracle: spec example, the parity rule (two odd counts doubled become even).
     #[test]
     fn scale2_makes_two_odd_members_exact() {
         assert_eq!(scale2(&[3, 1]), vec![6, 2]);
@@ -571,6 +612,7 @@ mod tests {
 
     /// Every a:b with at most one odd count, on every grid offered, is exact:
     /// counts kept, each member's doubled offsets sum to zero, empties paired.
+    /// Oracle: certificate, the counts and centroid offsets re-summed.
     #[test]
     fn every_single_odd_ratio_is_exact() {
         for a in 1..=4u16 {
@@ -598,6 +640,7 @@ mod tests {
         }
     }
 
+    /// Oracle: spec example, ABBA's 2×2 diagonal by hand.
     #[test]
     fn equal_pair_is_a_diagonal_quad() {
         assert_eq!(grids(&[2, 2], 3.0), [(2, 2), (3, 2), (1, 4)]);
@@ -606,6 +649,7 @@ mod tests {
 
     /// 1:4 is the "+" cross on 3×3 (not Hastings' Fig. 10.24A, which needs a
     /// half-row offset no grid cell has); 1:6 and 1:8 fill outward.
+    /// Oracle: spec example, the cross and outward fills drawn by hand.
     #[test]
     fn four_to_one_is_a_cross() {
         assert_eq!(grids(&[1, 4], 3.0), [(3, 3), (1, 5)]);
@@ -616,6 +660,7 @@ mod tests {
         assert_eq!(s(&[4, 4, 4], 3, 4), "020121121020");
     }
 
+    /// Oracle: theory, two odd members have no point-symmetric assignment.
     #[test]
     fn two_odd_members_are_reported_inexact() {
         assert!(!cc_feasible(&[1, 1, 2]));
@@ -624,6 +669,7 @@ mod tests {
         assert_eq!(slot.iter().flatten().count(), 4);
     }
 
+    /// Oracle: golden, the grid order `grids` documents, worked by hand.
     #[test]
     fn grid_order_is_deterministic() {
         assert_eq!(grids(&[4, 4, 4], 3.0), [(3, 4), (4, 3), (5, 3), (2, 6), (1, 12)]);
@@ -644,6 +690,7 @@ mod tests {
     /// Every admitted row keeps counts, is a palindrome (mirror symmetry),
     /// and never joins two devices across the wrong region; an odd count
     /// never admits one.
+    /// Oracle: certificate (counts, palindrome) and `diffusion_legal`.
     #[test]
     fn diffusion_rows_never_join_two_devices_on_a_drain() {
         let check = |counts: &[u16], outer: Outer| {
@@ -678,6 +725,7 @@ mod tests {
 
     /// Every interdigitated row keeps its counts and puts every boundary on a
     /// source; mixed parity has none.
+    /// Oracle: certificate (counts) and `diffusion_legal`; spec examples by hand.
     #[test]
     fn an_interdig_row_never_abuts_two_drains() {
         assert_eq!(diffusion_interdig_row(&[4, 4]).map(|(s, o)| (letters(&s), o)), Some(("AABBAABB".into(), Outer::Source)));
@@ -706,6 +754,7 @@ mod tests {
         }
     }
 
+    /// Oracle: golden, Philis 1.0's rows for equal counts; r² against the old 8:8:8 row.
     #[test]
     fn equal_counts_reproduce_the_old_orders() {
         assert_eq!(letters(&diffusion_cc_row(&[2, 2], Outer::Drain).unwrap()), "ABBA");
@@ -721,28 +770,33 @@ mod tests {
         assert!(r2_new <= r2_old + 1e-9, "r2(new)={r2_new} should not exceed r2(old)={r2_old}");
     }
 
+    /// Oracle: spec example, worked by hand.
     #[test]
     fn two_to_four_is_a_bbbb_a() {
         assert_eq!(diffusion_cc_row(&[2, 4], Outer::Drain).unwrap(), vec![0, 1, 1, 1, 1, 0]);
     }
 
+    /// Oracle: spec example, worked by hand.
     #[test]
     fn two_to_four_source_is_bb_aa_bb() {
         assert_eq!(diffusion_cc_row(&[2, 4], Outer::Source).unwrap(), vec![1, 1, 0, 0, 1, 1]);
     }
 
+    /// Oracle: theory, a source-ended row needs an even number of boundaries.
     #[test]
     fn source_needs_even_pair_parity() {
         assert!(diffusion_cc_row(&[2, 2], Outer::Source).is_none());
         assert_eq!(letters(&diffusion_cc_row(&[4, 4], Outer::Source).unwrap()), "AABBBBAA");
     }
 
+    /// Oracle: theory, an odd count has no palindrome of shared regions.
     #[test]
     fn one_to_two_has_no_row() {
         assert!(diffusion_cc_row(&[1, 2], Outer::Drain).is_none());
         assert!(diffusion_cc_row(&[1, 2], Outer::Source).is_none());
     }
 
+    /// Oracle: spec example, the ALIGN 2:2:4:8:8 row; centring re-summed independently.
     #[test]
     fn align_example_is_exact() {
         let s = diffusion_cc_row(&[2, 2, 4, 8, 8], Outer::Drain).unwrap();
@@ -766,6 +820,7 @@ mod tests {
         m
     }
 
+    /// Oracle: `cancelled_order` (moments.rs), independent of how the rows are built.
     #[test]
     fn nth_order_rows_cancel_their_order() {
         for order in 1..=4u8 {
@@ -782,11 +837,13 @@ mod tests {
         assert!(nth_order_rows(0, &[0, 1, 1, 0]).is_empty());
     }
 
+    /// Oracle: spec example, the Nth-order paper's fig. 3b.
     #[test]
     fn order_three_is_nth_fig_3b() {
         assert_eq!(nth_order_rows(3, &[0, 1, 1, 0]), vec![vec![0, 1, 1, 0], vec![1, 0, 0, 1], vec![1, 0, 0, 1], vec![0, 1, 1, 0]]);
     }
 
+    /// Oracle: `diffusion_legal`, an independent region check.
     #[test]
     fn nth_rows_are_diffusion_legal() {
         for order in 1..=4 {
@@ -801,6 +858,7 @@ mod tests {
         assert!(!diffusion_legal(&[0, 0, 1], Outer::Drain));
     }
 
+    /// Oracle: spec example, Hastings fig. 8.19.
     #[test]
     fn segmentation_reproduces_fig_8_19() {
         let mut s = segmentation(146e3, 200e3, 15);
@@ -813,10 +871,12 @@ mod tests {
         }
     }
 
+    /// Oracle: spec example, Hastings' worked decomposition (19 and 14 segments).
     #[test]
     fn partial_segments_reproduces_the_book_decomposition() {
         let (m, n, j, k, _) = partial_segments(146e3, 200e3, 10.34e3);
         assert_eq!((m, n), (19, 14));
-        assert!((j - 0.342).abs() < 2e-3 && (k - 0.120).abs() < 2e-3, "{j} {k}");
+        assert!((j - 0.342).abs() < 2e-3, "{j} {k}");
+        assert!((k - 0.120).abs() < 2e-3, "{j} {k}");
     }
 }
