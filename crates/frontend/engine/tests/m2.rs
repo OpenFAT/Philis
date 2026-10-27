@@ -21,3 +21,20 @@ fn ota_signs_off_on_sky130() {
     let out = engine::run(OTA, &pdk, verify::SignoffEngine::Gpurify).unwrap_or_else(|r| panic!("{r}"));
     assert!(findings(&out.signoff).is_empty(), "{:?}\n{}", findings(&out.signoff), out.report);
 }
+
+/// The same OTA at asap7's names and sizes: 20 nm gates, widths a multiple of
+/// the 54 nm fin pitch. Routed M2 meets V1.M2.AUX.2 and the M2 tip tables.
+#[test]
+fn ota_signs_off_on_asap7() {
+    let spice = OTA
+        .replace("nfet_01v8", "nmos_rvt")
+        .replace("pfet_01v8", "pmos_rvt")
+        .replace("L=1u", "L=20n")
+        .replace("L=2u", "L=20n")
+        .replace("W=10u", "W=540n")
+        .replace("W=20u", "W=1080n")
+        .replace("W=40u", "W=2160n");
+    let pdk = verify::Pdk::builtin("asap7").expect("a built-in deck");
+    let out = engine::run(&spice, &pdk, verify::SignoffEngine::Gpurify).unwrap_or_else(|r| panic!("{r}"));
+    assert!(findings(&out.signoff).is_empty(), "{:?}\n{}", findings(&out.signoff), out.report);
+}
