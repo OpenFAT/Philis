@@ -6,6 +6,7 @@
 //! grid (sky130: 5 nm), from the deck's `off_grid` rule.
 
 use analog::base::{LayerId, Process};
+use gdsverify::check::deck::CompiledDeck;
 use gdsverify::geom::Grid;
 use gdsverify::ingest::deck::{Deck, ParamValue, RuleSpec};
 use gdsverify::ingest::StrTable;
@@ -59,6 +60,9 @@ pub struct Pdk {
     /// Manufacturing grid, nm.
     pub grid: i32,
     pub deck: Deck,
+    /// `deck` typed for GPurify's checker: the rule values the typed queries
+    /// (`min_width`, `required_spacing`, `enclosure`, ...) answer from (Q59).
+    pub compiled: CompiledDeck,
     /// The table `deck`'s `StrId`s resolve against.
     pub strings: StrTable,
     /// The deck text (GPurify's deck language); each [`crate::Checker`]
@@ -123,12 +127,14 @@ impl Pdk {
         // `<layer>_min_width`/`_min_spacing`, then explicit `cell.*` values.
         let mut rules = scalar_rules(&deck, &strings);
         let grid = deck_grid(&deck, &strings);
+        let compiled = CompiledDeck::from_deck(deck.clone(), nm_grid(), &strings).map_err(|e| format!("deck rejected: {e}"))?;
 
         let mut pdk = Self {
             layers,
             rules: Vec::new(),
             grid,
             deck,
+            compiled,
             strings,
             source: text.to_string(),
             cell,
@@ -1972,7 +1978,7 @@ mod tests {
         // the rule as the override-built deck prints it.
         let text = crate::overrides::deck_text("sky130").unwrap().replacen(
             "em_current_density(met1, mcon; max_density: 2.8e3A/m, max_current_per_cut: 3.6e2uA, narrow: none)",
-            "electromigration(met1, mcon; max_density: 2.8mA/um, max_current_per_cut: 0.36mA, blech_limit: 0uA, reference_temperature: 373.15K, activation_energy: 0.85eV, current_exponent: 2)",
+            "electromigration(met1, mcon; max_density: 2.8mA/um, max_current_per_cut: 0.36mA, blech_limit: 1uA, reference_temperature: 373.15K, activation_energy: 0.85eV, current_exponent: 2)",
             1,
         );
         assert!(text.contains("reference_temperature: 373.15K"));
@@ -2073,5 +2079,106 @@ mod tests {
     fn density_cmp_is_read() {
         let sky = load("sky130");
         assert!(sky.density_rules().contains(&(id(&sky, "met1"), 700_000, 0.7, true)), "{:?}", sky.density_rules());
+    }
+
+    /// Q59: each typed `CompiledDeck` query answers what the hand-written
+    /// reader beside it derives, on every built-in PDK and every layer (and
+    /// layer pair, routing cut, FET model): the evidence for switching the
+    /// reader to the query. Readers whose derivation walk (`reaches`,
+    /// `drawn_from`) no query has (enclosure, end-cap, antenna, EM) stay.
+    #[test]
+    fn compiled_deck_queries_match_the_readers() {
+        use gdsverify::check::drc::{Rule, SpacingQuery};
+        use gdsverify::check::report::LimitSense;
+        use gdsverify::geom::Dbu;
+        let mut bad: Vec<String> = Vec::new();
+        for name in crate::pdk_data::NAMES {
+            let p = load(name);
+            let c = &p.compiled;
+            let n = p.layers.len() as u16;
+            let nm = |l: u16| p.layers[l as usize].0.clone();
+            let z = Dbu::new_unchecked(0);
+            let narrow = SpacingQuery { width_a: z, width_b: z, run_length: z, end_of_line: None };
+            for l in 0..n {
+                let g = GvLayerId(l);
+                let mut same = |what: &str, a: String, b: String| {
+                    if a != b {
+                        bad.push(format!("{name} {what} {}: {a} vs {b}", nm(l)));
+                    }
+                };
+                same("min_width", format!("{:?}", p.rule_limit_nm("min_width", l)), format!("{:?}", c.min_width(g).map(|d| d.raw())));
+                same(
+                    "min_spacing",
+                    format!("{:?}", p.rule_limit_nm("min_spacing", l)),
+                    format!("{:?}", c.required_spacing(g, &narrow).map(|d| d.raw())),
+                );
+                same("min_area", format!("{:?}", p.min_area(l)), format!("{:?}", c.min_area(g).map(|a| a.raw() as i64)));
+                let array = c.drc_on(g).find_map(|(_, r)| match *r {
+                    Rule::ViaArraySpacing { layer, array_threshold, limit } if layer == g => Some((i32::from(array_threshold), limit.raw() as i32)),
+                    _ => None,
+                });
+                same("via_array_spacing", format!("{:?}", p.via_array_spacing(l)), format!("{array:?}"));
+                for o in 0..n {
+                    if p.full_width_on(o, l) != c.enclosure(g, GvLayerId(o)).full_width {
+                        bad.push(format!("{name} full_width {} in {}", nm(l), nm(o)));
+                    }
+                }
+            }
+            for (i, cut) in p.routing_cuts.iter().enumerate() {
+                let old = p
+                    .max_enclosure_of(cut.0, "min_enclosure", "limit")
+                    .max(p.max_enclosure_of(cut.0, "asymmetric_enclosure", "min_one_side"))
+                    .max(p.max_enclosure_of(cut.0, "adjacent_enclosure", "min_one_side"));
+                let new = [p.routing_metals[i], p.routing_metals[i + 1]]
+                    .iter()
+                    .filter_map(|m| {
+                        let e = c.enclosure(GvLayerId(cut.0), GvLayerId(m.0));
+                        e.all_sides.max(e.opposite).map(|d| d.raw() as i32)
+                    })
+                    .max()
+                    .unwrap_or(0);
+                if old != new {
+                    bad.push(format!("{name} via enclosure {}: {old} vs {new}", nm(cut.0)));
+                }
+            }
+            let p2p = c.erc.p2p_resistance.max_resistance.first().map(|r| r.raw() as f32);
+            if p.p2p_max_ohm() != p2p {
+                bad.push(format!("{name} p2p: {:?} vs {p2p:?}", p.p2p_max_ohm()));
+            }
+            for f in p.fet_voltage_limits() {
+                let lim = c.fet_limits(p.strings.get(&f.model).unwrap());
+                let new = (lim.gate_oxide.map(|v| v.raw() as f32), lim.drain_source.map(|v| v.raw() as f32));
+                if (f.vgs_max_mv, f.vds_max_mv) != new {
+                    bad.push(format!("{name} fet {}: {:?} vs {new:?}", f.model, (f.vgs_max_mv, f.vds_max_mv)));
+                }
+            }
+            let grid = c.drc.rules.iter().find_map(|(_, r)| match *r {
+                Rule::OffGrid { pitch } => Some(pitch.raw() as i32),
+                _ => None,
+            });
+            if p.grid != grid.unwrap_or(1) {
+                bad.push(format!("{name} grid: {} vs {grid:?}", p.grid));
+            }
+            let mut old = p.density_rules();
+            let mut new: Vec<(LayerId, i64, f64, bool)> = Vec::new();
+            for l in 0..n {
+                for d in c.density(GvLayerId(l)) {
+                    new.extend(d.window.map(|(w, _)| (LayerId(l), w.raw(), d.limit, d.sense == LimitSense::Maximum)));
+                }
+            }
+            let t = &c.erc.density_cmp;
+            for r in 0..t.layer.len() {
+                let (l, w) = (LayerId(t.layer[r].0), t.window[r].0.raw());
+                new.extend(t.min_density[r].map(|x| (l, w, x, false)));
+                new.extend(t.max_density[r].map(|x| (l, w, x, true)));
+            }
+            let key = |x: &(LayerId, i64, f64, bool)| (x.0 .0, x.1, x.2.to_bits(), x.3);
+            old.sort_by_key(key);
+            new.sort_by_key(key);
+            if old != new {
+                bad.push(format!("{name} density: {old:?} vs {new:?}"));
+            }
+        }
+        assert!(bad.is_empty(), "{} mismatches:\n{}", bad.len(), bad.join("\n"));
     }
 }
