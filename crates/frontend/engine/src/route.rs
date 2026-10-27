@@ -759,8 +759,10 @@ pub fn annotation(pdk: &Pdk, base: &annotator::AnnotationConfig) -> annotator::A
 }
 
 /// Route the placed tiles' nets (1.0 `elaborate::route_built`): `dr` over
-/// the deck's stack, `EPOCHS` negotiation rounds, the lexicographically best
-/// kept. Returns the stamped tiles, the routes and the router's report.
+/// the deck's stack, the routing requests' nets first (Q23), then the rest,
+/// each the lexicographically best of `EPOCHS` negotiation rounds. Returns
+/// the stamped tiles, the routes and the router's report, a violated request
+/// as a budget row.
 ///
 /// # Panics
 /// A deck with no routing stack (`verify` rejects such a deck on load).
@@ -781,7 +783,6 @@ pub fn route(
     // dr credits cell metal a pin reaches to that pin's net only through the
     // stack; without it a route landing on cell metal reads as a short.
     d_router.cfg.stack = cfg.process.stack;
-    let mut neg = routing::gr::Negotiation::new();
     let placed = analog::base::place_macros(tiles, layout);
     // One pin per net per island a tile already joins (two members' pins on
     // one strap, one tap rail); a net then whole in its tile has one pin
@@ -812,13 +813,12 @@ pub fn route(
         .map(|(m, k)| Macro { pins: m.pins.iter().zip(k).filter(|(p, &k)| k && kept(p.net) > 1).map(|(p, _)| p.clone()).collect(), ..m.clone() })
         .collect();
     let pins: Vec<_> = routed.iter().flat_map(|m| m.pins.iter().map(|p| (p.net, p.at, p.layer))).collect();
-    let mut best: Option<(analog::base::Routes, analog::base::Report)> = None;
-    for _ in 0..EPOCHS {
-        let (routes, report, _) = d_router.route(&pins, &routed, &[], &problem.routing, layers, cuts, &mut neg);
-        if best.as_ref().is_none_or(|(_, b)| report.lex() < b.lex()) {
-            best = Some((routes, report));
-        }
-    }
-    let (routes, report) = best.expect("EPOCHS > 0");
+    // Q23: the routing recipes' nets first, by construction; `dr` negotiates
+    // the rest around them. ponytail: no Star rows yet — `intent.common_nodes`
+    // names devices, and mapping them to placed pins needs the call members.
+    let requests = routing::requests::from_rules(&problem.routing);
+    let metals = routing::requests::Metals { layers, cuts };
+    let (routes, mut report, rows) = routing::requests::route(&d_router, &pins, &routed, &problem.routing, &requests, metals, EPOCHS);
+    report.budget_violations.extend(routing::requests::violations(&rows));
     (placed, routes, report)
 }

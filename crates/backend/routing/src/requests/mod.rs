@@ -264,11 +264,38 @@ pub fn route_requests(
     epochs: u32,
 ) -> Prerouted {
     let nets = routed_first(requests, pins, placed);
-    let mine: Vec<_> = pins.iter().copied().filter(|p| nets.contains(&p.0)).collect();
-    let placed = with_pins(placed, |n| nets.contains(&n));
+    // Every other pin rides along as a one-pin net of its own (ids past every
+    // real net): `dr` lands it and keeps its access jog clear, routes nothing
+    // to it, and the first pass's metal leaves room for the rest to land.
+    let base = pins.iter().map(|p| p.0).chain(placed.iter().flat_map(|m| m.pins.iter().map(|p| p.net))).map(|n| n.0 as usize + 1).max().unwrap_or(0);
+    let base = base.max(dr.cfg.n_nets);
+    let mut alone: Vec<Rect> = Vec::new();
+    let mut relabel = |n: NetId, at: Rect| {
+        if nets.contains(&n) {
+            return n;
+        }
+        let k = alone.iter().position(|&r| r == at).unwrap_or_else(|| {
+            alone.push(at);
+            alone.len() - 1
+        });
+        NetId(u16::try_from(base + k).expect("nets within u16"))
+    };
+    let mine: Vec<_> = pins.iter().map(|&(n, at, l)| (relabel(n, at), at, l)).collect();
+    let placed: Vec<Macro> = placed
+        .iter()
+        .map(|m| Macro {
+            pins: m.pins.iter().map(|p| analog::base::Pin { net: relabel(p.net, p.at), ..p.clone() }).collect(),
+            ..m.clone()
+        })
+        .collect();
     let dr = router(dr, requests);
-    let (routes, report, stats) =
+    let (mut routes, report, stats) =
         best_of(epochs, |neg| if nets.is_empty() { Default::default() } else { dr.route(&mine, &placed, &[], reqs, metals.layers, metals.cuts, neg) });
+    for v in [&mut routes.wires, &mut routes.cell] {
+        v.truncate(base);
+    }
+    routes.gates.truncate(base);
+    routes.terms.truncate(base);
     Prerouted { nets, routes, report, stats }
 }
 
@@ -292,7 +319,14 @@ pub fn route_rest(
     // The first pass's metal, pinless: unattributed, so it blocks every net.
     let shapes: Vec<Shape> = pre.nets.iter().flat_map(|&n| pre.routes.shapes(n).iter().copied()).collect();
     let fixed = shapes.iter().map(|s| s.rect).reduce(bbox).map(|bbox| Macro { shapes, bbox, ..Macro::default() });
-    let dr = router(dr, requests);
+    let mut dr = router(dr, requests);
+    // ...and, so no access jog lands across it either (`dr` keeps trunks
+    // alone off unattributed metal), a hard blockage of each lattice wire with
+    // no halo: a jog may still come within spacing (DRC), never touch (short).
+    dr.cfg.blockages.extend(fixed.iter().flat_map(|m| &m.shapes).filter_map(|s| {
+        let l = metals.layers.iter().position(|&l| l == s.layer)?;
+        Some(Blockage { rect: s.rect, halo: 0, layers: 1 << l, hard: true, own_exempt: false, only_aggressors: false, cell: u32::MAX, gate: false })
+    }));
     let (mut routes, report, stats) = best_of(epochs, |neg| dr.route(&rest, &placed, fixed.as_slice(), reqs, metals.layers, metals.cuts, neg));
     let n = routes.wires.len().max(pre.routes.wires.len());
     for v in [&mut routes.wires, &mut routes.cell] {
