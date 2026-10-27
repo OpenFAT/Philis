@@ -83,7 +83,11 @@ fn main() {
             println!("  gap {}→{}: drawn {drawn} nm, needed {need} nm", w[0], w[1]);
         }
         if tiles.len() > 1 {
-            println!("  x recoverable by 1-D compaction: {recoverable} nm of {} nm ({:.1} %)", plan.w, 100.0 * f64::from(recoverable) / f64::from(plan.w));
+            println!(
+                "  x recoverable by 1-D compaction: {recoverable} nm of {} nm ({:.1} %)",
+                plan.w,
+                100.0 * f64::from(recoverable) / f64::from(plan.w)
+            );
         }
     }
 }
