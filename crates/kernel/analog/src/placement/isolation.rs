@@ -1,4 +1,11 @@
 //! Substrate-noise isolation (placement tier).
+//! In → out: a [`Layout`] → aggressor-to-victim gap shortfall ([`Isolation`])
+//! and the differential imbalance of an injector ([`SubstrateBalance`]).
+//! Cites: Charbon et al. 2001 ch. 8, §8.3.1; PLC-18.
+//!
+//! Contents:
+//! - `pub struct Isolation`
+//! - `pub struct SubstrateBalance`
 
 use crate::base::ids::Target;
 use crate::base::layout::Layout;
@@ -14,6 +21,7 @@ pub struct Isolation {
     pub a: Target,
     /// Victim.
     pub b: Target,
+    /// Required edge-to-edge gap, nm.
     pub min_distance_nm: i32,
 }
 
@@ -21,8 +29,11 @@ pub struct Isolation {
 /// couples a common-mode disturbance only. Cost-only (no threshold in the source).
 #[derive(Clone, Copy)]
 pub struct SubstrateBalance {
+    /// The injector.
     pub aggressor: Target,
+    /// One half of the differential pair.
     pub a: Target,
+    /// The other half.
     pub b: Target,
 }
 
@@ -90,6 +101,7 @@ mod tests {
     use crate::rule::RuleBatch;
 
     /// Device ids in `(a, b)` order; a `Group` side contributes nothing.
+    /// Oracle: spec example, the ids listed by hand.
     #[test]
     fn touched_yields_device_ids_only() {
         let (d, g) = (|i| Target::Device(DeviceId(i)), Target::Group(GroupId(0)));
@@ -127,13 +139,16 @@ mod tests {
         SubstrateBalance { aggressor: d(g), a: d(0), b: d(1) }
     }
 
+    /// Oracle: theory, Charbon §8.3.1 (equidistant injection is common mode).
     #[test]
     fn an_aggressor_on_the_bisector_costs_nothing() {
         let l = at(&[(-5_000, 0), (5_000, 0), (0, 10_000)]);
         assert!(balance(2).cost(&l).abs() < 1e-6, "{}", balance(2).cost(&l));
-        assert!(balance(2).satisfied(&l) && balance(2).residual(&l) == 0.0, "cost-only");
+        assert!(balance(2).satisfied(&l), "cost-only");
+        assert_eq!(balance(2).residual(&l), 0.0, "cost-only");
     }
 
+    /// Oracle: spec example, the centre distances worked by hand.
     #[test]
     fn off_axis_costs() {
         let l = at(&[(-5_000, 0), (5_000, 0), (-20_000, 0), (-5_000, 10_000)]);

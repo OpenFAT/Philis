@@ -1,4 +1,9 @@
 //! Preferential proximity (placement tier).
+//! In → out: a [`Layout`] → the edge-to-edge gap of two targets against a
+//! distance cap (cost, Θ residual, usage). Cites: PLC-18 (dimensionless cost).
+//!
+//! Contents:
+//! - `pub struct Proximity`
 
 use crate::base::ids::Target;
 use crate::base::layout::Layout;
@@ -9,8 +14,11 @@ use crate::rule::Rule;
 /// Attracts only: a priced budget (Θ) and a cost pull, never a hard gate.
 #[derive(Clone, Copy)]
 pub struct Proximity {
+    /// One side; a group reads as its members' bounding box.
     pub a: Target,
+    /// The other side.
     pub b: Target,
+    /// Largest edge-to-edge gap that costs nothing, nm; > 0.
     pub max_distance_nm: i32,
 }
 
@@ -64,6 +72,7 @@ mod tests {
     use crate::rule::RuleBatch;
 
     /// Device ids in `(a, b)` order; a `Group` side contributes nothing.
+    /// Oracle: spec example, the ids listed by hand.
     #[test]
     fn touched_yields_device_ids_only() {
         let (d, g) = (|i| Target::Device(DeviceId(i)), Target::Group(GroupId(0)));

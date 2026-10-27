@@ -1,4 +1,11 @@
 //! Thermal separation of matched sets from power sources (placement tier, PLC-14).
+//! In → out: matched sets and per-cell power → [`HeatSeparation`] rules; a
+//! [`Layout`] → each rule's gap shortfall. Cites: Hastings §13.3 rule 14
+//! (1 µm per mW); PLC-18.
+//!
+//! Contents:
+//! - `pub struct HeatSeparation`
+//! - `pub fn separations(sets: &[(MatchClass, Vec<u16>)], power_uw: &[i32], source_uw: i32) -> Vec<HeatSeparation>`
 
 use crate::base::ids::{DeviceId, Target};
 use crate::base::layout::Layout;
@@ -10,8 +17,11 @@ use crate::rule::Rule;
 /// [`super::Isolation`] so it keeps its own report row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HeatSeparation {
+    /// A cell of the matched set.
     pub victim: Target,
+    /// The power source.
     pub source: Target,
+    /// Required edge-to-edge gap, nm (1 nm per µW of the source).
     pub min_gap_nm: i32,
 }
 
@@ -72,6 +82,7 @@ mod tests {
     use super::*;
 
     /// PLC-10: dp re-scores a batch only when a touched cell moves.
+    /// Oracle: spec example, the ids listed by hand.
     #[test]
     fn touched_names_both_targets() {
         use crate::rule::RuleBatch;
@@ -82,17 +93,20 @@ mod tests {
         assert_eq!(ids, [4, 1]);
     }
 
+    /// Oracle: spec example, Hastings rule 14 (2 mW → 2 µm) and the documented exclusions.
     #[test]
     fn heat_separation_scales_with_power() {
         let set = |c| [(c, vec![0u16, 1])];
         let r = separations(&set(MatchClass::Moderate), &[0, 0, 2000], 1000);
         assert_eq!(r.len(), 2);
-        assert!(r.iter().all(|h| h.min_gap_nm == 2000 && h.source == Target::Device(DeviceId(2))));
+        assert!(r.iter().all(|h| h.min_gap_nm == 2000));
+        assert!(r.iter().all(|h| h.source == Target::Device(DeviceId(2))));
         assert!(separations(&set(MatchClass::Minimal), &[0, 0, 2000], 1000).is_empty());
         assert!(separations(&set(MatchClass::Moderate), &[0, 0, 999], 1000).is_empty());
         assert!(separations(&set(MatchClass::Moderate), &[2000, 0, 0], 1000).is_empty(), "source inside the set");
     }
 
+    /// Oracle: spec example, the gap boundary by hand (1999 fails, 2000 passes).
     #[test]
     fn satisfied_iff_gap_reaches_min() {
         // Two 2 µm boxes on one row; gap = centre distance − 2000.
