@@ -479,6 +479,35 @@ pub fn diffusion_cc_row(counts: &[u16], outer: Outer) -> Option<Vec<usize>> {
     }
 }
 
+/// A diffusion-legal interdigitated finger row (Hastings Table 13.3,
+/// `(ₛAᴅAₛBᴅBₛ)ⁱ`): each member's fingers pair up S-D-S around a drain and the
+/// pairs interleave, so every inter-device boundary is a shared source. A
+/// member's pairs sit at ranks `(k + ½)/pairs`, spreading a ratioed member
+/// evenly. All even counts: both ends are sources (`Outer::Source`). Exactly
+/// two odd members: each gives one finger to an end, which is then a drain
+/// (`Outer::Drain`), and the right one's pair leads so the pattern alternates
+/// from the first boundary (`A BB AA B`). `None` otherwise (mixed parity
+/// needs a gap finger), for fewer than two members or an empty one.
+///
+/// Not common-centroid: an equal even pair's centroids sit half a pattern
+/// period (two fingers) apart.
+#[must_use]
+pub fn diffusion_interdig_row(counts: &[u16]) -> Option<(Vec<usize>, Outer)> {
+    let odd: Vec<usize> = (0..counts.len()).filter(|&d| counts[d] % 2 == 1).collect();
+    if counts.len() < 2 || counts.contains(&0) || !(odd.is_empty() || odd.len() == 2) {
+        return None;
+    }
+    let half = |d: usize| u64::from(counts[d] / 2);
+    let rank = |d: usize| if odd.get(1) == Some(&d) { 0 } else { d + 1 };
+    let mut pairs: Vec<(u64, usize)> = (0..counts.len()).flat_map(|d| (0..half(d)).map(move |k| (k, d))).collect();
+    // (k + ½)/p_d against (j + ½)/p_e, cross-multiplied.
+    pairs.sort_by(|&(k, d), &(j, e)| ((2 * k + 1) * half(e)).cmp(&((2 * j + 1) * half(d))).then(rank(d).cmp(&rank(e))));
+    let mut seq: Vec<usize> = odd.first().copied().into_iter().collect();
+    seq.extend(pairs.iter().flat_map(|&(_, d)| [d, d]));
+    seq.extend(odd.get(1).copied());
+    Some((seq, if odd.is_empty() { Outer::Source } else { Outer::Drain }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -640,6 +669,36 @@ mod tests {
                     for c in 1..=8u16 {
                         check(&[a, b, c], outer);
                     }
+                }
+            }
+        }
+    }
+
+    /// Every interdigitated row keeps its counts and puts every boundary on a
+    /// source; mixed parity has none.
+    #[test]
+    fn an_interdig_row_never_abuts_two_drains() {
+        assert_eq!(diffusion_interdig_row(&[4, 4]).map(|(s, o)| (letters(&s), o)), Some(("AABBAABB".into(), Outer::Source)));
+        assert_eq!(diffusion_interdig_row(&[3, 3]).map(|(s, o)| (letters(&s), o)), Some(("ABBAAB".into(), Outer::Drain)));
+        assert_eq!(diffusion_interdig_row(&[2, 4]).map(|(s, _)| letters(&s)), Some("BBAABB".into()));
+        assert_eq!(diffusion_interdig_row(&[1, 2]), None);
+        assert_eq!(diffusion_interdig_row(&[4]), None);
+        let check = |counts: &[u16]| {
+            let Some((s, outer)) = diffusion_interdig_row(counts) else {
+                let odd = counts.iter().filter(|&&c| c % 2 == 1).count();
+                assert!(odd != 0 && odd != 2, "{counts:?}: no row");
+                return;
+            };
+            for (d, &cnt) in counts.iter().enumerate() {
+                assert_eq!(s.iter().filter(|&&x| x == d).count(), usize::from(cnt), "{counts:?}: {s:?}");
+            }
+            assert!(diffusion_legal(&s, outer), "{counts:?}: {s:?} puts a boundary on a drain");
+        };
+        for a in 1..=12u16 {
+            for b in 1..=12u16 {
+                check(&[a, b]);
+                for c in 1..=6u16 {
+                    check(&[a, b, c]);
                 }
             }
         }
