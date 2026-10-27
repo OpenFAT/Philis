@@ -1,5 +1,7 @@
 //! PLC-08 property tests over random symmetric-feasible codes (run in release:
 //! 10,000 trees).
+//!
+//! Contents: none public.
 
 use analog::base::DeviceId;
 use placement::dp::sp::{decode, verify, Geo, Kid, Out, Scratch, Tree};
@@ -15,6 +17,8 @@ struct Case {
     /// `(420, 420)` track centreline can centre them on the lattice.
     odd_self: bool,
 }
+
+// ---- private ----
 
 /// One symmetry node (p ∈ [1, 4] pairs, s ∈ [0, 2] selfs) and up to 8 loose
 /// cells; dims multiples of 10 nm in [100, 5000] (partners equal; self widths
@@ -66,6 +70,7 @@ fn run(c: &Case) -> (Result<(), placement::dp::sp::Fail>, Out, bool) {
     (r, out, ok)
 }
 
+/// Oracle: certificate: `verify` checks every pairwise gap and mirror equation of the decoded output.
 #[test]
 fn random_sf_codes_decode_exactly() {
     let mut rng = SplitMix64::new(7);
@@ -96,6 +101,7 @@ fn cells_under(t: &Tree, ni: usize, out: &mut Vec<usize>) {
     }
 }
 
+/// Oracle: certificate: no outside cell's box meets a node's bbox, from the decoded coordinates.
 #[test]
 fn contiguous_node_has_exclusive_bbox() {
     let mut rng = SplitMix64::new(7);
@@ -121,6 +127,7 @@ fn contiguous_node_has_exclusive_bbox() {
     assert!(checked > 1_000, "only {checked} nodes checked");
 }
 
+/// Oracle: certificate: every pair separated by at least the fallback gap, measured on the output.
 #[test]
 fn pairwise_gaps_hold_with_shadows() {
     let mut rng = SplitMix64::new(7);
@@ -144,6 +151,7 @@ fn pairwise_gaps_hold_with_shadows() {
     }
 }
 
+/// Oracle: arithmetic: every coordinate mod 10 is zero.
 #[test]
 fn every_coordinate_is_on_the_lattice() {
     let mut rng = SplitMix64::new(7);
@@ -169,6 +177,7 @@ fn run_grid(c: &Case, grid: Option<(i32, i32)>) -> (Result<(), placement::dp::sp
 /// PLC-28: with sky130's `(p0, P) = (420, 420)` every axis lands on a track
 /// centreline (`210 mod 420`), and every code decodes unless a self kid is an
 /// odd number of lattice steps wide (its corner would sit 5 nm off-lattice).
+/// Oracle: arithmetic: every axis is 210 mod 420 (sky130's track grid); odd self kids refuse.
 #[test]
 fn axes_land_on_track_centrelines() {
     let mut rng = SplitMix64::new(7);
@@ -189,6 +198,7 @@ fn axes_land_on_track_centrelines() {
 }
 
 /// Snapping raises a symmetry node's width by less than `2·P`.
+/// Oracle: the snapped width against the unsnapped decode, at most 2·P apart.
 #[test]
 fn axis_snapping_costs_at_most_one_period_per_level() {
     let mut rng = SplitMix64::new(7);
@@ -217,6 +227,7 @@ fn axis_snapping_costs_at_most_one_period_per_level() {
 /// pushes the right member past its mirror and `fix_monotone` must re-snap
 /// (twice: the error halves per pass). A 2000 nm halo needs more than the
 /// `2p + 2` passes and fails at the cap.
+/// Oracle: hand geometry: the 40 nm halo's push; the 2000 nm halo exceeds the `2p + 2` cap.
 #[test]
 fn asymmetric_push_runs_fix_monotone() {
     let (w, h) = (vec![100, 100, 1000], vec![100, 100, 100]);
@@ -246,6 +257,7 @@ fn asymmetric_push_runs_fix_monotone() {
 /// cell's orient. At R0 the row gap 0→1 carries it; at R90
 /// (`oriented_faces` puts it on B) the row gap is the bare minimum and the
 /// column gap with cell 1 above cell 0 carries it.
+/// Oracle: the orientation group: R90 moves the left-face halo to the bottom face.
 #[test]
 fn halo_follows_the_orient() {
     use analog::base::Orient;

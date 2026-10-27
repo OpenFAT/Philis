@@ -5,14 +5,21 @@
 //! `LiveEnvironment`, …; or [`analog::RuleBatch::reads_field`]: `MatchedSet`). Totals are re-summed in the order
 //! [`crate::gp::mechanics`] sums them, so a cached value is bit-identical to a full
 //! evaluation, not merely close.
+//!
+//! Contents:
+//! - `pub(crate) struct Eval`
+//! - `Eval::new(reqs: &Requirements<Layout>, nets: &Nets, n: usize) -> Self`
+//! - `Eval::full(&mut self, reqs: &Requirements<Layout>, nets: &Nets, l: &Layout, prices: &crate::gp::Prices)`
+//! - `Eval::update(&mut self, moved: &[usize], all: bool, reqs: &Requirements<Layout>, nets: &Nets, l: &Layout, prices: &crate::gp::Prices)`
+//! - `Eval::revert(&mut self)`
+//! - `Eval::commit(&mut self)`
+//! - `Eval::phi(&self) -> (usize, f64)`
+//! - `Eval::theta(&self) -> f64`
+//! - `Eval::energy(&self, l: &Layout) -> f64`
 
 use crate::gp::mechanics::Nets;
 use analog::base::Layout;
 use analog::Requirements;
-
-/// One batch's cached numbers: hard `(residual, 0, violations)`, budget
-/// `(residual, priced term, 0)`, cost `(criticality·cost, 0, 0)`.
-type Row = (f64, f64, u32);
 
 pub(crate) struct Eval {
     net_hpwl: Vec<f64>,
@@ -29,6 +36,10 @@ pub(crate) struct Eval {
     undo_n: Vec<(u32, f64)>,
     undo_r: Vec<(u32, Row)>,
 }
+
+/// One batch's cached numbers: hard `(residual, 0, violations)`, budget
+/// `(residual, priced term, 0)`, cost `(criticality·cost, 0, 0)`.
+type Row = (f64, f64, u32);
 
 impl Eval {
     pub(crate) fn new(reqs: &Requirements<Layout>, nets: &Nets, n: usize) -> Self {

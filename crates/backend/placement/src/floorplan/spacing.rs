@@ -1,5 +1,13 @@
 //! The gap between neighbouring tiles from the shapes that face across it,
 //! per layer pair, instead of the widest spacing any drawn layer has.
+//!
+//! Contents:
+//! - `pub struct Spacing`
+//! - `Spacing::of(process: &dyn Process, roles: &[&str]) -> Self`
+//! - `pub(super) fn clearance(placed: &[Shape], moving: &[Shape], spacing: &Spacing, vertical: bool, merged: Option<LayerId>) -> i32`
+//! - `pub(super) fn oriented(shapes: &[Shape], bbox: Rect, o: Orient) -> Vec<Shape>`
+//! - `pub(super) fn shifted(shapes: &[Shape], dx: i32, dy: i32) -> impl Iterator<Item = Shape> + '_`
+//! - `pub(super) fn mirrored(shapes: &[Shape]) -> impl Iterator<Item = Shape> + '_`
 
 use analog::base::{LayerId, Orient, Process, Rect, Shape};
 

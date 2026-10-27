@@ -1,0 +1,406 @@
+//! The flat anneal's state and move set: a layout and one proposed move →
+//! the layout moved and kept, or rolled back, by [`Sa::trial`]'s gate
+//! (`(violating hard batches, Σ hard residual, clearance encroachment, Θ)`
+//! lexicographic, Metropolis on the PEX tier). Cites PLC-10, PLC-21.
+//!
+//! Contents:
+//! - `pub(super) struct Sa<'a>`
+//! - `pub(super) struct SymGroup`
+//! - `Sa::new(nets: Nets, n: usize, reqs: &'a Requirements<Layout>, prices: &'a crate::gp::Prices, fixed: &'a [bool], rules: &crate::gp::PlaceRules) -> Self`
+//! - `Sa::is_fixed(&self, i: usize) -> bool`
+//! - `Sa::pex(&self, l: &Layout) -> f64`
+//! - `Sa::encroach_moved(&self, l: &Layout) -> f64`
+//! - `pub(super) fn accept(before: (usize, f64, f64, f64), after: (usize, f64, f64, f64), d_pex: f64, temp: f64, rng: &mut SplitMix64) -> bool`
+//! - `pub(super) fn try_move(sa: &mut Sa, l: &mut Layout, rng: &mut SplitMix64, temp: f64, c: usize, nx: i32, ny: i32) -> bool`
+//! - `pub(super) fn try_swap(sa: &mut Sa, l: &mut Layout, rng: &mut SplitMix64, temp: f64, c: usize, o: usize, clamp_x: &impl Fn(i32, i32) -> i32, clamp_y: &impl Fn(i32, i32) -> i32) -> bool`
+//! - `pub(super) fn sym_groups(reqs: &Requirements<Layout>, n: usize) -> Vec<SymGroup>`
+//! - `pub(super) fn try_group_shift(sa: &mut Sa, l: &mut Layout, rng: &mut SplitMix64, temp: f64, g: &SymGroup, dx: i32, dy: i32, clamp_x: &impl Fn(i32, i32) -> i32, clamp_y: &impl Fn(i32, i32) -> i32) -> bool`
+//! - `pub(super) fn try_pair_expand(sa: &mut Sa, l: &mut Layout, rng: &mut SplitMix64, temp: f64, a: usize, b: usize, d: i32, clamp_x: &impl Fn(i32, i32) -> i32) -> bool`
+//! - `pub(super) fn try_pair_swap(sa: &mut Sa, l: &mut Layout, rng: &mut SplitMix64, temp: f64, a: usize, b: usize) -> bool`
+//! - `pub(super) fn try_branch(sa: &mut Sa, l: &mut Layout, rng: &mut SplitMix64, temp: f64, bid: usize) -> bool`
+//! - `pub(super) fn quarter_turn(o: Orient) -> Orient`
+//! - `pub(super) fn try_rotate(sa: &mut Sa, l: &mut Layout, rng: &mut SplitMix64, temp: f64, set: &[usize], rel: &[Orient], clamp_x: &impl Fn(i32, i32) -> i32, clamp_y: &impl Fn(i32, i32) -> i32) -> bool`
+//! - `pub(super) fn try_reshape(sa: &mut Sa, l: &mut Layout, rng: &mut SplitMix64, temp: f64, set: &[usize], variants: &[crate::gp::VariantSpace], clamp_x: &impl Fn(i32, i32) -> i32, clamp_y: &impl Fn(i32, i32) -> i32) -> bool`
+
+use analog::base::{Layout, Orient};
+use analog::Requirements;
+
+use super::PlaceStats;
+use crate::gp::mechanics::{analog_phi, analog_theta, pex, variant_extents, Nets, SplitMix64};
+
+/// SA state. `nets` is owned because a reshape patches pin offsets in place.
+pub(super) struct Sa<'a> {
+    pub(super) nets: Nets,
+    cell_nets: Vec<Vec<u32>>,
+    reqs: &'a Requirements<Layout>,
+    /// Read-only during the anneal: Metropolis needs a fixed energy.
+    prices: &'a crate::gp::Prices,
+    fixed: &'a [bool],
+    /// Per-pair spacing (Arc-backed, cheap to own).
+    rules: crate::gp::PlaceRules,
+    grid: i32,
+    snap: Snap,
+    pub(super) moved: Vec<usize>,
+    pub(super) stats: PlaceStats,
+}
+
+/// One symmetry axis and the mirror pairs sharing it (self-pairs `a == b` sit
+/// on the axis).
+pub(super) struct SymGroup {
+    pub(super) axis: usize,
+    pub(super) pairs: Vec<(usize, usize)>,
+    pub(super) members: Vec<usize>,
+}
+
+/// The mutable columns a move can touch, for rollback.
+#[derive(Default)]
+struct Snap {
+    x: Vec<i32>,
+    y: Vec<i32>,
+    hw: Vec<i32>,
+    hh: Vec<i32>,
+    variant: Vec<u16>,
+    orient: Vec<Orient>,
+    axis: Vec<i32>,
+    branch: Vec<bool>,
+}
+
+impl<'a> Sa<'a> {
+    pub(super) fn new(
+        nets: Nets,
+        n: usize,
+        reqs: &'a Requirements<Layout>,
+        prices: &'a crate::gp::Prices,
+        fixed: &'a [bool],
+        rules: &crate::gp::PlaceRules,
+    ) -> Self {
+        Sa {
+            cell_nets: nets.cell_nets(n),
+            nets,
+            reqs,
+            prices,
+            fixed,
+            rules: rules.clone(),
+            grid: rules.grid,
+            snap: Snap::default(),
+            moved: Vec::new(),
+            stats: PlaceStats::default(),
+        }
+    }
+
+    pub(super) fn is_fixed(&self, i: usize) -> bool {
+        self.fixed.get(i).copied().unwrap_or(false)
+    }
+
+    /// PEX tier, dimensionless: pin HPWL / L_ref + priced analog cost.
+    pub(super) fn pex(&self, l: &Layout) -> f64 {
+        pex(&self.nets, self.reqs, l, self.prices)
+    }
+
+    /// Clearance encroachment of every pair with a member in `self.moved`.
+    pub(super) fn encroach_moved(&self, l: &Layout) -> f64 {
+        let mut t = 0.0;
+        for (i, &c) in self.moved.iter().enumerate() {
+            for b in 0..l.x.len() {
+                if b != c && !self.moved[..i].contains(&b) {
+                    t += self.rules.encroach(l, c, b);
+                }
+            }
+        }
+        t
+    }
+
+    /// Apply `mutate`, repair any newly broken hard batch by projection, and
+    /// keep the result iff [`accept`] says so; otherwise roll back. Pairs with
+    /// no moved member cancel in the encroachment comparison, so it is exact.
+    fn trial(&mut self, l: &mut Layout, rng: &mut SplitMix64, temp: f64, mutate: impl FnOnce(&mut Layout, &mut Nets, &[Vec<u32>])) -> bool {
+        self.stats.proposals += 1;
+        self.snap.save(l);
+        let phi0 = analog_phi(self.reqs, l);
+        let theta0 = analog_theta(self.reqs, l);
+        let pex0 = self.pex(l);
+        mutate(l, &mut self.nets, &self.cell_nets);
+
+        let mut phi1 = analog_phi(self.reqs, l);
+        if phi1.0 > phi0.0 {
+            for b in &self.reqs.hard {
+                if b.violations(l) > 0 {
+                    b.project(l, self.grid);
+                }
+            }
+            phi1 = analog_phi(self.reqs, l);
+        }
+
+        let s = &self.snap;
+        self.moved.clear();
+        self.moved.extend((0..l.x.len()).filter(|&i| l.x[i] != s.x[i] || l.y[i] != s.y[i] || l.hw[i] != s.hw[i] || l.hh[i] != s.hh[i]));
+        let ov1 = self.encroach_moved(l);
+        self.snap.swap_geometry(l);
+        let ov0 = self.encroach_moved(l);
+        self.snap.swap_geometry(l);
+
+        let before = (phi0.0, phi0.1, ov0, theta0);
+        let after = (phi1.0, phi1.1, ov1, analog_theta(self.reqs, l));
+        if accept(before, after, self.pex(l) - pex0, temp, rng) {
+            self.stats.accepted += 1;
+            return true;
+        }
+        self.snap.restore(l);
+        false
+    }
+}
+
+/// Lexicographic acceptance: a change in the gate key decides outright (lower
+/// wins, even at a PEX cost); only a tie lets Metropolis judge `d_pex`.
+#[inline]
+pub(super) fn accept(before: (usize, f64, f64, f64), after: (usize, f64, f64, f64), d_pex: f64, temp: f64, rng: &mut SplitMix64) -> bool {
+    if after != before {
+        return after < before;
+    }
+    d_pex <= 0.0 || (temp > 0.0 && rng.f64() < (-d_pex / temp).exp())
+}
+
+pub(super) fn try_move(sa: &mut Sa, l: &mut Layout, rng: &mut SplitMix64, temp: f64, c: usize, nx: i32, ny: i32) -> bool {
+    sa.trial(l, rng, temp, |l, _, _| {
+        l.x[c] = nx;
+        l.y[c] = ny;
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn try_swap(
+    sa: &mut Sa,
+    l: &mut Layout,
+    rng: &mut SplitMix64,
+    temp: f64,
+    c: usize,
+    o: usize,
+    clamp_x: &impl Fn(i32, i32) -> i32,
+    clamp_y: &impl Fn(i32, i32) -> i32,
+) -> bool {
+    sa.trial(l, rng, temp, |l, _, _| {
+        let (cx, cy) = (clamp_x(l.x[o], l.hw[c]), clamp_y(l.y[o], l.hh[c]));
+        let (ox, oy) = (clamp_x(l.x[c], l.hw[o]), clamp_y(l.y[c], l.hh[o]));
+        (l.x[c], l.y[c], l.x[o], l.y[o]) = (cx, cy, ox, oy);
+    })
+}
+
+pub(super) fn sym_groups(reqs: &Requirements<Layout>, n: usize) -> Vec<SymGroup> {
+    let mut raw = Vec::new();
+    for b in &reqs.hard {
+        b.mirror_pairs(&mut raw);
+    }
+    let mut out: Vec<SymGroup> = Vec::new();
+    for (a, b, axis) in raw {
+        let (a, b, axis) = (a as usize, b as usize, usize::from(axis));
+        if a >= n || b >= n {
+            continue;
+        }
+        let i = out.iter().position(|g| g.axis == axis).unwrap_or_else(|| {
+            out.push(SymGroup { axis, pairs: Vec::new(), members: Vec::new() });
+            out.len() - 1
+        });
+        let g = &mut out[i];
+        g.pairs.push((a, b));
+        for m in [a, b] {
+            if !g.members.contains(&m) {
+                g.members.push(m);
+            }
+        }
+    }
+    out
+}
+
+/// Translate a whole symmetric group and its axis by `(dx, dy)`. Rejected
+/// outright if the die boundary would clamp any member (that would break the
+/// mirror equations the move exists to keep).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn try_group_shift(
+    sa: &mut Sa,
+    l: &mut Layout,
+    rng: &mut SplitMix64,
+    temp: f64,
+    g: &SymGroup,
+    dx: i32,
+    dy: i32,
+    clamp_x: &impl Fn(i32, i32) -> i32,
+    clamp_y: &impl Fn(i32, i32) -> i32,
+) -> bool {
+    let fits = g.members.iter().all(|&m| clamp_x(l.x[m] + dx, l.hw[m]) == l.x[m] + dx && clamp_y(l.y[m] + dy, l.hh[m]) == l.y[m] + dy);
+    if !fits || (dx, dy) == (0, 0) {
+        return false;
+    }
+    sa.trial(l, rng, temp, |l, _, _| {
+        for &m in &g.members {
+            l.x[m] += dx;
+            l.y[m] += dy;
+        }
+        if let Some(a) = l.axis.get_mut(g.axis) {
+            *a += dx;
+        }
+    })
+}
+
+/// Move a mirror pair `d` further apart (or closer), axis fixed: `x_a + x_b`
+/// is unchanged, so the pair stays mirrored.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn try_pair_expand(
+    sa: &mut Sa,
+    l: &mut Layout,
+    rng: &mut SplitMix64,
+    temp: f64,
+    a: usize,
+    b: usize,
+    d: i32,
+    clamp_x: &impl Fn(i32, i32) -> i32,
+) -> bool {
+    let (lo, hi) = if l.x[a] <= l.x[b] { (a, b) } else { (b, a) };
+    let (nlo, nhi) = (l.x[lo] - d, l.x[hi] + d);
+    if a == b || d == 0 || nlo >= nhi || clamp_x(nlo, l.hw[lo]) != nlo || clamp_x(nhi, l.hw[hi]) != nhi {
+        return false;
+    }
+    sa.trial(l, rng, temp, |l, _, _| {
+        l.x[lo] = nlo;
+        l.x[hi] = nhi;
+    })
+}
+
+/// Exchange a mirror pair's sides: still mirrored, the other half of the
+/// circuit now faces each neighbour (routing and gradient exposure change).
+pub(super) fn try_pair_swap(sa: &mut Sa, l: &mut Layout, rng: &mut SplitMix64, temp: f64, a: usize, b: usize) -> bool {
+    sa.trial(l, rng, temp, |l, _, _| {
+        l.x.swap(a, b);
+        l.y.swap(a, b);
+    })
+}
+
+/// Flip one DTI share/isolate commitment. Geometry is untouched, so on a legal
+/// pair the decision lands on `DtiBand::cost` in the PEX tier; mid-band, a flip
+/// toward the nearer exit lowers Φ's margin and is taken outright.
+pub(super) fn try_branch(sa: &mut Sa, l: &mut Layout, rng: &mut SplitMix64, temp: f64, bid: usize) -> bool {
+    sa.trial(l, rng, temp, |l, _, _| l.branch[bid] = !l.branch[bid])
+}
+
+/// One 90° step within the current reflection class; never introduces a mirror.
+pub(super) fn quarter_turn(o: Orient) -> Orient {
+    match o {
+        Orient::R0 => Orient::R90,
+        Orient::R90 => Orient::R180,
+        Orient::R180 => Orient::R270,
+        Orient::R270 => Orient::R0,
+        Orient::Mx => Orient::Mx90,
+        Orient::Mx90 => Orient::Mx180,
+        Orient::Mx180 => Orient::Mx270,
+        Orient::Mx270 => Orient::Mx,
+    }
+}
+
+/// Turn a whole orient set a quarter, in one trial; `hw`/`hh` swap with the
+/// orientation (`Layout::orient`). Every member becomes `o0.then(rel[c])` with
+/// `o0` the first member's turned orient, so a Perfect set keeps one
+/// orientation and a Mirror partner stays its `Mx180` reflection (PLC-21). No
+/// move introduces a mirror; only seeding ([`locks::Locks::align`]) does.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn try_rotate(
+    sa: &mut Sa,
+    l: &mut Layout,
+    rng: &mut SplitMix64,
+    temp: f64,
+    set: &[usize],
+    rel: &[Orient],
+    clamp_x: &impl Fn(i32, i32) -> i32,
+    clamp_y: &impl Fn(i32, i32) -> i32,
+) -> bool {
+    sa.trial(l, rng, temp, |l, _, _| {
+        let o0 = quarter_turn(l.orient[set[0]]);
+        for &c in set {
+            l.orient[c] = o0.then(rel.get(c).copied().unwrap_or(Orient::R0));
+            (l.hw[c], l.hh[c]) = (l.hh[c], l.hw[c]);
+            l.x[c] = clamp_x(l.x[c], l.hw[c]);
+            l.y[c] = clamp_y(l.y[c], l.hh[c]);
+        }
+    })
+}
+
+/// Swap a whole shape set (first member `set[0]`) to one uniformly drawn other
+/// variant, in one trial. Extents follow the new bbox (transposed under a
+/// turned orient) and the pin offsets are patched before pricing, so the move
+/// is scored on where pins land. Refused when any member is fixed or has a
+/// different variant count.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn try_reshape(
+    sa: &mut Sa,
+    l: &mut Layout,
+    rng: &mut SplitMix64,
+    temp: f64,
+    set: &[usize],
+    variants: &[crate::gp::VariantSpace],
+    clamp_x: &impl Fn(i32, i32) -> i32,
+    clamp_y: &impl Fn(i32, i32) -> i32,
+) -> bool {
+    let c = set[0];
+    let depth = variants[c].alternatives.len();
+    if depth < 2 || set.iter().any(|&m| sa.is_fixed(m) || variants[m].alternatives.len() != depth) {
+        return false;
+    }
+    let cur = l.variant[c] as usize;
+    let draw = rng.below(depth - 1);
+    let next = if cur < depth && draw >= cur { draw + 1 } else { draw };
+
+    let ok = sa.trial(l, rng, temp, |l, nets, cell_nets| {
+        for &m in set {
+            let alt = &variants[m].alternatives[next];
+            let (w, h) = variant_extents(alt);
+            l.variant[m] = next as u16;
+            (l.hw[m], l.hh[m]) = match l.orient.get(m) {
+                Some(o) if o.swaps_axes() => (h, w),
+                _ => (w, h),
+            };
+            l.x[m] = clamp_x(l.x[m], l.hw[m]);
+            l.y[m] = clamp_y(l.y[m], l.hh[m]);
+            nets.reshape_cell(m, &cell_nets[m], alt);
+        }
+    });
+    if !ok {
+        for &m in set {
+            if let Some(alt) = variants[m].alternatives.get(l.variant[m] as usize) {
+                sa.nets.reshape_cell(m, &sa.cell_nets[m], alt);
+            }
+        }
+    }
+    ok
+}
+
+// ---- private ----
+
+impl Snap {
+    fn save(&mut self, l: &Layout) {
+        self.x.clone_from(&l.x);
+        self.y.clone_from(&l.y);
+        self.hw.clone_from(&l.hw);
+        self.hh.clone_from(&l.hh);
+        self.variant.clone_from(&l.variant);
+        self.orient.clone_from(&l.orient);
+        self.axis.clone_from(&l.axis);
+        self.branch.clone_from(&l.branch);
+    }
+
+    fn restore(&self, l: &mut Layout) {
+        l.x.clone_from(&self.x);
+        l.y.clone_from(&self.y);
+        l.hw.clone_from(&self.hw);
+        l.hh.clone_from(&self.hh);
+        l.variant.clone_from(&self.variant);
+        l.orient.clone_from(&self.orient);
+        l.axis.clone_from(&self.axis);
+        l.branch.clone_from(&self.branch);
+    }
+
+    /// Exchange the geometry columns with `l` (O(1)), to measure the pre-move state.
+    fn swap_geometry(&mut self, l: &mut Layout) {
+        std::mem::swap(&mut self.x, &mut l.x);
+        std::mem::swap(&mut self.y, &mut l.y);
+        std::mem::swap(&mut self.hw, &mut l.hw);
+        std::mem::swap(&mut self.hh, &mut l.hh);
+    }
+}

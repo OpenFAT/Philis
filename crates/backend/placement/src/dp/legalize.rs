@@ -1,6 +1,9 @@
 //! Terminal legalization: push devices apart until every pair is at least
 //! its per-pair gap ([`PlaceRules::gaps`]) apart on some axis. Every overlap is a defect — `cellgen` emits
 //! one self-contained macro per cell, so nothing shares diffusion.
+//!
+//! Contents:
+//! - `pub fn separate_overlaps(l: &mut Layout, reqs: &Requirements<Layout>, rules: &PlaceRules, max_sweeps: u32) -> f64`
 
 use crate::gp::mechanics::{analog_violations, snap};
 use crate::gp::PlaceRules;
@@ -96,6 +99,7 @@ mod tests {
         }
     }
 
+    /// Oracle: `encroachment`'s full pairwise scan reads zero after the pass.
     #[test]
     fn fully_overlapping_devices_are_separated() {
         // Two devices stacked exactly on top of each other.
@@ -107,6 +111,7 @@ mod tests {
         assert_eq!(encroachment(&l, 0), 0.0);
     }
 
+    /// Oracle: the input is legal by construction, so any coordinate change is wrong.
     #[test]
     fn already_legal_layout_is_untouched() {
         let mut l = layout(&[(0, 0), (10_000, 0)], 500);
@@ -117,6 +122,7 @@ mod tests {
         assert_eq!((l.x, l.y), before);
     }
 
+    /// Oracle: `encroachment`'s full pairwise scan reads zero after the pass.
     #[test]
     fn devices_in_one_group_are_separated_too() {
         // Grouping used to exempt a pair from separation, on the premise that the
@@ -131,6 +137,7 @@ mod tests {
         assert_eq!(encroachment(&l, 0), 0.0, "and it must actually be pulled apart");
     }
 
+    /// Oracle: `encroachment`'s full scan and `Layout::debug_check_placed`.
     #[test]
     fn every_pair_separates_regardless_of_grouping() {
         // Four devices in two groups, all landing on each other.
@@ -143,6 +150,7 @@ mod tests {
         l.debug_check_placed("separate_overlaps");
     }
 
+    /// Oracle: the gap measured from the boxes against the 1300 nm clearance asked for.
     #[test]
     fn clearance_pushes_past_mere_non_overlap() {
         // Two devices that merely touch are "not overlapping" yet still illegal:
@@ -157,6 +165,7 @@ mod tests {
         assert!(gap >= 1_300, "expected >=1300nm of clearance, got {gap}");
     }
 
+    /// Oracle: hand geometry: a 900 nm y overlap against a 10 µm x overlap, so x must not move.
     #[test]
     fn separates_along_the_cheaper_axis() {
         // Deep in x, shallow in y ⇒ push apart vertically, leaving x alone.

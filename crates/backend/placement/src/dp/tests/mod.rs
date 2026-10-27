@@ -1,19 +1,33 @@
+//! Detailed-placement tests: coarse layouts → `place` and its moves, checked
+//! against the analog rules (`SymmetryGroup`, `HeatSeparation`), the full
+//! encroachment scan, hand-worked keys and seeded reproducibility.
+//!
+//! Contents: none public.
+
+mod moves;
+
+use analog::base::geom::Rect;
+use analog::base::ids::{AxisId, Target};
+use analog::base::DeviceId;
+use analog::base::Orient;
+use analog::placement::symmetry::{SymMode, Symmetry, SymmetryGroup};
+use analog::placement::DtiBand;
+use analog::Rule;
+
+use super::moves::accept;
 use super::*;
+use crate::gp::mechanics::analog_theta;
+use crate::gp::mechanics::{analog_violations, encroachment, hpwl};
+use crate::gp::VariantSpace;
 
 /// sky130-like placement rules the fixed-geometry tests are written against.
 const CLEARANCE_NM: i32 = 2000;
 
+// ---- private ----
+
 fn rules(c: i32) -> crate::gp::PlaceRules {
     crate::gp::PlaceRules::uniform(5, c)
 }
-use crate::gp::mechanics::{analog_violations, encroachment, hpwl};
-use crate::gp::VariantSpace;
-use analog::base::geom::Rect;
-use analog::base::ids::{AxisId, Target};
-use analog::base::DeviceId;
-use analog::placement::symmetry::{SymMode, Symmetry, SymmetryGroup};
-use analog::placement::DtiBand;
-use analog::Rule;
 
 /// Layout of devices `(x, y, hw, hh)`, each in its own group.
 fn layout(cells: &[(i32, i32, i32, i32)]) -> Layout {
@@ -52,6 +66,7 @@ fn rotate_bench() -> Layout {
     l
 }
 
+/// Oracle: the input's symmetry pair: both members, and only they, carry a lock.
 #[test]
 fn matched_cells_share_one_orient_set() {
     let reqs = Requirements { hard: vec![Box::new(SymmetryGroup(vec![sym(0, 1)]))], ..Default::default() };
@@ -63,6 +78,7 @@ fn matched_cells_share_one_orient_set() {
 
 /// A matched set that is no hard rule and has no units: the lock can only come
 /// from `matched_pairs`, and it must actually turn.
+/// Oracle: the `OrientationSet` contract: equal orients on every seed, and at least one non-R0.
 #[test]
 fn mixed_polarity_composite_halves_turn_together() {
     use analog::placement::{OrientCheck, OrientationSet};
@@ -82,6 +98,7 @@ fn mixed_polarity_composite_halves_turn_together() {
 
 /// PLC-21: a Mirror pair is seeded as reflections and every set rotation keeps
 /// the partner at `orient[0].then(Mx180)`.
+/// Oracle: the orientation group: `orient[1] == orient[0].then(Mx180)` on every seed.
 #[test]
 fn mirror_pair_keeps_its_reflection_through_rotation() {
     let coarse = rotate_bench();
@@ -95,6 +112,7 @@ fn mirror_pair_keeps_its_reflection_through_rotation() {
     assert!(turned, "the mirrored set never turned");
 }
 
+/// Oracle: the coarse extents swapped by hand for every quarter turn.
 #[test]
 fn extents_stay_in_lockstep_with_orientation() {
     let coarse = rotate_bench();
@@ -108,6 +126,7 @@ fn extents_stay_in_lockstep_with_orientation() {
     assert_eq!(l.orient[0], l.orient[1]);
 }
 
+/// Oracle: metamorphic: the same seed twice gives the same layout.
 #[test]
 fn placement_is_deterministic_for_a_seed() {
     let coarse = rotate_bench();
@@ -118,6 +137,7 @@ fn placement_is_deterministic_for_a_seed() {
     assert_eq!(go(), go());
 }
 
+/// Oracle: liveness only: some free cell ends off R0. No independent oracle for which orient is right.
 #[test]
 fn rotation_actually_happens() {
     let l = run(&rotate_bench(), &[], &[], &Requirements::default(), &[false; 4], 0);
@@ -152,6 +172,7 @@ fn assert_extents(l: &Layout, variants: &[VariantSpace], seed: u64) {
     }
 }
 
+/// Oracle: the variant space: each cell's extent equals its chosen alternative's.
 #[test]
 fn reshape_changes_the_variant_and_keeps_the_extent_invariant() {
     let coarse = variant_bench();
@@ -165,6 +186,7 @@ fn reshape_changes_the_variant_and_keeps_the_extent_invariant() {
     assert!(fired, "the reshape move never fired");
 }
 
+/// Oracle: the input: a fixed cell keeps variant 0 and its coarse extent.
 #[test]
 fn a_fixed_cell_never_reshapes() {
     let coarse = variant_bench();
@@ -176,6 +198,7 @@ fn a_fixed_cell_never_reshapes() {
     }
 }
 
+/// Oracle: the symmetry pair: equal variants on every seed.
 #[test]
 fn mirror_partners_reshape_together() {
     let s = || VariantSpace { alternatives: vec![alt(1_000, 4_000), alt(2_000, 2_000), alt(4_000, 1_000)] };
@@ -192,6 +215,7 @@ fn mirror_partners_reshape_together() {
 }
 
 /// Fixed means drawn as given, not pinned: two stacked fixed cells separate.
+/// Oracle: `encroachment`'s full scan reads zero; variant, orient and extent equal the input's.
 #[test]
 fn fixed_cells_separate_but_keep_shape() {
     let variants = spaces();
@@ -205,6 +229,7 @@ fn fixed_cells_separate_but_keep_shape() {
     }
 }
 
+/// Oracle: liveness: some seed gives two different variants.
 #[test]
 fn unmatched_cells_reshape_independently() {
     let coarse = variant_bench();
@@ -215,53 +240,11 @@ fn unmatched_cells_reshape_independently() {
     }));
 }
 
-/// Same bbox, one pin on the face at `x`.
-fn pin_alt(x: i32) -> Macro {
-    Macro {
-        shapes: Vec::new(),
-        pins: vec![analog::base::Pin {
-            name: "G".to_string(),
-            net: analog::base::NetId(0),
-            at: Rect { x, y: 4_950, w: 100, h: 100 },
-            layer: analog::base::LayerId(0),
-        }],
-        bbox: Rect { x: 0, y: 0, w: 10_000, h: 10_000 },
-        units: Vec::new(),
-        dummies: Vec::new(),
-        ..Default::default()
-    }
-}
-
-/// Equal bboxes, different pin faces: the reshape must be priced on pins.
-/// `temp = 0` makes the refusal of the lengthening move unfakeable.
-#[test]
-fn reshape_is_priced_on_where_the_pins_land() {
-    let space = || VariantSpace { alternatives: vec![pin_alt(0), pin_alt(9_900)] };
-    let variants = vec![space(), space()];
-    let mut l = layout(&[(0, 0, 5_000, 5_000), (100_000, 0, 5_000, 5_000)]);
-    let reqs = Requirements::default();
-    let prices = crate::gp::Prices::new();
-    let nets = Nets::from_macros(&[pin_alt(0), pin_alt(0)]);
-    assert_eq!(nets.count(), 1);
-    let mut sa = Sa::new(nets, 2, &reqs, &prices, &[], &rules(0));
-    let mut rng = SplitMix64::new(1);
-    let free = |c: i32, _half: i32| c;
-
-    let before = hpwl(&sa.nets, &l);
-    assert!(try_reshape(&mut sa, &mut l, &mut rng, 0.0, &[0], &variants, &free, &free));
-    assert_eq!(l.variant[0], 1);
-    let after = hpwl(&sa.nets, &l);
-    assert!(after < before, "{before} -> {after}");
-
-    assert!(!try_reshape(&mut sa, &mut l, &mut rng, 0.0, &[0], &variants, &free, &free));
-    assert_eq!(l.variant[0], 1);
-    assert_eq!(hpwl(&sa.nets, &l), after, "refusal must revert the pin geometry too");
-}
-
 // ---- prices ----
 
 /// T6: the dual step is the flow's, once per epoch on the scored layout; gp
 /// and dp only bind, so a violated budget leaves a fresh `Prices` unstepped.
+/// Oracle: the input: a fresh `Prices` must still read λ0 after `place`.
 #[test]
 fn place_does_not_settle() {
     #[derive(Clone, Copy)]
@@ -298,141 +281,6 @@ fn place_does_not_settle() {
     assert_eq!(prices.steps(), 0);
 }
 
-// ---- lexicographic acceptance ----
-
-/// PEX change for moving device 0 to `(x, 0)`.
-fn dpex(sa: &Sa, l: &mut Layout, x: i32) -> f64 {
-    let before = sa.pex(l);
-    let ox = l.x[0];
-    l.x[0] = x;
-    let d = sa.pex(l) - before;
-    l.x[0] = ox;
-    d
-}
-
-/// Cost pulls devices 0 and 1 together with no floor.
-#[derive(Clone, Copy)]
-struct Attract;
-impl Rule for Attract {
-    type On = Layout;
-    fn cost(self, l: &Layout) -> f32 {
-        ((l.x[0] - l.x[1]).abs() + (l.y[0] - l.y[1]).abs()) as f32
-    }
-}
-
-fn attract_bench() -> (Requirements<Layout>, Layout) {
-    let reqs = Requirements { hard: Vec::new(), budget: Vec::new(), cost: vec![Box::new(vec![Attract])] };
-    (reqs, layout(&[(0, 0, 1_000, 1_000), (4_000, 0, 1_000, 1_000)]))
-}
-
-/// At `temp = 1e12` Metropolis takes anything, so a refusal is the Φ tier's.
-#[test]
-fn phi_rejects_a_cost_lowering_move_that_stacks_geometry() {
-    let (reqs, mut l) = attract_bench();
-    let prices = crate::gp::Prices::new();
-    let mut sa = Sa::new(Nets::from_macros(&[]), 2, &reqs, &prices, &[], &rules(0));
-    let mut rng = SplitMix64::new(1);
-    assert!(dpex(&sa, &mut l, 4_000) < 0.0);
-    assert!(!try_move(&mut sa, &mut l, &mut rng, 1e12, 0, 4_000, 0));
-    assert_eq!(l.x[0], 0);
-    assert_eq!(encroachment(&l, 0), 0.0);
-}
-
-#[test]
-fn theta_outranks_pex_so_a_budget_is_never_traded_for_parasitics() {
-    #[derive(Clone, Copy)]
-    struct Separation;
-    impl Rule for Separation {
-        type On = Layout;
-        fn cost(self, _: &Layout) -> f32 {
-            0.0
-        }
-        fn residual(self, l: &Layout) -> f32 {
-            ((2_000 - (l.x[0] - l.x[1]).abs()).max(0) as f32) / 2_000.0
-        }
-    }
-    let (mut reqs, mut l) = attract_bench();
-    reqs.budget = vec![Box::new(vec![Separation])];
-    let prices = crate::gp::Prices::new();
-    let mut sa = Sa::new(Nets::from_macros(&[]), 2, &reqs, &prices, &[], &rules(0));
-    let mut rng = SplitMix64::new(1);
-    assert_eq!(analog_theta(&reqs, &l), 0.0);
-    assert!(dpex(&sa, &mut l, 3_000) < 0.0);
-    assert!(!try_move(&mut sa, &mut l, &mut rng, 1e12, 0, 3_000, 0));
-    assert_eq!(l.x[0], 0);
-}
-
-#[test]
-fn metropolis_still_accepts_an_uphill_move_inside_the_pex_tier() {
-    let (reqs, mut l) = attract_bench();
-    let prices = crate::gp::Prices::new();
-    let mut sa = Sa::new(Nets::from_macros(&[]), 2, &reqs, &prices, &[], &rules(0));
-    let mut rng = SplitMix64::new(1);
-    assert!(dpex(&sa, &mut l, -20_000) > 0.0);
-    assert!(try_move(&mut sa, &mut l, &mut rng, 1e12, 0, -20_000, 0));
-    assert_eq!(l.x[0], -20_000);
-}
-
-/// At the same hard-violation count, raising clearance encroachment must never
-/// win against a cheaper PEX, even at an extreme temperature.
-#[test]
-fn gate_never_trades_a_broken_pair_for_overlap() {
-    let e = 1_000.0;
-    let mut rng = SplitMix64::new(1);
-    for draw in 0..100 {
-        assert!(!accept((1, 0.002, e, 0.0), (1, 0.003, e - 2.0, 0.0), -1.0, 1e12, &mut rng), "draw {draw}");
-    }
-}
-
-// ---- DTI branch flip ----
-
-fn band(id: u16, seed_isolate: bool) -> Requirements<Layout> {
-    let b = || {
-        vec![DtiBand {
-            a: Target::Device(DeviceId(0)),
-            b: Target::Device(DeviceId(1)),
-            s_max_nm: 200,
-            d_dti_nm: 2_000,
-            branch: BranchId(id),
-            seed_isolate,
-        }]
-    };
-    Requirements { hard: vec![Box::new(b())], budget: Vec::new(), cost: vec![Box::new(b())] }
-}
-
-fn gap_bench(gap: i32, branch: Vec<bool>) -> Layout {
-    let mut l = layout(&[(0, 0, 1_000, 1_000), (2_000 + gap, 0, 1_000, 1_000)]);
-    l.branch = branch;
-    l
-}
-
-/// Abutting pair committed to `isolate`: the flip to `share` strictly lowers
-/// PEX and is taken; the reverse is refused.
-#[test]
-fn branch_flip_fires_and_is_priced() {
-    let reqs = band(0, true);
-    let mut l = gap_bench(100, vec![true]);
-    let prices = crate::gp::Prices::new();
-    let mut sa = Sa::new(Nets::from_macros(&[]), 2, &reqs, &prices, &[], &rules(0));
-    let mut rng = SplitMix64::new(1);
-    assert!(try_branch(&mut sa, &mut l, &mut rng, 0.0, 0));
-    assert!(!l.branch[0]);
-    assert!(!try_branch(&mut sa, &mut l, &mut rng, 0.0, 0));
-    assert!(!l.branch[0]);
-}
-
-/// Both cells pinned, so the returned branch table is exactly what seeding wrote.
-#[test]
-fn seeds_are_written_and_table_resized() {
-    let reqs = band(3, true);
-    let mut b = Vec::new();
-    assert_eq!(seed_branches(&reqs, &mut b), vec![BranchId(3)]);
-    assert_eq!(b, vec![false, false, false, true]);
-    let mut b = vec![false; 6];
-    seed_branches(&reqs, &mut b);
-    assert_eq!(b, vec![false, false, false, true, false, false]);
-}
-
 // ---- exact projection ----
 
 fn sym_bench() -> (Requirements<Layout>, Layout) {
@@ -449,6 +297,7 @@ fn sym_bench() -> (Requirements<Layout>, Layout) {
     (reqs, layout(&[(-30_000, 0, 1_000, 1_000), (30_500, 3_500, 1_000, 1_000)]))
 }
 
+/// Oracle: the analog `SymmetryGroup` rule reports zero violations.
 #[test]
 fn symmetry_holds_at_exit_with_room_to_move() {
     let (reqs, coarse) = sym_bench();
@@ -456,6 +305,7 @@ fn symmetry_holds_at_exit_with_room_to_move() {
     assert_eq!(analog_violations(&reqs, &l), 0, "x = {:?}, y = {:?}, axis = {:?}", l.x, l.y, l.axis);
 }
 
+/// Oracle: the analog `SymmetryGroup` rule, and the fixed cell's input extent and orient.
 #[test]
 fn projection_moves_fixed_cells_but_not_their_shape() {
     let (reqs, coarse) = sym_bench();
@@ -472,6 +322,7 @@ fn projection_moves_fixed_cells_but_not_their_shape() {
 /// A mirror pair stacked on its own axis satisfies `Symmetry` with zero
 /// separation; single-cell moves must still pull it apart (the partner follows
 /// by projection) until the pair is clearance-legal and still mirrored.
+/// Oracle: the analog `SymmetryGroup` rule and `encroachment`'s full scan.
 #[test]
 fn a_stacked_symmetric_pair_separates_and_stays_mirrored() {
     let (reqs, _) = sym_bench();
@@ -483,6 +334,7 @@ fn a_stacked_symmetric_pair_separates_and_stays_mirrored() {
 
 /// A diff stage: input pair and load pair mirrored about ONE shared axis, plus
 /// a self-symmetric tail cell, all starting piled on top of each other.
+/// Oracle: the analog `SymmetryGroup` rule and `encroachment`'s full scan, every seed.
 #[test]
 fn two_pairs_and_a_tail_share_one_axis_legally() {
     let sym = |a: u16, b: u16| Symmetry { a: Target::Device(DeviceId(a)), b: Target::Device(DeviceId(b)), axis: AxisId(0), mode: SymMode::Perfect };
@@ -496,6 +348,7 @@ fn two_pairs_and_a_tail_share_one_axis_legally() {
     }
 }
 
+/// Oracle: metamorphic: the same seed twice gives the same layout.
 #[test]
 fn projection_is_deterministic_for_a_seed() {
     let go = || {
@@ -506,64 +359,9 @@ fn projection_is_deterministic_for_a_seed() {
     assert_eq!(go(), go());
 }
 
-/// `encroach_moved`'s before/after difference must equal the full scan's for
-/// every one- and two-cell move, or the gate compares the wrong numbers.
-#[test]
-fn incident_encroachment_difference_matches_full_scan() {
-    let cells = [(0, 0, 100, 100), (150, 0, 100, 100), (60, 60, 100, 100), (900, 900, 50, 50), (120, 30, 80, 40)];
-    let reqs = Requirements::default();
-    let prices = crate::gp::Prices::new();
-    for c in 0..cells.len() {
-        for o in 0..cells.len() {
-            let mut sa = Sa::new(Nets::from_macros(&[]), cells.len(), &reqs, &prices, &[], &rules(300));
-            sa.moved = if c == o { vec![c] } else { vec![c, o] };
-            let mut l = layout(&cells);
-            let (full0, inc0) = (encroachment(&l, 300), sa.encroach_moved(&l));
-            for &m in &sa.moved {
-                l.x[m] += 37;
-                l.y[m] -= 11;
-            }
-            let full = encroachment(&l, 300) - full0;
-            let inc = sa.encroach_moved(&l) - inc0;
-            assert!((full - inc).abs() < 1e-6, "moved {:?}: {full} vs {inc}", sa.moved);
-        }
-    }
-}
-
-/// Each compound move keeps every mirror equation of a stage exactly, with no
-/// projection: Φ never rises, so `trial` never reaches for `project`.
-#[test]
-fn compound_moves_keep_a_mirrored_stage_mirrored() {
-    let sym = |a: u16, b: u16| Symmetry { a: Target::Device(DeviceId(a)), b: Target::Device(DeviceId(b)), axis: AxisId(0), mode: SymMode::Perfect };
-    let reqs = Requirements { hard: vec![Box::new(SymmetryGroup(vec![sym(0, 1), sym(2, 3), sym(4, 4)]))], budget: Vec::new(), cost: Vec::new() };
-    let mut l = layout(&[
-        (-6_000, 0, 1_000, 1_000),
-        (6_000, 0, 1_000, 1_000),
-        (-6_000, 8_000, 1_000, 1_000),
-        (6_000, 8_000, 1_000, 1_000),
-        (0, -8_000, 1_000, 1_000),
-    ]);
-    l.axis = vec![0];
-    assert_eq!(analog_violations(&reqs, &l), 0);
-    let groups = sym_groups(&reqs, 5);
-    assert_eq!(groups.len(), 1);
-    assert_eq!(groups[0].members.len(), 5);
-
-    let prices = crate::gp::Prices::new();
-    let mut sa = Sa::new(Nets::from_macros(&[]), 5, &reqs, &prices, &[], &rules(CLEARANCE_NM));
-    let mut rng = SplitMix64::new(5);
-    let free = |c: i32, _: i32| c;
-    // Metropolis at huge temperature takes every tie, so each move applies.
-    assert!(try_group_shift(&mut sa, &mut l, &mut rng, 1e12, &groups[0], 2_000, -1_000, &free, &free));
-    assert_eq!((l.axis[0], l.x[4]), (2_000, 2_000));
-    assert!(try_pair_expand(&mut sa, &mut l, &mut rng, 1e12, 0, 1, 1_000, &free));
-    assert_eq!((l.x[0], l.x[1]), (-5_000, 9_000));
-    assert!(try_pair_swap(&mut sa, &mut l, &mut rng, 1e12, 2, 3));
-    assert_eq!(analog_violations(&reqs, &l), 0, "x = {:?}, y = {:?}, axis = {:?}", l.x, l.y, l.axis);
-}
-
 // ---- report ----
 
+/// Oracle: hand arithmetic: a 100 nm gap under a 270 nm clearance on 500 nm cells.
 #[test]
 fn report_counts_clearance_only_residue() {
     let l = layout(&[(0, 0, 500, 500), (1_100, 0, 500, 500)]);
@@ -576,6 +374,7 @@ fn report_counts_clearance_only_residue() {
 }
 
 /// PLC-10 step 0: `Schedule::cold()` is exactly the constants it replaced.
+/// Oracle: golden: the layout the replaced constants produced. Pins behaviour, not correctness.
 #[test]
 fn cold_schedule_reproduces_todays_layout() {
     let l = run(&rotate_bench(), &[], &[], &Requirements::default(), &[false; 4], 7);
@@ -618,6 +417,7 @@ fn scene(k: i32) -> (Nets, Layout, Requirements<Layout>) {
 
 /// PEX reads no absolute length: scaling every length by 2 (exact in binary
 /// float) leaves it unchanged. Breaks if a cost keeps nm units or HPWL loses `/L_ref`.
+/// Oracle: metamorphic: every length ×2 (exact in binary float) leaves PEX unchanged.
 #[test]
 fn energy_is_invariant_to_scaling_all_lengths() {
     let (nets1, l1, reqs1) = scene(1);
@@ -637,6 +437,7 @@ fn energy_is_invariant_to_scaling_all_lengths() {
 
 /// A matched pair seeded against a hot cell: dp must open both gaps to the
 /// 1 µm/mW floor.
+/// Oracle: the analog `HeatSeparation` rule's residual reads zero.
 #[test]
 fn dp_pushes_a_matched_pair_away_from_a_hot_cell() {
     use analog::placement::HeatSeparation;
@@ -672,6 +473,7 @@ fn perf_cell(own: u16) -> Macro {
 /// residual > 0 at the no-row MST (w·mst·1e-3 / 0.8 > 1 for mst > 800 nm),
 /// must shorten net 0's mean MST over seeds 1..=10. Fresh `Prices` (λ0) each
 /// run: `place` does not settle prices (`place_does_not_settle`).
+/// Oracle: metamorphic: the same scene with and without the row; net 0's MST from `PlacePerf` must shrink.
 #[test]
 fn a_row_shortens_its_sensitive_net() {
     use analog::placement::PlacePerf;

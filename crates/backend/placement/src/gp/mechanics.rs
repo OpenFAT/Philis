@@ -1,5 +1,41 @@
 //! Placement primitives shared by `gp` and `dp`: RNG, pin-based nets/HPWL,
 //! overlap, the tiered objective over `Requirements`, canvas and initial layout.
+//!
+//! Contents:
+//! - `pub struct SplitMix64`
+//! - `pub struct Nets`
+//! - `SplitMix64::new(seed: u64) -> Self`
+//! - `SplitMix64::next_u64(&mut self) -> u64`
+//! - `SplitMix64::f64(&mut self) -> f64`
+//! - `SplitMix64::f32(&mut self) -> f32`
+//! - `SplitMix64::below(&mut self, n: usize) -> usize`
+//! - `SplitMix64::centered(&mut self, r: f32) -> f32`
+//! - `Nets::from_macros(macros: &[Macro]) -> Self`
+//! - `Nets::weigh(mut self, by_net: &[f32]) -> Self`
+//! - `Nets::weight(&self, i: usize) -> f32`
+//! - `Nets::count(&self) -> usize`
+//! - `Nets::row(&self, i: usize) -> &[u32]`
+//! - `Nets::span(&self, i: usize) -> std::ops::Range<usize>`
+//! - `Nets::pin(&self, k: usize, l: &Layout) -> (i32, i32)`
+//! - `Nets::reshape_cell(&mut self, c: usize, rows: &[u32], m: &Macro)`
+//! - `Nets::cell_nets(&self, n_devices: usize) -> Vec<Vec<u32>>`
+//! - `pub fn hpwl(nets: &Nets, l: &Layout) -> f64`
+//! - `pub fn encroach(l: &Layout, a: usize, b: usize, clearance: i32) -> f64`
+//! - `pub fn encroachment(l: &Layout, clearance: i32) -> f64`
+//! - `pub fn analog_cost(reqs: &Requirements<Layout>, l: &Layout, prices: &Prices) -> f32`
+//! - `pub fn augmented_cost(reqs: &Requirements<Layout>, l: &Layout, prices: &Prices) -> f64`
+//! - `pub fn pex(nets: &Nets, reqs: &Requirements<Layout>, l: &Layout, prices: &Prices) -> f64`
+//! - `pub fn analog_phi(reqs: &Requirements<Layout>, l: &Layout) -> (usize, f64)`
+//! - `pub fn analog_theta(reqs: &Requirements<Layout>, l: &Layout) -> f64`
+//! - `pub fn analog_violations(reqs: &Requirements<Layout>, l: &Layout) -> u32`
+//! - `pub fn report(nets: &Nets, reqs: &Requirements<Layout>, l: &Layout, prices: &Prices, rules: &crate::gp::PlaceRules) -> Report`
+//! - `pub fn variant_extents(m: &Macro) -> (i32, i32)`
+//! - `pub fn half_extents(macros: &[Macro]) -> (Vec<i32>, Vec<i32>)`
+//! - `pub fn choose_variants(macros: &[Macro], variants: &[VariantSpace], variant: &[u16]) -> Vec<Macro>`
+//! - `pub fn canvas_side(hw: &[i32], hh: &[i32], utilization: f32, grid: i32) -> i32`
+//! - `pub fn initial_layout(macros: &[Macro], variant: Vec<u16>, side: i32, n_axes: usize, rng: &mut SplitMix64) -> Layout`
+//! - `pub fn clamp_to_die(c: i32, half: i32, side: i32) -> i32`
+//! - `pub fn snap(v: i32, grid: i32) -> i32`
 
 use analog::base::ids::DeviceId;
 use analog::base::{Layout, Macro, Report, Violation};
@@ -9,6 +45,20 @@ use crate::gp::{Prices, VariantSpace};
 
 /// Deterministic SplitMix64 PRNG: same inputs + seed ⇒ same placement.
 pub struct SplitMix64(pub u64);
+
+/// CSR net → (device, pin offset from the device's bbox centre, pre-orient).
+/// Built from macro pins; nets touching < 2 devices are dropped, and a device
+/// with several pins on one net contributes their centroid. Membership is
+/// variant-invariant, so a reshape only patches offsets ([`Nets::reshape_cell`]).
+pub struct Nets {
+    start: Vec<u32>,
+    items: Vec<u32>,
+    off: Vec<(i32, i32)>,
+    /// `NetId` of each retained row.
+    net: Vec<u16>,
+    /// HPWL weight of each row (see [`Nets::weigh`]); `1` unweighted.
+    weight: Vec<f32>,
+}
 
 impl SplitMix64 {
     #[inline]
@@ -53,20 +103,6 @@ impl SplitMix64 {
     pub fn centered(&mut self, r: f32) -> f32 {
         (self.f32() * 2.0 - 1.0) * r
     }
-}
-
-/// CSR net → (device, pin offset from the device's bbox centre, pre-orient).
-/// Built from macro pins; nets touching < 2 devices are dropped, and a device
-/// with several pins on one net contributes their centroid. Membership is
-/// variant-invariant, so a reshape only patches offsets ([`Nets::reshape_cell`]).
-pub struct Nets {
-    start: Vec<u32>,
-    items: Vec<u32>,
-    off: Vec<(i32, i32)>,
-    /// `NetId` of each retained row.
-    net: Vec<u16>,
-    /// HPWL weight of each row (see [`Nets::weigh`]); `1` unweighted.
-    weight: Vec<f32>,
 }
 
 impl Nets {
@@ -190,11 +226,6 @@ impl Nets {
         }
         out
     }
-}
-
-#[inline]
-fn bbox_centre(m: &Macro) -> (i32, i32) {
-    (m.bbox.x + m.bbox.w / 2, m.bbox.y + m.bbox.h / 2)
 }
 
 /// Bounding-box HPWL over pin positions, weighted per net ([`Nets::weigh`]), nm.
@@ -407,4 +438,11 @@ pub fn clamp_to_die(c: i32, half: i32, side: i32) -> i32 {
 pub fn snap(v: i32, grid: i32) -> i32 {
     let g = grid.max(1);
     ((v as f32 / g as f32).round() as i32) * g
+}
+
+// ---- private ----
+
+#[inline]
+fn bbox_centre(m: &Macro) -> (i32, i32) {
+    (m.bbox.x + m.bbox.w / 2, m.bbox.y + m.bbox.h / 2)
 }
