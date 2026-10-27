@@ -30,6 +30,26 @@ pub enum RepairKind {
     Budget,
 }
 
+/// Which rule scores a recipe's claim (`docs/TRAITS.md` Claims, S3): a closed
+/// enum over the rules a claim can name, grown when a recipe promises a new
+/// one. The scorer is the rule free-form placement is scored by (Q2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum RuleKind {
+    /// [`crate::placement::MatchedSet`]: coincidence and centroid offset of
+    /// each pair `(0, i)`, from the members' unit moments.
+    MatchedSet,
+    /// [`crate::placement::Symmetry`]: partners mirrored about an axis.
+    Symmetry,
+    /// [`crate::matching::moments::cancelled_order`]: the members' unit
+    /// moments equal through order `n`.
+    CentroidGroup,
+    /// [`crate::placement::LiveEnvironment`]: equal WPE and OSE distances.
+    Environment,
+    /// [`crate::placement::OrientationSet`]: parallel channels, equal Φ.
+    OrientationSet,
+}
+
 /// One piece of analog theory: a small `Copy` value that scores itself against
 /// [`Rule::On`] (`Layout` for placement, `Routes` for routing) and knows where
 /// it applies ([`Rule::extract`]). Every method is pure except `project`.

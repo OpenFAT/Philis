@@ -26,4 +26,4 @@ pub mod rule;
 
 pub use constraints::Constraints;
 pub use requirements::Requirements;
-pub use rule::{RepairKind, Rule, RuleBatch};
+pub use rule::{RepairKind, Rule, RuleBatch, RuleKind};
