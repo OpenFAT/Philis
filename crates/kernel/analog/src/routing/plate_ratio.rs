@@ -1,5 +1,16 @@
 //! Capacitor-set plate leads (routing tier, budget): every bit's lead
 //! capacitance per unit equal, and no bottom plate under the top (RTE-20).
+//!
+//! In → out: [`Routes`] → each bit's lead C per unit and their spread against
+//! a tolerance. Cites: Hastings §8.2 rule C10; RTE-20.
+//!
+//! Contents:
+//! - `pub struct PlateSet`
+//! - `pub struct PlateRatio`
+//! - `pub struct PlateRatios(pub Vec<PlateRatio>)`
+//! - `PlateRatio::lead_af(&self, r: &Routes) -> Vec<f32>`
+//! - `PlateRatio::per_unit_af(&self, r: &Routes) -> Vec<f32>`
+//! - `PlateRatio::spread_pct(&self, r: &Routes) -> Option<f32>`
 
 use crate::base::geom::{Rect, Shape};
 use crate::base::ids::NetId;
@@ -15,10 +26,13 @@ use crate::rule::RuleBatch;
 /// capacitor `Unitization`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlateSet {
+    /// The shared top-plate net.
     pub top: NetId,
+    /// Each bottom-plate net and its unit count (> 0).
     pub bits: Vec<(NetId, u32)>,
     /// One unit's C, aF; `NAN` = unknown (no `c_af` on any one-unit member).
     pub c_unit_af: f32,
+    /// The placed array, absolute nm: metal inside it is the array's, not a lead.
     pub array: Rect,
 }
 
@@ -31,8 +45,11 @@ pub struct PlateSet {
 /// apart and never overlap on adjacent layers ([`RuleBatch::separations`]).
 #[derive(Clone, Debug)]
 pub struct PlateRatio {
+    /// The capacitor set.
     pub set: PlateSet,
+    /// Allowed spread, percent ×10.
     pub tol_pct10: i32,
+    /// Per-layer ground and coupling C.
     pub stack: &'static Stack,
     /// The first routed metal's spacing, nm.
     pub space_nm: i32,
@@ -147,6 +164,7 @@ mod tests {
     /// Bits of 1/2/4/8 units with equal 10 µm met1 leads, 20 µm apart: per
     /// unit the 1-unit bit's lead weighs eight times the 8-unit bit's, so
     /// the spread is far over 1 %.
+    /// Oracle: spec example, equal leads over 1 and 8 units differ 8× per unit.
     #[test]
     fn lead_capacitance_is_equalised_per_unit() {
         let set = PlateSet {
@@ -162,7 +180,8 @@ mod tests {
         }
         let r = Routes { wires, ..Default::default() };
         let per = rule.per_unit_af(&r);
-        assert!((per[0] - 78.0).abs() < 0.1 && (per[3] - 9.75).abs() < 0.1, "{per:?}");
+        assert!((per[0] - 78.0).abs() < 0.1, "{per:?}");
+        assert!((per[3] - 9.75).abs() < 0.1, "{per:?}");
         assert!(rule.spread_pct(&r).unwrap() > 1.0);
         assert!(PlateRatios(vec![rule.clone()]).violations(&r) == 1);
         let mut seps = Vec::new();

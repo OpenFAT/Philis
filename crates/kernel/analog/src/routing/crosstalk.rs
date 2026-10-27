@@ -1,4 +1,9 @@
 //! Crosstalk exclusion (routing tier).
+//! In → out: two nets' [`Routes`] → their least same-layer edge gap against a
+//! floor. Cites: RTE-18 (enforced in the search).
+//!
+//! Contents:
+//! - `pub struct CrosstalkExclusion`
 
 use crate::base::geom::Rect;
 use crate::base::ids::NetId;
@@ -9,8 +14,11 @@ use crate::rule::Rule;
 /// Nets sharing no layer do not couple and always pass.
 #[derive(Clone, Copy)]
 pub struct CrosstalkExclusion {
+    /// One net.
     pub a: NetId,
+    /// The other net.
     pub b: NetId,
+    /// Floor on the same-layer edge gap, nm.
     pub min_spacing_nm: i32,
     /// Safety margin on the floor, percent.
     pub margin_pct: u8,
@@ -111,6 +119,7 @@ mod tests {
         CrosstalkExclusion { a: NetId(0), b: NetId(1), min_spacing_nm: 280, margin_pct: 0 }
     }
 
+    /// Oracle: the documented rule, unknown is never pass.
     #[test]
     fn an_unrouted_pair_is_unknown() {
         let r = Routes { wires: vec![vec![met1(0)], vec![]], ..Default::default() };
@@ -119,6 +128,7 @@ mod tests {
         assert!(rule().known(&both));
     }
 
+    /// Oracle: spec example, the 280 and 270 nm edge gaps by hand.
     #[test]
     fn the_floor_is_an_edge_gap() {
         // Edge gap 280 nm (1 000 → 1 280): at the floor.

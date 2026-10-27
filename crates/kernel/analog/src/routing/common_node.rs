@@ -1,4 +1,12 @@
 //! Common-node resistance balance (routing tier, budget).
+//! In → out: [`Routes`] and the stack → each common node's group-to-group
+//! routed-R skew, and whether a star's branches meet outside the root halo.
+//! Cites: Hastings §13.3.3, §15.6.2 (star), §15.6.3 (Kelvin).
+//!
+//! Contents:
+//! - `pub struct CommonNode`
+//! - `pub struct CommonNodes`
+//! - `CommonNodes::star_broken(&self, n: &CommonNode, r: &Routes) -> bool`
 
 use crate::base::geom::{Rect, Shape};
 use crate::base::ids::NetId;
@@ -18,6 +26,7 @@ use crate::rule::RuleBatch;
 /// combine in parallel ([`Stack::terminal_resistance_ohm`]).
 #[derive(Clone, Debug)]
 pub struct CommonNode {
+    /// The shared net.
     pub net: NetId,
     /// Terminal groups (a pair's members' source pins; a star's branches;
     /// Kelvin `[force, sense]`): each group's branch is its own subtree.
@@ -36,7 +45,9 @@ pub struct CommonNode {
 /// Every common node of one routed layout, measured on `stack`.
 #[derive(Clone)]
 pub struct CommonNodes {
+    /// One row per common node.
     pub nodes: Vec<CommonNode>,
+    /// Sheet resistances the skew is measured with.
     pub stack: &'static Stack,
     /// The root halo: a star's feeds grown by this, nm (the lattice pitch).
     pub halo_nm: i32,
@@ -182,6 +193,7 @@ mod tests {
 
     /// A tail rail fed from one end: the near member's source sees less R
     /// than the far one's. Balanced (fed from the middle), the skew vanishes.
+    /// Oracle: spec example, 20 squares × 0.125 Ω by hand; symmetry for the midway feed.
     #[test]
     fn two_groups_match_the_old_a_b_measure() {
         let stack: &'static Stack = Box::leak(Box::new(Stack {
@@ -241,6 +253,7 @@ mod tests {
     }
 
     /// Branches sharing 5 µm of rail outside the root halo: one star break.
+    /// Oracle: spec example, Hastings §15.6.2's definition of a star, drawn by hand.
     #[test]
     fn a_shared_segment_breaks_the_star() {
         let (c, r) = star(5_000);
@@ -250,6 +263,7 @@ mod tests {
     /// One trunk drawn from the feed out to 5 µm, the branches leaving it at
     /// x = 2 µm and 4 µm (they never touch each other): the trunk beyond the
     /// halo is shared, one star break.
+    /// Oracle: spec example, Hastings §15.6.2, drawn by hand.
     #[test]
     fn branches_leaving_one_trunk_apart_break_the_star() {
         let (mut c, mut r) = star(5_000);
@@ -260,6 +274,7 @@ mod tests {
     }
 
     /// The same branches meeting inside the feed grown by `p0`: a star.
+    /// Oracle: spec example, Hastings §15.6.2, drawn by hand.
     #[test]
     fn branches_meeting_at_the_root_are_a_star() {
         let (c, r) = star(300);

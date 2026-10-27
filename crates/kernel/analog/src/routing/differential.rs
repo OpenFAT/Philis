@@ -1,4 +1,9 @@
 //! Differential-pair route matching (routing tier).
+//! In → out: the two nets' [`Routes`] → their route-signature (or R, C, via,
+//! coupling) mismatch, percent, against a budget. Cites: RTE-18, AR-44.
+//!
+//! Contents:
+//! - `pub struct Differential`
 
 use super::coupling::net_pair_af;
 use super::Stack;
@@ -30,10 +35,13 @@ use std::collections::{BTreeMap, BTreeSet};
 /// (no crossings, no screening; RTE-18); no `project` — `dr` fixes it by mirrored rip-up.
 #[derive(Clone, Copy)]
 pub struct Differential {
+    /// The positive side.
     pub pos: NetId,
+    /// The negative side.
     pub neg: NetId,
     /// Max length mismatch, percent ×10.
     pub max_len_delta_pct10: i32,
+    /// Compare per-layer signatures, not total length only.
     pub same_layer_required: bool,
     /// Per-layer R/C; `None` = the geometric signature.
     pub stack: Option<&'static Stack>,
@@ -231,6 +239,7 @@ mod tests {
         crate::base::Terminal { at: Rect { x, y, w: 170, h: 170 }, ua: None }
     }
 
+    /// Oracle: spec example, each pair of signatures differs (or not) by construction.
     #[test]
     fn equal_length_on_the_same_layers_can_still_mismatch() {
         // Same total length (10 µm), same layer set {1, 2}, split 8+2 vs 2+8.
@@ -238,7 +247,7 @@ mod tests {
             wires: vec![vec![seg(1, 0, 8_000, 140), seg(2, 0, 2_000, 140)], vec![seg(1, 0, 2_000, 140), seg(2, 0, 8_000, 140)]],
             ..Default::default()
         };
-        assert!(pair().len_delta_pct(&r) == 0.0, "the old metric sees nothing");
+        assert_eq!(pair().len_delta_pct(&r), 0.0, "the old metric sees nothing");
         assert!(!pair().satisfied(&r));
 
         // One extra via (cut + pad squares) on a 10 µm route: a via count mismatch.
@@ -263,6 +272,7 @@ mod tests {
     /// an extra landing pad (an ABBA cell gives one drain three pins, the
     /// other two) is a fraction of a percent and passes; a 20% longer trunk
     /// does not.
+    /// Oracle: spec example, the pad's and the trunk's share of R and C by hand.
     #[test]
     fn with_the_stack_unequal_pad_counts_match_when_rc_does() {
         use crate::routing::stack::Layer;
@@ -288,6 +298,7 @@ mod tests {
     /// A dead-end stub off the trunk sums the same total length as the
     /// straight run, but its terminal sees more series R: the terminal-R term
     /// catches it where the runs' R alone would not.
+    /// Oracle: spec example, the stub's extra series R by construction.
     #[test]
     fn a_stub_does_not_match_terminal_resistance() {
         let rc = Differential { stack: Some(rc_stack()), ..pair() };
@@ -306,6 +317,7 @@ mod tests {
     /// terminals paired in list order: neg lists its terminals in a
     /// different order from their mirror images, so only the sorted
     /// comparison reads zero.
+    /// Oracle: metamorphic, a mirror image has the same sorted terminal R.
     #[test]
     fn an_exact_mirror_is_zero() {
         let rc = Differential { stack: Some(rc_stack()), ..pair() };
@@ -324,6 +336,7 @@ mod tests {
     /// count mismatch. The cut lands on a terminal: a dead end there adds no
     /// ground C and no terminal R, while mid-wire its port would move the
     /// star centre and the terminal-R term would fire instead.
+    /// Oracle: spec example, one extra cut counted by hand.
     #[test]
     fn an_unmatched_cut_breaks_the_pair() {
         let rc = Differential { stack: Some(rc_stack()), ..pair() };
@@ -342,6 +355,7 @@ mod tests {
 
     /// A third net coupling onto only one side of the pair breaks the match;
     /// zeroing that net's aggressor weight restores it.
+    /// Oracle: metamorphic, zeroing the aggressor's weight restores the match.
     #[test]
     fn a_one_sided_aggressor_breaks_the_pair() {
         let pos = vec![wire(0, 0, 10_000, 290)];
@@ -361,6 +375,7 @@ mod tests {
     }
 
     /// An unrouted side is unknown, not a (vacuous) match.
+    /// Oracle: the documented rule, unknown is never pass (AR-44).
     #[test]
     fn an_unrouted_side_is_unknown() {
         let rc = Differential { stack: Some(rc_stack()), ..pair() };

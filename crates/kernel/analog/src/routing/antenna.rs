@@ -1,4 +1,10 @@
 //! Antenna ratio (routing tier).
+//! In → out: a net's [`Routes`] (wires, cell metal, gate pins) → its worst
+//! etch-stage conductor/gate area ratio against the deck limit. Cites:
+//! Hastings pp. 228–229; MFG-04.
+//!
+//! Contents:
+//! - `pub struct Antenna`
 
 use super::Stack;
 use crate::base::geom::Shape;
@@ -12,6 +18,7 @@ use crate::rule::Rule;
 /// stack — all routed metal against the tightest ratio.
 #[derive(Clone, Copy)]
 pub struct Antenna {
+    /// The gate net.
     pub net: NetId,
     /// Max ratio ×100 (the deck's tightest antenna rule): the fallback limit.
     pub max_ratio_x100: i32,

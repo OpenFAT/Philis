@@ -1,4 +1,10 @@
 //! Shielding of a sensitive route by a reference net (routing tier, budget).
+//! In → out: [`Routes`] → the fraction of the victim's run flanked by
+//! reference metal on both sides. Cites: no clause; the rule is the module doc's.
+//!
+//! Contents:
+//! - `pub struct Shield`
+//! - `pub(crate) fn intersection_len(p: &[(i32, i32)], q: &[(i32, i32)]) -> i64`
 
 use crate::base::geom::Rect;
 use crate::base::ids::NetId;
@@ -19,8 +25,11 @@ use crate::rule::Rule;
 /// impedance is not measured.
 #[derive(Clone, Copy)]
 pub struct Shield {
+    /// The sensitive net.
     pub victim: NetId,
+    /// The quiet net whose metal shields it.
     pub reference: NetId,
+    /// Floor on the both-sides coverage, percent of the victim's run.
     pub min_coverage_pct: u8,
     /// Farthest a shield wire may sit from the victim's edge, nm.
     pub max_gap_nm: i32,
@@ -163,6 +172,7 @@ mod tests {
         Shield { victim: NetId(0), reference: NetId(1), min_coverage_pct: 80, max_gap_nm: 200 }
     }
 
+    /// Oracle: spec example, the shielded length by hand.
     #[test]
     fn coverage_needs_both_sides_along_the_run() {
         // Victim 10 µm at y=1000; reference tracks 140 nm away above and below.
@@ -183,6 +193,7 @@ mod tests {
         assert!(!rule().known(&Routes { wires: vec![vec![], vec![]], ..Default::default() }));
     }
 
+    /// Oracle: metamorphic, overlapping pieces and pads leave the run length 10 µm.
     #[test]
     fn overlaps_and_pads_count_once() {
         // The victim's run in two overlapping pieces, plus a via pad and a cut
@@ -194,6 +205,7 @@ mod tests {
         assert!((rule().coverage(&r).unwrap() - 1.0).abs() < 1e-6);
     }
 
+    /// Oracle: spec example, no point with both sides by hand.
     #[test]
     fn complementary_halves_cover_nothing() {
         // Below on [0, 5] µm, above on [5, 10] µm: no point has both sides.
@@ -201,6 +213,7 @@ mod tests {
         assert_eq!(rule().coverage(&r), Some(0.0));
     }
 
+    /// Oracle: spec example, [3, 7] µm of 10 = 40 % by hand.
     #[test]
     fn overlapping_halves_cover_the_overlap() {
         // Below on [0, 7] µm, above on [3, 10] µm: both sides over [3, 7] = 40 %.
