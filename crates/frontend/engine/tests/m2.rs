@@ -59,10 +59,35 @@ fn a_pin_on_a_non_port_net_refuses() {
     assert!(r.code == "interface" && r.message.contains("vtail"), "{r}");
 }
 
-/// Negative control: a die smaller than the block is a coded refusal.
+/// Negative control: a die too narrow for any variant of a call refuses,
+/// naming the call and the widths, never drawing a wider tile.
 #[test]
-fn a_die_smaller_than_the_block_refuses() {
+fn a_die_narrower_than_every_variant_refuses() {
     let io = OTA_CONSTRAINED_IO.replacen("30000", "3000", 1);
     let r = in_harness(OTA_CONSTRAINED, &io).err().expect("refuses");
+    assert!(r.code == "interface" && r.message.contains("call ") && r.message.contains("narrowest variant"), "{r}");
+}
+
+/// Negative control: a die wide enough but shorter than the block refuses.
+#[test]
+fn a_die_shorter_than_the_block_refuses() {
+    let io = OTA_CONSTRAINED_IO.replacen("70000", "20000", 1);
+    let r = in_harness(OTA_CONSTRAINED, &io).err().expect("refuses");
     assert!(r.code == "interface" && r.message.contains("do not fit"), "{r}");
+}
+
+/// The width target is the harness's alone: without an interface the tail
+/// (M5, 160 µm of channel) still draws as its one wide row, wider than the
+/// 30 µm die; inside the harness it folds to fit.
+#[test]
+fn the_tail_folds_only_under_a_die() {
+    let pdk = verify::Pdk::builtin("sky130").expect("a built-in deck");
+    let tail = |out: &engine::Outcome| {
+        let i = (0..out.calls.len()).find(|&i| out.calls.members_of(i).len() == 1).expect("the tail's own call");
+        out.placed[i].bbox
+    };
+    let free = engine::run(OTA_CONSTRAINED, &pdk, verify::SignoffEngine::Gpurify).unwrap_or_else(|r| panic!("{r}"));
+    let held = in_harness(OTA_CONSTRAINED, OTA_CONSTRAINED_IO).unwrap_or_else(|r| panic!("{r}"));
+    let (f, h) = (tail(&free), tail(&held));
+    assert!(f.w > 30_000 && h.w < 30_000 && h.h > f.h, "free {f:?}, in the die {h:?}");
 }

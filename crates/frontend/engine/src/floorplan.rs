@@ -64,6 +64,18 @@ pub fn stack_of(calls: &RecipeCalls, problem: &annotator::Problem, flat: &Flat) 
     Some(Stack { row, side })
 }
 
+/// Each call's top-down bounds inside a `bounds` block
+/// ([`placement::floorplan::targets`]), before any tile is drawn: over
+/// [`stack_of`]'s rows, or one row of every call where it finds none (the
+/// glue row). Tiles keep the widest spacing any two layer roles need apart.
+#[must_use]
+pub fn targets(calls: &RecipeCalls, problem: &annotator::Problem, flat: &Flat, bounds: (i32, i32), pdk: &Pdk) -> placement::floorplan::Targets {
+    let stack = stack_of(calls, problem, flat).unwrap_or_else(|| Stack { row: vec![0; calls.len()], side: vec![Side::Axis; calls.len()] });
+    let roles: Vec<&str> = pdk.roles.iter().map(|(r, _)| r.as_str()).collect();
+    let gap = placement::floorplan::Spacing::of(pdk, &roles).nm.into_iter().max().unwrap_or(0);
+    placement::floorplan::targets(&stack, bounds, gap)
+}
+
 /// The floorplan: the symmetric row stack where [`stack_of`] finds one on a
 /// planar deck, else the glue row ([`crate::arrange`]).
 ///

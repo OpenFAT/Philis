@@ -328,6 +328,23 @@ pub fn drawable_size(d: &Device, pdk: &Pdk) -> Result<(), Refusal> {
 /// # Errors
 /// A call no variant of its recipe can draw.
 pub fn build_tiles(calls: &RecipeCalls, problem: &annotator::Problem, flat: &Flat, pdk: &Pdk) -> Result<Vec<Macro>, Refusal> {
+    build_tiles_within(calls, problem, flat, pdk, None)
+}
+
+/// [`build_tiles`] under a die's width targets ([`floorplan::targets`], one
+/// per call): each call's least-area variant no wider than its target, an
+/// Adjacent block then free to fold into more rows. `None`: [`build_tiles`].
+///
+/// # Errors
+/// `interface`: a call none of whose variants fits its target, never a
+/// silently wider tile.
+fn build_tiles_within(
+    calls: &RecipeCalls,
+    problem: &annotator::Problem,
+    flat: &Flat,
+    pdk: &Pdk,
+    max_w: Option<&[i32]>,
+) -> Result<Vec<Macro>, Refusal> {
     let ground = problem.net_classes.iter().find(|c| c.class == analog::metadata::NetClass::Ground).map(|c| c.net);
     (0..calls.len())
         .map(|i| {
@@ -341,16 +358,33 @@ pub fn build_tiles(calls: &RecipeCalls, problem: &annotator::Problem, flat: &Fla
             let process = mos.get();
             let drawn: Vec<Macro> = match mos_variants(calls.kind[i], flat, members, &constraints, process) {
                 Variants::Fin(vs) => vs.into_iter().map(|v| v.draw(&group, &constraints, process)).collect(),
-                Variants::Planar(vs, apart_too) => vs
-                    .into_iter()
-                    .map(|v| v.draw(&group, &constraints, process))
-                    .chain(apart_too.then(|| apart(members, &constraints, process, pdk)).flatten())
-                    .collect(),
+                Variants::Planar(mut vs, apart_too) => {
+                    if max_w.is_some() && calls.kind[i] == RecipeKind::MosAdjacent && !vs.is_empty() {
+                        vs.extend(Mosfet::enumerate(&group, &constraints, process).into_iter().filter(|v| v.style == Pattern::Single && v.rows > 1));
+                    }
+                    vs.into_iter()
+                        .map(|v| v.draw(&group, &constraints, process))
+                        .chain(apart_too.then(|| apart(members, &constraints, process, pdk)).flatten())
+                        .collect()
+                }
             };
+            let narrowest = drawn.iter().map(|m| m.bbox.w).min();
+            let target = max_w.map(|w| w[i]);
             let mut m = drawn
                 .into_iter()
+                .filter(|m| target.is_none_or(|w| m.bbox.w <= w))
                 .min_by_key(|m| i64::from(m.bbox.w) * i64::from(m.bbox.h))
-                .ok_or_else(|| refuse("no-recipe", format!("{}: no {:?} variant draws it", names(flat, members), calls.kind[i])))?;
+                .ok_or_else(|| match (target, narrowest) {
+                    (Some(w), Some(n)) => refuse(
+                        "interface",
+                        format!(
+                            "call {i} {:?} [{}]: its narrowest variant is {n} nm, over the die's {w} nm target",
+                            calls.kind[i],
+                            names(flat, members)
+                        ),
+                    ),
+                    _ => refuse("no-recipe", format!("{}: no {:?} variant draws it", names(flat, members), calls.kind[i])),
+                })?;
             bind_pins(&mut m, flat, members, ground);
             join_members(&mut m, pdk);
             Ok(m)
@@ -839,7 +873,13 @@ fn run_calls_in(
 ) -> Result<Outcome, Refusal> {
     let bound = interface.map(|i| interface::bind(i, &netlist.flat, pdk)).transpose()?;
     netlist.flat.devices.iter().try_for_each(|d| drawable_size(d, pdk))?;
-    let tiles = build_tiles(&calls, problem, &netlist.flat, pdk)?;
+    // A die's width targets, inside its pins' reach on every side.
+    let targets = interface.zip(bound.as_deref()).and_then(|(i, b)| {
+        let (w, h) = i.die_nm?;
+        let r = 2 * interface::reach(b, pdk);
+        Some(floorplan::targets(&calls, problem, &netlist.flat, (w - r, h - r), pdk).w)
+    });
+    let tiles = build_tiles_within(&calls, problem, &netlist.flat, pdk, targets.as_deref())?;
     let mut tiles = tiles;
     let layout = floorplan::arrange_block(&mut tiles, &calls, problem, &netlist.flat, pdk)?;
     // The glue fill (if any) rides after the call tiles; claims read the calls.
