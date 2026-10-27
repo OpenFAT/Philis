@@ -476,6 +476,35 @@ pub(crate) fn detailed_router(pdk: &Pdk, stack: &RoutingStack) -> routing::dr::D
 mod tests {
     use super::*;
 
+    /// A pair tile (call 0: D0, D1, sources apart) and a tail tile (call 1:
+    /// D2, drain on the node): the node's halves are D0's and D1's `S` pins,
+    /// the tail's drain feeds it, a `StarReq` on the net makes it a star.
+    /// Negative control: D1's source joined to D0's in the tile (no pin left)
+    /// is no row.
+    /// Oracle: the expected rows written out by hand from the pins.
+    #[test]
+    fn common_nodes_become_star_rows_over_the_call_pins() {
+        use analog::base::{DeviceId, NetId, Pin, Rect};
+        use analog::intent::{CommonNodeReq, Intent, StarReq, Term};
+        let r = |x| Rect { x, y: 0, w: 170, h: 170 };
+        let pin = |name: &str, net, x| Pin { name: name.into(), net: NetId(net), at: r(x), layer: LayerId(1) };
+        let pair = Macro { pins: vec![pin("d0:S", 5, 0), pin("d1:S", 5, 1_000), pin("d0:D", 1, 2_000)], ..Macro::default() };
+        let tail = Macro { pins: vec![pin("d0:D", 5, 5_000), pin("d0:S", 0, 6_000)], ..Macro::default() };
+        let mut calls = crate::RecipeCalls::default();
+        calls.push(crate::RecipeKind::MosCc1d, &[DeviceId(0), DeviceId(1)], None);
+        calls.push(crate::RecipeKind::MosAdjacent, &[DeviceId(2)], None);
+        let node = CommonNodeReq { net: NetId(5), set: 0, a: vec![DeviceId(0)], b: vec![DeviceId(1)], term: Term::S };
+        let mut intent = Intent { common_nodes: vec![node], ..Intent::default() };
+        let rows = |tiles: &[Macro], intent: &Intent| {
+            stars(tiles, &calls, intent).into_iter().map(|n| (n.net, n.groups, n.feeds, n.max_delta_ohm, n.star)).collect::<Vec<_>>()
+        };
+        assert_eq!(rows(&[pair.clone(), tail.clone()], &intent), [(NetId(5), vec![vec![r(0)], vec![r(1_000)]], vec![r(5_000)], 0.0, false)]);
+        intent.stars.push(StarReq { net: NetId(5), root: Some((DeviceId(2), Term::D)), branches: Vec::new() });
+        assert!(rows(&[pair.clone(), tail.clone()], &intent)[0].4);
+        let joined = Macro { pins: pair.pins.iter().filter(|p| p.name != "d1:S").cloned().collect(), ..pair };
+        assert!(rows(&[joined, tail], &intent).is_empty());
+    }
+
     /// GAP-06: sky130 met1 (2.8 mA/µm at 90 °C, fallback Ea 0.9 eV, n 1.1)
     /// derates ×0.1004 at 125 °C and is not credited at 27 °C.
     #[test]
@@ -770,7 +799,9 @@ pub fn annotation(pdk: &Pdk, base: &annotator::AnnotationConfig) -> annotator::A
 
 /// Route the placed tiles' nets (1.0 `elaborate::route_built`): `dr` over
 /// the deck's stack, the routing requests' nets first (Q23), then the rest,
-/// each the lexicographically best of `EPOCHS` negotiation rounds. Returns
+/// each the lexicographically best of `EPOCHS` negotiation rounds; the
+/// annotator's common nodes are Star rows over the pins of `calls`' tiles
+/// (the first `calls.len()` of `tiles`). Returns
 /// the stamped tiles, the routes and the router's report, a violated request
 /// as a budget row.
 ///
@@ -780,6 +811,7 @@ pub fn annotation(pdk: &Pdk, base: &annotator::AnnotationConfig) -> annotator::A
 pub fn route(
     tiles: &[Macro],
     layout: &analog::base::Layout,
+    calls: &crate::RecipeCalls,
     problem: &annotator::Problem,
     cfg: &annotator::AnnotationConfig,
     n_nets: usize,
@@ -824,11 +856,63 @@ pub fn route(
         .collect();
     let pins: Vec<_> = routed.iter().flat_map(|m| m.pins.iter().map(|p| (p.net, p.at, p.layer))).collect();
     // Q23: the routing recipes' nets first, by construction; `dr` negotiates
-    // the rest around them. ponytail: no Star rows yet — `intent.common_nodes`
-    // names devices, and mapping them to placed pins needs the call members.
-    let requests = routing::requests::from_rules(&problem.routing);
+    // the rest around them.
+    let mut requests = routing::requests::from_rules(&problem.routing);
+    requests.extend(stars(&routed, calls, &problem.intent).into_iter().map(routing::requests::RoutingRequest::Star));
     let metals = routing::requests::Metals { layers, cuts };
     let (routes, mut report, rows) = routing::requests::route(&d_router, &pins, &routed, &problem.routing, &requests, metals, EPOCHS);
     report.budget_violations.extend(routing::requests::violations(&rows));
     (placed, routes, report)
+}
+
+/// The annotator's common nodes (EXT-24) as star rows over the routed pins:
+/// per net, one group per distinct half of its nodes (`a`, `b`), the pins of
+/// its members' node terminal (`d{k}:S` on call `i`'s tile is
+/// `calls.members_of(i)[k]`); every other routed pin on the net feeds it. A
+/// half left with no pin (its tile joins it to another half on one island)
+/// drops the net: the recipe joined it. `star` when the annotator names a
+/// star on the net.
+///
+/// ponytail: no op point reaches the engine, so `max_delta_ohm` is 0
+/// (unknown: dr keeps the branches but does not budget their ΔR); 1.0's
+/// budget was the pair's offset allowance over I_D.
+fn stars(routed: &[Macro], calls: &crate::RecipeCalls, intent: &analog::intent::Intent) -> Vec<analog::routing::CommonNode> {
+    use analog::base::DeviceId;
+    // A call tile's pin as (member device, terminal).
+    let device = |i: usize, name: &str| -> Option<(DeviceId, String)> {
+        let (k, t) = name.strip_prefix('d')?.split_once(':')?;
+        let d = *calls.members_of(i).get(k.parse::<usize>().ok()?)?;
+        Some((d, t.to_string()))
+    };
+    let mut nets: Vec<analog::base::NetId> = intent.common_nodes.iter().map(|c| c.net).collect();
+    nets.sort_unstable_by_key(|n| n.0);
+    nets.dedup();
+    let mut out = Vec::new();
+    for net in nets {
+        let nodes: Vec<_> = intent.common_nodes.iter().filter(|c| c.net == net).collect();
+        let term = format!("{:?}", nodes[0].term);
+        let mut halves: Vec<&Vec<DeviceId>> = Vec::new();
+        for h in nodes.iter().flat_map(|c| [&c.a, &c.b]) {
+            if !halves.contains(&h) {
+                halves.push(h);
+            }
+        }
+        let on_net: Vec<(Option<(DeviceId, String)>, analog::base::Rect)> = routed
+            .iter()
+            .enumerate()
+            .flat_map(|(i, m)| m.pins.iter().filter(|p| p.net == net).map(move |p| (i, p)))
+            .map(|(i, p)| ((i < calls.len()).then(|| device(i, &p.name)).flatten(), p.at))
+            .collect();
+        let of = |h: &[DeviceId]| -> Vec<_> {
+            on_net.iter().filter(|(d, _)| d.as_ref().is_some_and(|(d, t)| h.contains(d) && *t == term)).map(|p| p.1).collect()
+        };
+        let groups: Vec<Vec<_>> = halves.iter().map(|h| of(h)).collect();
+        if groups.iter().any(Vec::is_empty) {
+            continue;
+        }
+        let feeds = on_net.iter().filter(|(_, r)| !groups.iter().flatten().any(|g| g == r)).map(|p| p.1).collect();
+        let star = intent.stars.iter().any(|s| s.net == net);
+        out.push(analog::routing::CommonNode { net, groups, feeds, max_delta_ohm: 0.0, star });
+    }
+    out
 }
