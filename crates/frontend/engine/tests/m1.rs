@@ -52,3 +52,12 @@ fn quad_signs_off_on_sky130() {
 fn quad_signs_off_on_asap7() {
     signs_off("asap7", &on_asap7(QUAD));
 }
+
+/// Two unrelated devices are two calls, so two tiles: on a fin deck the glue
+/// row keeps the exact gate and fin pitches across them (it used to refuse).
+#[test]
+fn two_tiles_glue_on_asap7() {
+    let spice = ".subckt two a b ga gb VSS\nXM1 a ga VSS VSS nmos_rvt W=270n L=20n\nXM2 b gb VSS VSS nmos_rvt W=540n L=20n nf=2\n.ends two\n";
+    let out = signs_off("asap7", spice);
+    assert_eq!(out.calls.len(), 2, "{}", out.report);
+}

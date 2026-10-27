@@ -617,17 +617,23 @@ fn join_members(m: &mut Macro, pdk: &Pdk) {
 /// # Errors
 /// Several tiles on a deck with fins: exact gate and fin pitches (ASAP7
 /// GATE.S.1, FIN.S.1) need the gate-lattice glue row between tiles (M2).
-pub fn arrange(tiles: &[Macro], pdk: &Pdk) -> Result<Layout, Refusal> {
-    if tiles.len() > 1 && analog::base::Process::layer(pdk, "fin").is_some() {
-        return Err(refuse("floorplan", format!("{} tiles on a fin deck: a row needs the gate-lattice glue row (M2)", tiles.len())));
-    }
+pub fn arrange(tiles: &mut Vec<Macro>, pdk: &Pdk) -> Result<Layout, Refusal> {
     let gap = widest_spacing(tiles, pdk);
     // Tile origins on the cut lattice, as the cells draw their cuts.
     let lattice = substrate3::cells::builder::cut_lattice(pdk).max(1);
+    // A fin deck's exact gate and fin pitches hold across tiles only on one
+    // lattice with field gates in the breaks: the glue row (Q20). Its fill
+    // macro is already in world coordinates, so it goes after the tiles,
+    // past the layout's rows, where `place_macros` leaves it as drawn.
+    if tiles.len() > 1 && analog::base::Process::layer(pdk, "fin").is_some() {
+        let (floorplan, fill) = placement::floorplan::glue(tiles, pdk, gap, lattice).map_err(|e| refuse("floorplan", format!("{e:?}")))?;
+        tiles.push(fill);
+        return Ok(floorplan.layout());
+    }
     let n = tiles.len();
     let mut x = Vec::with_capacity(n);
     let mut cursor = 0;
-    for m in tiles {
+    for m in tiles.iter() {
         // `place_macro` puts the lower-left at `x − hw`: here, `cursor`.
         x.push(cursor + m.bbox.w / 2);
         cursor += (m.bbox.w + gap + lattice - 1) / lattice * lattice;
@@ -770,7 +776,8 @@ pub fn run_calls(
 ) -> Result<Outcome, Refusal> {
     netlist.flat.devices.iter().try_for_each(|d| drawable_size(d, pdk))?;
     let tiles = build_tiles(&calls, problem, &netlist.flat, pdk)?;
-    let layout = arrange(&tiles, pdk)?;
+    let mut tiles = tiles;
+    let layout = arrange(&mut tiles, pdk)?;
     let (placed, routes, route_report) = route::route(&tiles, &layout, problem, cfg, netlist.flat.nets.len(), pdk);
     let signoff = signoff(netlist, &placed, &routes, pdk, engine)?;
     let report = report(&calls, &netlist.flat, &signoff);

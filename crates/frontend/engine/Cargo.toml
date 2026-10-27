@@ -11,6 +11,7 @@ verify = { path = "../../kernel/verify" }
 substrate3 = { path = "../../kernel/substrate3" }
 annotator = { path = "../annotator" }
 routing = { path = "../../backend/routing" }
+placement = { path = "../../backend/placement" }
 serde_json = { workspace = true }
 
 [dev-dependencies]

@@ -1063,6 +1063,7 @@ version = "0.1.0"
 dependencies = [
  "analog",
  "annotator",
+ "placement",
  "routing",
  "serde_json",
  "substrate3",
