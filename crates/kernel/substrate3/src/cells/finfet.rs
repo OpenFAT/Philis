@@ -156,7 +156,9 @@ impl Cell for FinFet {
         // Source strap above every drain track's landing pads.
         let d_top = (sd_m1_y + m1_h).max(y_d(n_tracks - 1) + v1_pad / 2);
         let s_strap_y = d_top + r.m1_s.max(process.eol_space("li").unwrap_or(0));
-        let strap_top = sd_m1_y.min(-r.lig_channel) - r.m1_s;
+        // An S/D strip's bottom is a line end facing the strap's side (ASAP7
+    // M1.S.2, 25): with one fin the strips reach below the active.
+    let strap_top = sd_m1_y.min(-r.lig_channel) - r.m1_s.max(process.eol_space("li").unwrap_or(0));
         let gv0_y = strap_top - r.m1_w + (r.m1_w - r.v0) / 2;
         // LIG past the gate on both sides, its edges off the gate's (ASAP7
         // LIG.GATE.AUX.1). ponytail: one grid step; a deck extension rule
@@ -483,6 +485,30 @@ mod tests {
                 dirty.extend(
                     crate::cells::testkit::dirty_group_with::<FinFet>(&g, &c, &pdk, &["S", "B"]).into_iter().map(|d| format!("{kind:?} {nf:?} {d}")),
                 );
+            }
+        }
+        assert!(dirty.is_empty(), "{}", dirty.join("\n"));
+    }
+
+    /// One to three fins per finger, one and two members, every variant:
+    /// a one-fin active is 27 nm tall, so the S/D strips, drain pads and
+    /// straps must clear one another without the active's height to spread
+    /// over (ASAP7 M1.S.1 to S.3). Release only, as above.
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn few_fins_are_drc_and_erc_clean() {
+        let pdk = deck();
+        let mut dirty = Vec::new();
+        for kind in [DeviceKind::Nmos, DeviceKind::Pmos] {
+            for nfin in 1..=3 {
+                for nf in [&[1u16][..], &[2], &[1, 1], &[2, 2]] {
+                    let (g, c) = group(kind, nf, 27 * nfin);
+                    dirty.extend(
+                        crate::cells::testkit::dirty_group_with::<FinFet>(&g, &c, &pdk, &["S", "B"])
+                            .into_iter()
+                            .map(|d| format!("{kind:?} nfin={nfin} {nf:?} {d}")),
+                    );
+                }
             }
         }
         assert!(dirty.is_empty(), "{}", dirty.join("\n"));

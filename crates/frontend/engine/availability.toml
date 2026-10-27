@@ -6,8 +6,8 @@ asap7 = false
 
 [MosCc1d]
 sky130 = false
-asap7 = false
+asap7 = true
 
 [MosAdjacent]
 sky130 = true
-asap7 = false
+asap7 = true
