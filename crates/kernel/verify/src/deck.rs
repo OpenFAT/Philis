@@ -13,7 +13,7 @@
 //! - `pub const FORMAT: &str`
 //! - `pub struct Deck`, `pub struct Layer`, `pub struct Derived`, `pub struct Rule`, `pub struct Param`, `pub struct Connectivity`, `pub struct Via`, `pub struct Label`, `pub enum DeviceKind`, `pub struct Device`, `pub struct Pex`, `pub struct PexRow`, `pub struct Answers`, `pub struct LayerAnswers`, `pub struct Spacing`, `pub struct Enclosure`, `pub struct ModelAnswers`
 //! - `pub fn parse(json: &str) -> Result<Deck, String>`
-//! - `Deck::{layer_id, op, operands, enclosure, model}`, `Rule::{param, nm, number, layer_param}`
+//! - `Deck::{layer_id, op, operands, enclosure, polarity, model}`, `Rule::{param, nm, number, layer_param}`
 
 use serde::Deserialize;
 
@@ -123,6 +123,8 @@ pub struct Device {
     /// MOS gate, source, drain [, bulk]; BJT base, emitter, collector [,
     /// bulk]; a two-pin kind pin 0, pin 1.
     pub terminals: Vec<u16>,
+    /// The fin layer of a FinFET recogniser: it measures `nfin`, no `w`.
+    pub fins: Option<u16>,
 }
 
 /// The parasitic stack.
@@ -237,6 +239,18 @@ impl Deck {
     #[must_use]
     pub fn enclosure(&self, inner: u16, outer: u16) -> Option<&Enclosure> {
         self.answers.enclosures.iter().find(|e| e.inner == inner && e.outer == outer)
+    }
+
+    /// `d`'s polarity as its marker layer's name states it: a leading `p`
+    /// or `P` is P-type (`pgate`, asap7's `PMOS_RVT`), `n`/`N` N-type,
+    /// anything else neither.
+    #[must_use]
+    pub fn polarity(&self, d: &Device) -> Option<bool> {
+        match self.layers[usize::from(d.marker)].name.as_bytes().first()?.to_ascii_lowercase() {
+            b'p' => Some(true),
+            b'n' => Some(false),
+            _ => None,
+        }
     }
 
     /// The recogniser row for deck model `model` (the first of several).

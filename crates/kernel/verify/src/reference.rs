@@ -17,9 +17,10 @@
 //!
 //! Contents:
 //! - `pub enum RefKind`, `pub struct RefDeviceIn`, `pub struct RefInput`
-//! - `pub fn spice(input: &RefInput, deck: &Deck) -> Result<(String, Vec<usize>), String>`
+//! - `pub fn spice(input: &RefInput, pdk: &Pdk) -> Result<(String, Vec<usize>), String>`
 
 use crate::deck::{Deck, DeviceKind};
+use crate::pdk::Pdk;
 
 /// A schematic device kind, polarity included (recognisers are per-polarity).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,12 +70,16 @@ pub struct RefInput {
 /// on every terminal the card states. A length (`w`, `l`, ...)
 /// is written in µm with a `u` suffix and an area in µm² with `p`, so the
 /// deck's `netlist_scale` cannot rescale it; any other value is written
-/// bare. Returns the text and the indices into `input.devices` of the
+/// bare. A FinFET recogniser measures fins, not width: its `w` is written
+/// as `nfin`, the width over [`Pdk::fin_pitch`] rounded as the generator
+/// rounds it. Returns the text and the indices into `input.devices` of the
 /// devices skipped for want of a recogniser.
 ///
 /// # Errors
-/// A device whose terminals are fewer than its recogniser's arity.
-pub fn spice(input: &RefInput, deck: &Deck) -> Result<(String, Vec<usize>), String> {
+/// A device whose terminals are fewer than its recogniser's arity, or a
+/// FinFET on a PDK that states no fin pitch.
+pub fn spice(input: &RefInput, pdk: &Pdk) -> Result<(String, Vec<usize>), String> {
+    let deck = &pdk.deck;
     let mut out = format!(".subckt top {}\n", input.ports.join(" "));
     let mut skipped = Vec::new();
     for (index, dev) in input.devices.iter().enumerate() {
@@ -96,6 +101,13 @@ pub fn spice(input: &RefInput, deck: &Deck) -> Result<(String, Vec<usize>), Stri
         // where the deck extracts none.
         out.push_str(&format!("X{index} {} {}", dev.terminals.join(" "), d.model));
         for (name, v) in &dev.params {
+            if d.fins.is_some() && name == "w" {
+                let pitch =
+                    pdk.fin_pitch().ok_or_else(|| format!("reference device {index}: {} counts fins, the PDK states no fin pitch", d.model))?;
+                let w_nm = (v * 1e9).round() as i64;
+                out.push_str(&format!(" nfin={}", ((w_nm + i64::from(pitch) / 2) / i64::from(pitch)).max(1)));
+                continue;
+            }
             match name.as_str() {
                 // Rounded to the pm: no float noise past the nm grid.
                 "w" | "l" | "ps" | "pd" | "pe" | "perim" => out.push_str(&format!(" {name}={}u", (v * 1e12).round() / 1e6)),
@@ -114,7 +126,7 @@ pub fn spice(input: &RefInput, deck: &Deck) -> Result<(String, Vec<usize>), Stri
 
 /// The deck recogniser row for one schematic device, `None` when the deck has
 /// no marker for its kind/polarity. Polarity is read off the marker layer name
-/// (`ngate`/`pgate`, `npn`/`pnp`: a leading `p` is P-type). For R/C/D a model
+/// ([`Deck::polarity`]: `ngate`/`pgate`, `npn`/`pnp`, asap7's `PMOS_RVT`). For R/C/D a model
 /// hint no row names (exactly or as a `__` vendor suffix) is `None`: sky130's
 /// `cap_generic_m1m2` (MOM) must not be compared as its `capm` (MIM). So is a
 /// capacitor with no model (an elaborated composition's card): every deck's
@@ -134,8 +146,8 @@ fn recogniser_for<'d>(dev: &RefDeviceIn, deck: &'d Deck) -> Option<&'d crate::de
     };
     let mut fallback = None;
     for d in deck.devices.iter().filter(|d| d.kind == kind) {
-        let marker = &deck.layers[usize::from(d.marker)].name;
-        if polarity.is_some_and(|want_p| marker.starts_with('p') != want_p) {
+        let p = deck.polarity(d);
+        if polarity.is_some_and(|want_p| p != Some(want_p)) {
             continue;
         }
         let vendor = dev.model.as_deref().is_some_and(|m| d.model.ends_with(&format!("__{m}")) || m.ends_with(&format!("__{}", d.model)));
@@ -145,7 +157,7 @@ fn recogniser_for<'d>(dev: &RefDeviceIn, deck: &'d Deck) -> Option<&'d crate::de
         // The hint names no deck model (yet): a MOS/BJT falls back to the
         // first match whose marker states its polarity (IHP's `esd_vdd` bjt
         // is an ESD diode, no NPN a schematic may mean).
-        if polarity.is_some() && (marker.starts_with('n') || marker.starts_with('p')) {
+        if polarity.is_some() && p.is_some() {
             fallback.get_or_insert(d);
         }
     }

@@ -104,9 +104,18 @@ pub(crate) mod testkit {
     /// chip-level; its gates have no driver (`floating_gate` is vacuous); its
     /// taps meet only through the substrate until routing ties them
     /// (`soft_connection`), and a two-ended gate's straps only through poly.
+    /// Named known failure (Q61): GPurify flags `unconnected_pin` (sky130
+    /// `x.22`) on a labelled port too until its intent file reads `ports`,
+    /// and every pin of a lone cell is one, so those rows are not findings
+    /// here. The canary is verify's `unconnected_metal_is_floating_unless_it_is_a_port`:
+    /// when it fails, GPurify exempts ports and [`PORT_GAP`] goes.
     pub fn findings(shapes: &[analog::base::Shape], labels: &[verify::LabeledPin], pdk: &verify::Pdk) -> Vec<String> {
         findings_in(shapes, &[], labels, pdk)
     }
+
+    /// The `unconnected_pin` rules of the built-in decks: GPurify's port
+    /// exemption gap (Q61, see [`findings`]).
+    pub const PORT_GAP: [&str; 2] = ["x.22", "unconnected_conductor"];
 
     /// [`findings`] with `cells` named ([`analog::base::Macro::cells`]).
     pub fn findings_in(
@@ -120,6 +129,7 @@ pub(crate) mod testkit {
             .into_iter()
             .chain(verify::erc_with(shapes, labels, pdk, &opts))
             .filter(|f| !f.rule.ends_with("_density") && !(f.rule == "floating_gate" || f.rule.starts_with("soft_connection")))
+            .filter(|f| labels.is_empty() || !PORT_GAP.contains(&f.rule.as_str()))
             .map(|f| format!("{}:{}", f.rule, f.layer))
             .collect()
     }

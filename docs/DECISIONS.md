@@ -798,8 +798,9 @@ an `engine/<stage>` hard row, never a pass.
 **Decks.** `pdks/gpurify/<pdk>.deck` is the one source of truth: GPurify's
 shipped deck at the pinned rev (line 1 names it) with Philis's stricter or
 missing rules as `# PHILIS:` edits in place. Sign-off passes that file
-(`--deck`); the deck queries read its dump. A merge test (`decks::every_deck_edit_is_marked_philis`) diffs each
-deck against the pinned upstream deck (`$GPURIFY_SRC`, the flake input) and
+(`--deck`); the deck queries read its dump. A merge test
+(`decks::every_deck_edit_is_marked_philis`) diffs each deck against the pinned
+upstream deck (`$GPURIFY_SRC`, the flake input) and
 fails on any statement added or dropped with no `# PHILIS:` comment over it,
 so an edit is never silent.
 
@@ -834,14 +835,18 @@ a coded refusal, or a named known failure:
 | stage verdicts (`StageStatus`) | the JSON `summary` when the report has one (a stage it does not state as `ran` is a hard `engine/<stage>` row); before it, the text report's `summary:` for a failed run with nothing in the JSON to show for it |
 | a row's layer name | the JSON row's `layer_name`, else the deck dump's layer table (the same ids) |
 
-The GPurify gaps (the deck dump, `layer_name`, the stage summary, intent
-`ports` for `unconnected_pin` and `floating_gate`, label names on a short,
-a crash of `pex --format spice` on an empty layout) are reported to the
-GPurify session; each known failure above names its gap.
+GPurify gaps reported to the GPurify session, each a named known failure
+until it lands: the JSON stage summary and `layer_name`; intent `ports` for
+`unconnected_pin` and `floating_gate`; label names on a short; and three
+2.0 regressions 1.0 had fixed, carried as `# PHILIS:` deck edits meanwhile
+(sky130 `lvtn.10` selecting its wells, `soft_connection` keeping `psub`
+soft) or as a known failure (asap7 PEX: `LIG` has no sourced resistance).
 
-Change drill: re-pinning GPurify is `flake.lock`'s `gpurify` input, the four
-decks re-vendored onto the new rev (the merge test lists every hunk that
-moved), and the deck dumps regenerated. Radius: zero Rust bodies.
+Change drill: re-pinning GPurify is `flake.lock`'s `gpurify` input, the
+four decks re-vendored onto the new rev (`decks::every_deck_edit_is_marked_philis`
+lists every hunk that moved) and `pdks/gpurify/dump.sh` (`decks::dumps_are_fresh`
+fails until it runs). Radius: zero Rust bodies, unless the dump's format
+moves past `gpurify-deck/1`.
 
 ### Q62 Which `Order` binds the row stack's rows — accepted (lead, issue #11)
 

@@ -209,7 +209,7 @@ pub fn signoff_extract(shapes: &[Shape], pins: &[LabeledPin], reference: &RefInp
     let mut s = Signoff::default();
     let fail = |s: &mut Signoff, rule: String| s.report.hard_violations.push(Violation { rule, margin: 0 });
 
-    let (text, skipped) = match reference::spice(reference, &pdk.deck) {
+    let (text, skipped) = match reference::spice(reference, pdk) {
         Ok(r) => r,
         Err(e) => {
             fail(&mut s, format!("engine/reference: {e}"));
@@ -472,7 +472,7 @@ mod tests {
     /// Only the rows of `checks` over `shapes`, by rule id, with LVS
     /// against `reference` when it is given.
     fn rules(shapes: &[Shape], pins: &[LabeledPin], reference: Option<&RefInput>, intent: &Intent, checks: Checks, pdk: &Pdk) -> gpurify::Output {
-        let text = reference.map(|r| reference::spice(r, &pdk.deck).unwrap().0);
+        let text = reference.map(|r| reference::spice(r, pdk).unwrap().0);
         let input = gpurify::Input { shapes, pins, cells: &[], reference: text.as_deref(), ports: None, intent, field_solve: &[] };
         gpurify::run(&input, pdk, checks).unwrap()
     }
@@ -820,12 +820,35 @@ mod tests {
             ports: vec!["in".into(), "out".into(), "vss".into()],
             external_ports: None,
         };
-        let (text, skipped) = reference::spice(&input, &pdk.deck).unwrap();
+        let (text, skipped) = reference::spice(&input, &pdk).unwrap();
         assert_eq!(skipped, [1]);
         assert_eq!(
             text,
             ".subckt top in out vss\nX0 out in vss vss sky130_fd_pr__nfet_01v8 w=2u l=0.5u\nX2 vss bias out vss sky130_fd_pr__nfet_01v8 w=1u nf=2\n.ends top\n"
         );
+    }
+
+    /// An asap7 transistor is sized by its fins: the card states `nfin`, not
+    /// `w`, so a width change is a fin-count change LVS compares exactly.
+    ///
+    /// Oracle: asap7's 27 nm fin pitch (the m1 fixture: 270 nm is 10 fins)
+    /// and GPurify's `nfin` (docs/deck.md: a `fins` device measures no `w`).
+    #[test]
+    fn a_finfet_card_states_its_fins() {
+        let pdk = Pdk::builtin("asap7").unwrap();
+        assert_eq!(pdk.fin_pitch(), Some(27));
+        let input = RefInput {
+            devices: vec![RefDeviceIn {
+                kind: RefKind::Nmos,
+                model: Some("nmos_rvt".into()),
+                terminals: vec!["d".into(), "g".into(), "s".into(), "b".into()],
+                params: vec![("w".into(), 270e-9), ("l".into(), 20e-9)],
+            }],
+            ports: vec![],
+            external_ports: None,
+        };
+        let (text, _) = reference::spice(&input, &pdk).unwrap();
+        assert!(text.contains("X0 d g s b nmos_rvt nfin=10 l=0.02u"), "{text}");
     }
 
     /// AV-01/NOTES-02: a schematic device no recogniser extracts is named in
@@ -1017,11 +1040,7 @@ mod tests {
             ports: vec![],
             external_ports: None,
         };
-        assert_eq!(
-            reference::spice(&with_diode, &pdk.deck).unwrap().1,
-            Vec::<usize>::new(),
-            "a deck with a diom recogniser must not skip diode cards"
-        );
+        assert_eq!(reference::spice(&with_diode, &pdk).unwrap().1, Vec::<usize>::new(), "a deck with a diom recogniser must not skip diode cards");
     }
 
     /// A minimal MOS-like stack derives one recognised device: the merge

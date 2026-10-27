@@ -303,11 +303,7 @@ impl Pdk {
     pub fn reference_spice(&self, reference: &crate::reference::RefInput, top: &str, ports: &[String]) -> String {
         use crate::reference::RefKind;
         let first = |kind: DeviceKind, p: Option<bool>| {
-            self.deck
-                .devices
-                .iter()
-                .find(|d| d.kind == kind && p.is_none_or(|p| self.deck.layers[usize::from(d.marker)].name.starts_with('p') == p))
-                .map_or("?", |d| d.model.as_str())
+            self.deck.devices.iter().find(|d| d.kind == kind && p.is_none_or(|p| self.deck.polarity(d) == Some(p))).map_or("?", |d| d.model.as_str())
         };
         let ports = if ports.is_empty() { &reference.ports } else { ports };
         let mut sp = format!(".subckt {top} {}\n", ports.join(" "));
@@ -867,12 +863,8 @@ impl Pdk {
     #[must_use]
     pub fn min_channel(&self, pmos: bool, model: &str) -> (i32, i32) {
         let (Some(poly), Some(diff)) = (Process::layer(self, "poly"), Process::layer(self, "diff")) else { return (0, 0) };
-        let rows: Vec<&crate::deck::Device> = self
-            .deck
-            .devices
-            .iter()
-            .filter(|d| d.kind == DeviceKind::Mos && self.deck.layers[usize::from(d.marker)].name.starts_with('p') == pmos)
-            .collect();
+        let rows: Vec<&crate::deck::Device> =
+            self.deck.devices.iter().filter(|d| d.kind == DeviceKind::Mos && self.deck.polarity(d) == Some(pmos)).collect();
         let named = self.deck_model(model);
         let marker = rows.iter().find(|d| named.as_deref() == Some(d.model.as_str())).or(rows.first()).map(|d| d.marker);
         // The largest `kind` limit on a layer whose `area` is the gate.
@@ -1192,6 +1184,13 @@ impl Pdk {
         out
     }
 
+    /// The fin pitch, nm: the `fin` role's width plus its spacing, as the
+    /// FinFET generator places fins. `None` on a deck with no fin layer.
+    #[must_use]
+    pub fn fin_pitch(&self) -> Option<i32> {
+        Some(Process::width(self, "fin")? + Process::space(self, "fin")?).filter(|&p| p > 0)
+    }
+
     /// The deck's name for schematic `model` (sky130 `nfet_01v8` →
     /// `sky130_fd_pr__nfet_01v8`): equal, or one is the other behind a vendor
     /// `__` prefix. `None` when the deck names no such model.
@@ -1230,7 +1229,7 @@ impl Pdk {
     pub fn model_kind(&self, model: &str) -> Option<crate::reference::RefKind> {
         use crate::reference::RefKind;
         let d = self.deck.model(&self.deck_model(model)?)?;
-        let p = self.deck.layers[usize::from(d.marker)].name.starts_with('p');
+        let p = self.deck.polarity(d) == Some(true);
         Some(match d.kind {
             DeviceKind::Mos if p => RefKind::Pmos,
             DeviceKind::Mos => RefKind::Nmos,
