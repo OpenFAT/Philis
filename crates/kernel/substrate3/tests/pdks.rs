@@ -74,13 +74,25 @@ fn mos<M: MosModel>(model: M, nf: i64) -> Mos<M> {
     Mos::new(model, 1680 * nf, i64::from(l), nf)
 }
 
-/// One-finger: the device signs off clean against its own schematic.
+/// Known failures by deck, compared as names (AGENTS.md: an unexpected pass
+/// fails until its marker goes). asap7: LISD has no sourced resistance, so
+/// PEX refuses (ROADMAP, known gaps; unblocked by the ASAP7 Calibre PEX deck).
+const KNOWN: &[(&str, &str)] = &[("asap7", "engine/pex: refused: layer LISD: no pex row gives this conductor a positive sheet resistance (0)")];
+
+/// One-finger: the device signs off against its own schematic with exactly
+/// its deck's known failures, every device compared by LVS.
+///
+/// Oracle: GPurify's DRC, ERC and LVS against the device's own schematic.
 fn signs_off<M: MosModel>(model: M)
 where
     M::Pdk: DrawnPdk,
 {
+    let deck = <M::Pdk as PhilisPdk>::DECK;
     let r = signoff::run(&Context::builder().build(), Device(mos(model, 1))).expect("signoff runs");
-    assert!(r.is_clean(), "{} {model:?}: {:#?}\n{}", <M::Pdk as PhilisPdk>::DECK, r.failures(), r.coverage);
+    let known: Vec<String> = KNOWN.iter().filter(|(d, _)| *d == deck).map(|(_, f)| (*f).to_owned()).collect();
+    assert_eq!(r.failures(), known, "{deck} {model:?}: failures differ from the known list\n{}", r.coverage);
+    let lvs_ran = r.coverage.unverified.is_empty() && !r.coverage.skipped_rules.iter().any(|(n, _)| n == "lvs");
+    assert!(lvs_ran, "{deck} {model:?}: LVS did not compare every device\n{}", r.coverage);
 }
 
 /// Any finger count: the tile alone is DRC/ERC clean.
