@@ -168,6 +168,11 @@ pub struct DetailedCfg {
     /// Capacitor sets whose plate leads are routed apart and equalised
     /// (RTE-20; absolute array rects); empty = none. Needs `stack`.
     pub plates: Vec<analog::routing::PlateSet>,
+    /// `(cut, metal)` pairs whose deck rule says the cut spans its metal
+    /// exactly across one axis (ASAP7 V0.M1.AUX.3, V1.M2.AUX.2): routed metal
+    /// on `metal` is drawn at the cut's width around such a cut and never
+    /// widens one, cell cut or routed. Empty = no such rule.
+    pub full_width: Vec<(LayerId, LayerId)>,
 }
 
 impl Default for DetailedCfg {
@@ -204,6 +209,7 @@ impl Default for DetailedCfg {
             blockages: Vec::new(),
             aggressor: Vec::new(),
             plates: Vec::new(),
+            full_width: Vec::new(),
         }
     }
 }
@@ -222,6 +228,25 @@ impl DetailedCfg {
     /// The first wide-metal threshold on `layer`, nm (`i32::MAX` = none).
     fn wide(&self, layer: LayerId) -> i32 {
         self.spacing.iter().find(|(l, ..)| *l == layer).and_then(|(.., s)| s.iter().map(|&(t, _)| t).min()).unwrap_or(i32::MAX)
+    }
+
+    /// `metal` hosts some full-width cut ([`Self::full_width`]): its pads are
+    /// drawn oriented and exact, never square.
+    fn exact(&self, metal: LayerId) -> bool {
+        self.full_width.iter().any(|&(_, m)| m == metal)
+    }
+
+    /// The pad on `metal` around `cut` (`size` square, centred at `at`) when
+    /// [`Self::exact`]: `size + 2·along` along `along_x`'s axis, `size +
+    /// 2·across` across it, `across = 0` when `cut` must span `metal`. `upper`:
+    /// `metal` is the cut's upper metal. A cut absent from
+    /// [`Self::cut_enclosure_pair`] keeps no enclosure.
+    fn exact_pad(&self, metal: LayerId, cut: LayerId, size: i32, upper: bool, at: (i32, i32), along_x: bool) -> Shape {
+        let (ea, eg) = self.cut_enclosure_pair.iter().find(|e| e.0 == cut).map_or((0, 0), |&(_, lo, hi)| if upper { hi } else { lo });
+        let ea = if self.full_width.contains(&(cut, metal)) { 0 } else { ea };
+        let (along, across) = (size + 2 * eg, size + 2 * ea);
+        let (w, h) = if along_x { (along, across) } else { (across, along) };
+        Shape { layer: metal, rect: Rect { x: at.0 - w / 2, y: at.1 - h / 2, w, h } }
     }
 
     /// Track stride on lattice layer `l` (1 without specs).
@@ -590,6 +615,30 @@ impl DetailedRoute {
                     if x0 < px && px < x1 && y0 < py && py < y1 {
                         let o = &mut reserved[n as usize];
                         *o = if *o == NONE || *o == own { own } else { BLOCKED };
+                    }
+                }
+            }
+        }
+        // A cell cut its metal must span (ASAP7 V0 in M1): no node, own net's
+        // included, whose wire or via pad would reach it — any routed metal over
+        // it widens its host. Along the track by a pitch more, so a run between
+        // two nodes cannot pass over it either.
+        for s in placed.iter().chain(rings).flat_map(|m| &m.shapes) {
+            for &(_, m) in cfg.full_width.iter().filter(|&&(c, _)| c == s.layer) {
+                let Some(l) = layers.iter().position(|&x| x == m).filter(|&l| (l as u32) < n_layers) else { continue };
+                let horizontal = cfg.layers.get(l).map_or(l % 2 == 0, |sp| sp.horizontal);
+                let (across, along) = cfg.layers.get(l).map_or((cfg.wire(l), cfg.wire(l)), |sp| (sp.wire.max(sp.pad_across), sp.pad_along));
+                let (ga, gl) = (across / 2, cfg.stride(l) * cfg.pitch + along / 2);
+                let (gx, gy) = if horizontal { (gl, ga) } else { (ga, gl) };
+                let r = shift(s.rect);
+                let (x0, y0, x1, y1) = (r.x - gx, r.y - gy, r.x + r.w + gx, r.y + r.h + gy);
+                for iy in grid.bin_y(y0)..=grid.bin_y(y1) {
+                    for ix in grid.bin_x(x0)..=grid.bin_x(x1) {
+                        let n = grid.node(ix, iy, l as u32);
+                        let (px, py, _) = grid.pos(n);
+                        if x0 <= px && px <= x1 && y0 <= py && py <= y1 {
+                            reserved[n as usize] = BLOCKED;
+                        }
                     }
                 }
             }
@@ -1186,9 +1235,16 @@ impl DetailedRoute {
         // seen by repair. Frame coordinates; access violations are reported
         // on the shipped drawing.
         let joins = joins(layers, cuts, cfg.pin_access);
+        // Cell and ring metal in the routing frame, for full-width cuts
+        // ([`DetailedCfg::full_width`]); empty on a deck without them.
+        let cell_frame: Vec<Shape> = if cfg.full_width.is_empty() {
+            Vec::new()
+        } else {
+            placed.iter().chain(rings).flat_map(|m| &m.shapes).map(|s| Shape { rect: shift(s.rect), ..*s }).collect()
+        };
         let probe = |hot: &RouteHot, cold: &RouteCtx<TrackGrid>| {
             let mut r = Routes { cell: cell_f.clone(), gates: gates_f.clone(), ..build_routes(hot, cold, cfg, &compact, n_nets, layers, cuts) };
-            add_pin_access(&mut r, &access, &compact, cfg, layers, cuts, &joins, &zones, origin, &jog_blocks);
+            add_pin_access(&mut r, &access, &compact, cfg, layers, cuts, &joins, &zones, origin, &jog_blocks, &cell_frame);
             r
         };
         // Common-node balance, in the routing frame.
@@ -1284,7 +1340,7 @@ impl DetailedRoute {
                 // Shapes at or past this index per net are access geometry — the only
                 // shapes the short resolver may sacrifice.
                 let pre_access: Vec<usize> = routes.wires.iter().map(Vec::len).collect();
-                let access_v = add_pin_access(&mut routes, &access, &compact, cfg, layers, cuts, &joins, &zones, origin, &jog_blocks);
+                let access_v = add_pin_access(&mut routes, &access, &compact, cfg, layers, cuts, &joins, &zones, origin, &jog_blocks, &cell_frame);
 
                 // A drawn short must never ship silently. Break each by deleting access
                 // geometry (an open is reported), counted per net so `score` reports pins
@@ -1380,6 +1436,15 @@ impl DetailedRoute {
                 // Switch to a `ShapeIndex` if `us_fill` rises visibly on ota.
                 let md = |r: Rect| r.w.min(r.h);
                 let clear = |n: usize, s: Shape, wires: &[Vec<Shape>]| -> bool {
+                    // Never over a full-width cut it would widen (ASAP7 V1 in M2).
+                    if cfg.exact(s.layer) {
+                        let reach = 2 * cfg.pitch;
+                        let world: Vec<Shape> =
+                            cell_frame.iter().chain(wires.iter().flatten()).filter(|x| rect_gap(x.rect, s.rect) <= reach).copied().collect();
+                        if widens(cfg, s, &world) {
+                            return false;
+                        }
+                    }
                     if let Some(&(_, size, ..)) = cuts.iter().find(|c| c.0 == s.layer) {
                         let sp = cfg.space(s.layer, 0, 0, size);
                         return wires.iter().flatten().all(|g| g.layer != s.layer || *g == s || rect_gap(g.rect, s.rect) >= sp);
@@ -1700,6 +1765,25 @@ impl DetailedRoute {
                         fill_same_net_notches(wires, &[l], space, feat, &foreign, cfg.grid);
                     }
                     wires.drain(own..own + pins);
+                    // No filler over a full-width cut it would widen.
+                    if !cfg.full_width.is_empty() {
+                        let reach = 2 * cfg.pitch;
+                        let mut k = 0;
+                        while k < wires.len() {
+                            let f = wires[k];
+                            let world: Vec<Shape> = cell_frame
+                                .iter()
+                                .chain(wires.iter().enumerate().filter(|&(j, _)| j != k).map(|(_, x)| x))
+                                .filter(|x| rect_gap(x.rect, f.rect) <= reach)
+                                .copied()
+                                .collect();
+                            if !before.contains(&f) && cfg.exact(f.layer) && widens(cfg, f, &world) {
+                                wires.remove(k);
+                            } else {
+                                k += 1;
+                            }
+                        }
+                    }
                     fillers[ni] = wires.iter().filter(|s| !before.contains(s)).copied().collect();
                     drop_contained(wires);
                 }
@@ -2273,6 +2357,47 @@ fn rect_gap(a: Rect, b: Rect) -> i32 {
     dx.max(dy).max(0)
 }
 
+/// Whether `host` (rects on a full-width cut's metal) spans `cut` across one
+/// axis as GPurify's `full_width` reads it: on both sides of that axis some
+/// stretch just outside the cut's edge is uncovered, so the host's edge runs
+/// along the cut's there.
+fn spans(cut: Rect, host: &[Rect]) -> bool {
+    let (x0, y0, x1, y1) = (i64::from(cut.x), i64::from(cut.y), i64::from(cut.x + cut.w), i64::from(cut.y + cut.h));
+    // Doubled coordinates: a sample is never on an edge.
+    let covered = |x2: i64, y2: i64| {
+        host.iter().any(|r| {
+            let (a, b, c, d) = (i64::from(r.x), i64::from(r.y), i64::from(r.x + r.w), i64::from(r.y + r.h));
+            2 * a < x2 && x2 < 2 * c && 2 * b < y2 && y2 < 2 * d
+        })
+    };
+    // Some stretch of `lo..hi` just outside at doubled `out` is uncovered.
+    let flush = |lo: i64, hi: i64, out: i64, along_x: bool| {
+        let mut cuts = vec![lo, hi];
+        for r in host {
+            let (a, b) = if along_x { (r.x, r.x + r.w) } else { (r.y, r.y + r.h) };
+            cuts.extend([i64::from(a), i64::from(b)].into_iter().filter(|&v| lo < v && v < hi));
+        }
+        cuts.sort_unstable();
+        cuts.dedup();
+        cuts.windows(2).any(|w| if along_x { !covered(w[0] + w[1], out) } else { !covered(out, w[0] + w[1]) })
+    };
+    (flush(y0, y1, 2 * x0 - 1, false) && flush(y0, y1, 2 * x1 + 1, false)) || (flush(x0, x1, 2 * y0 - 1, true) && flush(x0, x1, 2 * y1 + 1, true))
+}
+
+/// Whether adding `s` makes a full-width cut in `world` (every shape such a
+/// cut may merge with: cell metal and routes, near `s`) stop spanning its
+/// metal ([`DetailedCfg::full_width`], [`spans`]).
+fn widens(cfg: &DetailedCfg, s: Shape, world: &[Shape]) -> bool {
+    cfg.full_width.iter().filter(|&&(_, m)| m == s.layer).any(|&(c, m)| {
+        world.iter().filter(|x| x.layer == c && rect_gap(x.rect, s.rect) == 0).any(|cut| {
+            let mut host: Vec<Rect> = world.iter().filter(|x| x.layer == m && rect_gap(x.rect, cut.rect) == 0).map(|x| x.rect).collect();
+            let before = spans(cut.rect, &host);
+            host.push(s.rect);
+            before && !spans(cut.rect, &host)
+        })
+    })
+}
+
 /// `outer` covers every point of `inner`.
 fn contains(outer: Rect, inner: Rect) -> bool {
     outer.x <= inner.x && outer.y <= inner.y && outer.x + outer.w >= inner.x + inner.w && outer.y + outer.h >= inner.y + inner.h
@@ -2611,8 +2736,10 @@ fn add_pin_access(
     zones: &[(u32, i32, i32)],
     origin: (i32, i32),
     jog_blocks: &[Vec<(Rect, u16)>],
+    cell: &[Shape],
 ) -> Vec<Violation> {
     let spacing = (cfg.pitch - cfg.wire_width).max(0);
+    let lattice_x = |l: LayerId| layers.iter().position(|&x| x == l).map_or(true, |i| cfg.layers.get(i).map_or(i % 2 == 0, |s| s.horizontal));
     let mut laid: Vec<(usize, Rect)> = Vec::new();
     let mut out = Vec::new();
     for a in access {
@@ -2635,16 +2762,52 @@ fn add_pin_access(
         let bit = layers.iter().position(|&l| l == metal).map_or(0, |l| 1u16 << l);
         let blocks: Vec<Rect> = jog_blocks[a.ci].iter().filter(|b| b.1 & bit != 0).map(|b| b.0).collect();
         let (nx, ny) = a.node;
-        let (px, py) = (a.pin.x + a.pin.w / 2, a.pin.y + a.pin.h / 2);
+        let (mut px, mut py) = (a.pin.x + a.pin.w / 2, a.pin.y + a.pin.h / 2);
+        // A pin on a metal hosting full-width cell cuts (ASAP7 M1 over V0): the
+        // pin-end cut moves along the cell strap holding the pin to the nearest
+        // spot where the strap encloses it as the deck asks, or where its base
+        // pad (along the strap) keeps off every such cut; `(strap along x,
+        // hosted)`.
+        let mut on_strap: Option<(bool, bool)> = None;
+        if let (Some((_, cut, size, ..)), true) = (climb, cfg.exact(base) && a.pin_layer == base) {
+            let strap =
+                cell.iter().filter(|s| s.layer == base && contains(s.rect, a.pin)).map(|s| s.rect).max_by_key(|r| i64::from(r.w) * i64::from(r.h));
+            if let Some(h) = strap {
+                let along_x = h.w >= h.h;
+                let (ea, eg) = cfg.cut_enclosure_pair.iter().find(|e| e.0 == cut).map_or((0, 0), |&(_, lo, _)| lo);
+                let fw: Vec<Rect> =
+                    cell.iter().filter(|s| cfg.full_width.contains(&(s.layer, base)) && rect_gap(s.rect, h) == 0).map(|s| s.rect).collect();
+                let at = |d: i32| if along_x { (px + d, py) } else { (px, py + d) };
+                let cut_at = |c: (i32, i32)| Rect { x: c.0 - size / 2, y: c.1 - size / 2, w: size, h: size };
+                let hosted = |c: (i32, i32)| {
+                    let r = cut_at(c);
+                    let (ex, ey) = ((r.x - h.x).min(h.x + h.w - r.x - r.w), (r.y - h.y).min(h.y + h.h - r.y - r.h));
+                    (ex >= ea && ey >= eg) || (ex >= eg && ey >= ea)
+                };
+                let clear = |c: (i32, i32)| {
+                    contains(h, cut_at(c))
+                        && (hosted(c) || fw.iter().all(|&f| rect_gap(cfg.exact_pad(base, cut, size, false, c, along_x).rect, f) > 0))
+                };
+                let g = cfg.grid.max(1);
+                let reach = h.w.max(h.h) / g;
+                if let Some(c) = (0..=reach).flat_map(|k| [k * g, -k * g]).map(at).find(|&c| clear(c)) {
+                    on_strap = Some((along_x, hosted(c)));
+                    (px, py) = c;
+                }
+            }
+        }
         // No jog narrower than its EM width: narrow survives only where it meets it.
         let need = access_need(cfg, metal, a.node_ua);
         let floor = cfg.min_width.iter().find(|&&(l, _)| l == metal).map_or(1, |&(_, w)| w);
-        // The jog metal's own minimum, not layer 0's wire: a jog climbs.
-        let full = cfg.wire_width.max(floor).max(need);
+        // The jog metal's own minimum, not layer 0's wire: a jog climbs. On a
+        // metal hosting full-width cuts, its lattice wire (the cut's width).
+        let wire = if cfg.exact(metal) { layers.iter().position(|&l| l == metal).map_or(cfg.wire_width, |l| cfg.wire(l)) } else { cfg.wire_width };
+        let full = wire.max(floor).max(need);
         let narrow = full.min(a.pin.w).min(a.pin.h).max(floor).max(need);
         let legs_of = |(w, flip): (i32, bool)| jog_legs(nx, ny, px, py, w)[usize::from(flip)];
         let options = [(full, false), (full, true), (narrow, false), (narrow, true)];
-        let choice = a.choice.filter(|c| c.0 >= need);
+        // Landing chose its width before the exact metal's was known.
+        let choice = a.choice.filter(|c| c.0 >= need).map(|(w, f)| (if cfg.exact(metal) { full } else { w }, f));
         let cands: Vec<(i32, bool)> = choice.into_iter().chain(options).collect();
         let clear = |legs: &[Rect; 2], gap: i32| {
             let probe = Shape { layer: metal, rect: legs[0] };
@@ -2665,6 +2828,8 @@ fn add_pin_access(
             .or(choice)
             .unwrap_or_else(|| options.into_iter().find(|&c| jog_clean(&legs_of(c), a.ci, full, 1, zones, &laid, &blocks)).unwrap_or(options[3]));
         let legs = legs_of((w, flip));
+        // The jog's legs meeting the node and the pin run along x.
+        let (node_x, pin_x) = if flip { (ny == py, nx != px) } else { (nx != px, ny == py) };
         laid.extend(legs.iter().map(|&l| (a.ci, l)));
         let foreign: Vec<Rect> =
             routes.wires.iter().enumerate().filter(|&(n, _)| n != net).flat_map(|(_, w)| w).filter(|s| s.layer == metal).map(|s| s.rect).collect();
@@ -2748,14 +2913,29 @@ fn add_pin_access(
                 // enclosure all round.
                 let e = cfg.cut_enclosure.iter().find(|&&(c, ..)| c == cut).map_or(0, |&(_, e, _)| e);
                 let (cl, ct) = (end.0 - size / 2 - e, end.1 - size / 2 - e);
-                let hosted = end == (px, py)
-                    && a.pin_layer == base
-                    && cl >= a.pin.x
-                    && cl + size + 2 * e <= a.pin.x + a.pin.w
-                    && ct >= a.pin.y
-                    && ct + size + 2 * e <= a.pin.y + a.pin.h;
-                if !hosted {
+                let hosted = match on_strap {
+                    Some((_, hosted)) if end == (px, py) => hosted,
+                    _ => {
+                        end == (px, py)
+                            && a.pin_layer == base
+                            && cl >= a.pin.x
+                            && cl + size + 2 * e <= a.pin.x + a.pin.w
+                            && ct >= a.pin.y
+                            && ct + size + 2 * e <= a.pin.y + a.pin.h
+                    }
+                };
+                if !hosted && cfg.exact(base) {
+                    let along_x = on_strap.filter(|_| end == (px, py)).map_or(lattice_x(base), |(x, _)| x);
+                    wires.push(cfg.exact_pad(base, cut, size, false, end, along_x));
+                } else if !hosted {
                     wires.push(pad(base, end, below));
+                }
+                // Exact metal: the pad runs along the leg meeting this end, at the
+                // cut's width, unslid.
+                if cfg.exact(metal) {
+                    let along_x = if end == (px, py) { pin_x } else { node_x };
+                    wires.push(cfg.exact_pad(metal, cut, size, true, end, along_x));
+                    continue;
                 }
                 // The pin end's pad slides toward the node along the leg that
                 // reaches the pin, as far as the cut stays enclosed (a
@@ -2792,8 +2972,13 @@ fn add_pin_access(
             for k in nl.min(ml)..nl.max(ml) {
                 if let Some(&(cut, size, below, above)) = cuts.get(k) {
                     wires.push(pad(cut, (nx, ny), size));
-                    wires.push(pad(layers[k], (nx, ny), below));
-                    wires.push(pad(layers[k + 1], (nx, ny), above));
+                    for (l, square, upper) in [(layers[k], below, false), (layers[k + 1], above, true)] {
+                        wires.push(if cfg.exact(l) {
+                            cfg.exact_pad(l, cut, size, upper, (nx, ny), if l == metal { node_x } else { lattice_x(l) })
+                        } else {
+                            pad(l, (nx, ny), square)
+                        });
+                    }
                 }
             }
         }
@@ -4935,7 +5120,7 @@ mod tests {
             node_ua: None,
         }];
         let joins = joins(&LAYERS, &CUTS, None);
-        add_pin_access(&mut routes, &access, &[0], &cfg, &LAYERS, &CUTS, &joins, &[], (0, 0), &[Vec::new()]);
+        add_pin_access(&mut routes, &access, &[0], &cfg, &LAYERS, &CUTS, &joins, &[], (0, 0), &[Vec::new()], &[]);
         let cuts: Vec<Rect> = routes.wires[0].iter().filter(|s| s.layer == cut).map(|s| s.rect).collect();
         for (i, a) in cuts.iter().enumerate() {
             for b in &cuts[i + 1..] {
@@ -4971,6 +5156,20 @@ mod tests {
 
     /// An inserted cell lands in the nearest free spot that keeps clearance
     /// from every obstacle, with its pins moved alongside.
+    /// GPurify's `full_width` reading on the cases ASAP7's mirror drew: a
+    /// strap the cut spans, a wider trunk over it (broken), and a pad beside it
+    /// that leaves part of each edge flush (still spanned).
+    #[test]
+    fn spans_reads_full_width_as_gpurify() {
+        let r = |x, y, w, h| Rect { x, y, w, h };
+        let (cut, strap) = (r(126, 9, 18, 18), r(121, 9, 406, 18));
+        assert!(spans(cut, &[strap]));
+        assert!(!spans(cut, &[strap, r(109, 13, 1030, 22)]), "a 22 nm trunk covers the top edge");
+        assert!(spans(cut, &[strap, r(140, 4, 28, 28)]), "a pad over part of each edge");
+        assert!(!spans(cut, &[strap, r(121, 4, 28, 28)]), "a square pad round it");
+        assert!(spans(cut, &[r(126, 4, 18, 28)]), "an exact pad: x flush");
+    }
+
     #[test]
     fn place_near_finds_the_closest_free_spot() {
         let cell = Macro {
@@ -5423,7 +5622,7 @@ mod tests {
             ua: None,
             node_ua: Some(1_000.0),
         }];
-        add_pin_access(&mut routes, &access, &[0], &cfg, &LAYERS, &CUTS, &joins(&LAYERS, &CUTS, None), &[], (0, 0), &[Vec::new()]);
+        add_pin_access(&mut routes, &access, &[0], &cfg, &LAYERS, &CUTS, &joins(&LAYERS, &CUTS, None), &[], (0, 0), &[Vec::new()], &[]);
         let jogs: Vec<i32> =
             routes.wires[0].iter().filter(|s| s.layer == LAYERS[1] && s.rect.w != s.rect.h).map(|s| s.rect.w.min(s.rect.h)).collect();
         assert!(!jogs.is_empty() && jogs.iter().all(|&w| w >= 360), "{jogs:?}");

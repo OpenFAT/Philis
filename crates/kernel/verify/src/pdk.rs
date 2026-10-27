@@ -1026,7 +1026,7 @@ impl Pdk {
 
     /// Whether a `full_width(inner, outer)` rule binds: `inner` must span
     /// its `outer` host exactly across one axis (ASAP7 V0.M1.AUX.3).
-    pub(crate) fn full_width_on(&self, outer: u16, inner: u16) -> bool {
+    pub fn full_width_on(&self, outer: u16, inner: u16) -> bool {
         self.rules_on("full_width", &[outer, inner]).next().is_some()
     }
 

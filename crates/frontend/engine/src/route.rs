@@ -458,6 +458,10 @@ pub(crate) fn detailed_router(pdk: &Pdk, stack: &RoutingStack) -> routing::dr::D
         cfg.via_r = cuts.iter().map(|&(c, ..)| pdk.pex_f32(c, "sheet_res_ohm_sq").unwrap_or(0.0) / least).collect();
     }
     cfg.pin_access = pin_access;
+    // Every deck cut that must span a routed metal across one axis, routed or
+    // only drawn by cells (ASAP7 V0 in M1).
+    cfg.full_width =
+        pdk.layers.iter().flat_map(|&(_, c)| layers.iter().filter(move |&&m| pdk.full_width_on(m.0, c.0)).map(move |&m| (c, m))).collect();
     let (pad_layer, pad_cut) = match pin_access {
         Some((l, (c, ..))) => (Some(l), Some(c)),
         None => (layers.first().copied(), cuts.first().map(|&(c, ..)| c)),
