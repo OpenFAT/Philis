@@ -3,4 +3,5 @@
 //! placement, which reuses `gp`'s mechanics.
 
 pub mod dp;
+pub mod floorplan;
 pub mod gp;

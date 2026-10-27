@@ -5,3 +5,7 @@ edition = "2021"
 
 [dependencies]
 analog = { path = "../../kernel/analog" }
+
+[dev-dependencies]
+substrate3 = { path = "../../kernel/substrate3" }
+verify = { path = "../../kernel/verify" }
