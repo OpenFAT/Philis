@@ -48,7 +48,8 @@ pub struct CommonNodes {
 impl CommonNodes {
     /// Max − min of the groups' parallel R, Ω (two groups: `|R_a − R_b|`);
     /// `None` when a group's pins are not all reached.
-    fn delta_ohm(&self, n: &CommonNode, r: &Routes) -> Option<f32> {
+    #[must_use]
+    pub fn delta_ohm(&self, n: &CommonNode, r: &Routes) -> Option<f32> {
         let pins: Vec<Rect> = n.groups.iter().flatten().copied().collect();
         let branch = if n.feeds.is_empty() {
             self.stack.terminal_resistance_ohm(r.shapes(n.net), &pins)
