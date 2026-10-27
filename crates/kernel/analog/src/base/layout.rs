@@ -1,4 +1,20 @@
 //! Placement state: what placement rules score against.
+//! In → out: the device-indexed placement columns → bounding boxes, gaps,
+//! footprint and the normalising length. Cites: PLC-18 (`l_ref`); Philis 1.0
+//! `pnr_core` (Q36).
+//!
+//! Contents:
+//! - `pub struct Layout`
+//! - `Layout::footprint_nm2(&self) -> f64`
+//! - `Layout::l_ref(&self) -> f32`
+//! - `Layout::bbox(&self, t: Target) -> (i32, i32, i32, i32)`
+//! - `Layout::centre(&self, t: Target) -> (i32, i32)`
+//! - `Layout::extent(&self, t: Target) -> (i32, i32)`
+//! - `Layout::axis_x(&self, a: AxisId) -> i32`
+//! - `Layout::centre_x_estimate(&self) -> i32`
+//! - `Layout::debug_check(&self, ctx: &str)`
+//! - `Layout::debug_check_placed(&self, ctx: &str)`
+//! - `Layout::edge_gap(&self, a: Target, b: Target) -> f32`
 
 use crate::base::geom::Orient;
 use crate::base::ids::{AxisId, DeviceId, Target};
@@ -95,6 +111,7 @@ impl Layout {
         }
     }
 
+    /// Centre `(cx, cy)` of a target, nm; as [`Layout::bbox`], including its panics.
     #[inline]
     #[must_use]
     pub fn centre(&self, t: Target) -> (i32, i32) {
@@ -102,7 +119,7 @@ impl Layout {
         (cx, cy)
     }
 
-    /// Half-extents `(hw, hh)`.
+    /// Half-extents `(hw, hh)`; as [`Layout::bbox`], including its panics.
     #[inline]
     #[must_use]
     pub fn extent(&self, t: Target) -> (i32, i32) {
@@ -130,6 +147,9 @@ impl Layout {
 
     /// Debug-only structural check: every column device-length, extents
     /// non-negative, group members in range. `ctx` names the producing stage.
+    ///
+    /// # Panics
+    /// In a debug build, on the first column, extent or member that breaks it.
     #[inline]
     pub fn debug_check(&self, ctx: &str) {
         if !cfg!(debug_assertions) {
@@ -148,7 +168,8 @@ impl Layout {
             assert_eq!(len, n, "{ctx}: Layout.{name} has {len} entries, x has {n}");
         }
         for i in 0..n {
-            assert!(self.hw[i] >= 0 && self.hh[i] >= 0, "{ctx}: device {i} has negative extent");
+            assert!(self.hw[i] >= 0, "{ctx}: device {i} has negative half-width");
+            assert!(self.hh[i] >= 0, "{ctx}: device {i} has negative half-height");
         }
         for (gi, members) in self.groups.iter().enumerate() {
             for d in members {
@@ -159,6 +180,9 @@ impl Layout {
 
     /// Debug-only legality check: no two device footprints overlap at all
     /// (stacked macros become merged nets / doubled W in LVS).
+    ///
+    /// # Panics
+    /// In a debug build, on [`Layout::debug_check`]'s failures or the first overlap.
     #[inline]
     pub fn debug_check_placed(&self, ctx: &str) {
         if !cfg!(debug_assertions) {
@@ -209,6 +233,7 @@ mod tests {
         }
     }
 
+    /// Oracle: spec example, PLC-18's `sqrt(Σ area)` worked by hand.
     #[test]
     fn l_ref_is_root_of_cell_area() {
         // Areas 4·3·4 + 4·6·2 = 96 nm².

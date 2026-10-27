@@ -1,4 +1,16 @@
 //! Indices into the SoA tables. Meaningless without the table they index.
+//! In → out: a [`Target`] and a collapse table → the retargeted [`Target`].
+//! Cites: Philis 1.0 `pnr_core` (Q36); `u16` is the 65 535-device capacity of
+//! `AGENTS.md`.
+//!
+//! Contents:
+//! - `pub struct DeviceId(pub u16)`
+//! - `pub struct NetId(pub u16)`
+//! - `pub struct AxisId(pub u16)`
+//! - `pub struct BranchId(pub u16)`
+//! - `pub struct GroupId(pub u16)`
+//! - `pub enum Target`
+//! - `Target::retarget(self, cell_of: &[u16]) -> Self`
 
 /// Index into [`crate::base::Netlist::devices`].
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

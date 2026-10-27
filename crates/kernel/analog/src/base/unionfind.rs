@@ -1,5 +1,14 @@
 //! Union-find over device indices: rules' `extract` unions matched devices, and
 //! the annotator reads the sets back as the group table.
+//! In → out: `union` pairs over `0..n` → the non-singleton sets. Cites: Tarjan's
+//! union by rank with path compression (no paper clause beyond the textbook form).
+//!
+//! Contents:
+//! - `pub struct UnionFind`
+//! - `UnionFind::new(n: usize) -> Self`
+//! - `UnionFind::find(&mut self, x: u32) -> u32`
+//! - `UnionFind::union(&mut self, a: u32, b: u32)`
+//! - `UnionFind::groups(&mut self) -> Vec<Vec<u32>>`
 
 /// Disjoint-set forest with path compression + union by rank.
 pub struct UnionFind {
@@ -44,6 +53,7 @@ impl UnionFind {
 
     /// The non-singleton sets, each as a sorted member list. Singletons (devices
     /// in no group) are omitted — they stay addressable as `Target::Device`.
+    /// The order of the sets is hash order, not stable across runs.
     pub fn groups(&mut self) -> Vec<Vec<u32>> {
         let n = self.parent.len();
         let mut by_root: std::collections::HashMap<u32, Vec<u32>> = std::collections::HashMap::new();

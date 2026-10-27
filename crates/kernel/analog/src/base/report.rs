@@ -1,4 +1,15 @@
 //! [`Report`] — how well a solution satisfies its requirements.
+//! In → out: violations and a cost → the `lex-min(V, Θ, PEX)` key. Cites:
+//! Philis 1.0 `pnr_core` (Q36).
+//!
+//! Contents:
+//! - `pub struct Report`
+//! - `pub struct Violation`
+//! - `Report::lex(&self) -> (usize, f64, f32)`
+//! - `Report::feasible(&self) -> bool`
+//! - `Violation::BATCH: &'static str`
+//! - `Violation::is_batch_row(&self) -> bool`
+//! - `Violation::from_residual(rule: impl Into<String>, residual: f64) -> Self`
 
 /// Every stage's return value; `verify` fills it at signoff. The three fields
 /// are the tiers of the lexicographic objective `lex-min(V, Θ, PEX)`, compared

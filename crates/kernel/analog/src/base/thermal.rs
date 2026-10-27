@@ -2,7 +2,19 @@
 //! semi-infinite substrate: outside a source's floor disc (radius = its
 //! larger half-extent) a point source, `ΔT(r) = P / (2π·k·r)`; inside it the
 //! source's own-area rise, Hastings eq. 5.6 ([`self_rise_mc`]). Linear in
-//! power, so the sum is exact for the per-source model. Global in the power map: refresh per epoch, never per move.
+//! power, so the sum is exact for the per-source model. Global in the power
+//! map: refresh per epoch, never per move.
+//!
+//! In → out: a [`Layout`] and per-device power → per-device rise, mK.
+//! Cites: Hastings §5.1, eq. 5.6 (self-heating of a uniform source).
+//!
+//! Contents:
+//! - `pub const K_SI_W_PER_M_K: f32`
+//! - `pub fn self_rise_mc(p_uw: i32, w_nm: i32, l_nm: i32, k_w_per_m_k: f32) -> f32`
+//! - `pub fn rise_bound_mc(p_uw: &[i32], footprint_nm: &[(i32, i32)], k_w_per_m_k: f32) -> f32`
+//! - `pub fn rises_mc(l: &Layout, power_uw: &[i32]) -> Vec<i32>`
+//! - `Layout::refresh_temps(&mut self)`
+//! - `Layout::rise_at_point_mc(&self, x: i32, y: i32) -> f32`
 
 use crate::base::layout::Layout;
 
@@ -116,6 +128,7 @@ mod tests {
         (l, p)
     }
 
+    /// Oracle: the point-source model's 1/r law (5× the distance, 1/5 the rise).
     #[test]
     fn heat_falls_off_with_distance() {
         let (l, p) = bench();
@@ -127,6 +140,7 @@ mod tests {
         assert!((ratio - 5.0).abs() < 0.5, "expected ~5x falloff, got {ratio}");
     }
 
+    /// Oracle: linearity in power (zero power, zero rise everywhere).
     #[test]
     fn no_power_means_no_gradient() {
         let (mut l, _) = bench();
@@ -135,6 +149,8 @@ mod tests {
         assert!(l.temp_mc.iter().all(|&t| t == 0));
     }
 
+    /// Oracle: metamorphic, two sensors mirrored about the heater sit on one
+    /// isotherm.
     #[test]
     fn moving_a_pair_onto_one_isotherm_kills_its_delta() {
         // The whole point of a thermal-aware placer: the pair's ΔT is a function
@@ -153,6 +169,8 @@ mod tests {
         assert!(iso < split);
     }
 
+    /// Oracle: none independent; the live and cached fields both come from
+    /// `rise_at`, so this pins only that `temp_mc` is a stale cache until refreshed.
     #[test]
     fn the_live_field_follows_a_move_before_any_refresh() {
         let (mut l, _) = bench();
@@ -165,6 +183,7 @@ mod tests {
         assert!(frozen(&l) > 0, "the frozen field has not moved");
     }
 
+    /// Oracle: spec example.
     /// Hastings §5.1 example: 100 mW over a 25 µm square on k = 130 W/(m·K)
     /// rises ≈ 13.6 K.
     #[test]
@@ -175,6 +194,7 @@ mod tests {
 
     /// 2 × 1 mW on 10 µm squares: bound 2·ln4·1 mW/(π·148·10 µm) ≈ 596 mK,
     /// and no placement (overlap allowed) rises a device above it.
+    /// Oracle: certificate, the analytic bound proved in `rise_bound_mc`'s doc.
     #[test]
     fn rise_bound_holds_for_any_placement() {
         let bound = rise_bound_mc(&[1_000, 1_000], &[(10_000, 10_000); 2], K_SI_W_PER_M_K);
@@ -200,6 +220,7 @@ mod tests {
     /// REL-14: a lone 100 mW device on a 25 µm square reads eq. 5.6,
     /// ln4·0.1 W/(π·148·25 µm) = 11.93 K, not the floored point source
     /// (0.1 W/(2π·148·12.5 µm) = 8.60 K).
+    /// Oracle: spec example, eq. 5.6 worked by hand.
     #[test]
     fn the_self_term_is_eq_5_6() {
         let (mut l, _) = bench();
@@ -212,12 +233,14 @@ mod tests {
         assert!((t - 11_930).abs() <= 20, "{t}");
     }
 
+    /// Oracle: none independent; both entry points call `rise_at`, so this
+    /// pins the per-device and per-point paths to one model.
     #[test]
     fn point_rise_equals_device_rise_at_its_centre() {
         let (l, p) = bench();
         let t = rises_mc(&l, &p);
-        for i in 0..3 {
-            assert!((l.rise_at_point_mc(l.x[i], l.y[i]) - t[i] as f32).abs() <= 0.5, "device {i}");
+        for (i, &ti) in t.iter().enumerate() {
+            assert!((l.rise_at_point_mc(l.x[i], l.y[i]) - ti as f32).abs() <= 0.5, "device {i}");
         }
     }
 }

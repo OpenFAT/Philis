@@ -1,9 +1,20 @@
 //! The PDK seam generators are written against. Layers are looked up by role
 //! (`"poly"`, `"metal1"`) and rules by name, so no generator hard-codes a PDK
 //! number. The real impl is `verify::Pdk`.
+//!
+//! In → out: a role or rule name → the PDK's number for it. Cites: Hastings
+//! §13.3 (matching classes); Charbon et al. 2001 ch. 8 (substrate kinds).
+//!
+//! Contents:
+//! - `pub trait Process`
+//! - `pub enum MatchClass`
+//! - `pub enum SubstrateKind`
+//! - `SubstrateKind::from_key(s: Option<&str>) -> Self`
 
 use crate::base::LayerId;
 
+/// A PDK as generators see it. Every method but `layer`, `rule` and `grid`
+/// defaults to "not given", so a test process implements only what it needs.
 pub trait Process {
     /// Layer for a role; `None` when this process omits that (optional) layer.
     fn layer(&self, role: &str) -> Option<LayerId>;
@@ -129,9 +140,12 @@ pub trait Process {
 /// tier arrays.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 pub enum MatchClass {
+    /// Loosest tier: limits that hold for any reasonable layout.
     Minimal = 0,
+    /// The default when nothing marks a set otherwise.
     #[default]
     Moderate = 1,
+    /// Tightest tier: the precision limits of Hastings §13.3.
     Exceptional = 2,
 }
 
@@ -143,7 +157,9 @@ pub enum MatchClass {
 /// there is no plateau to budget.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum SubstrateKind {
+    /// Uniform bulk: isolation keeps improving with distance, no plateau.
     Bulk,
+    /// Epi over low-resistivity p+: isolation saturates at a few epi thicknesses.
     EpiOnLowRes,
     /// The deck does not say: isolation reads unknown.
     #[default]

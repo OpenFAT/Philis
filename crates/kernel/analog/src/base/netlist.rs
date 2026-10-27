@@ -1,4 +1,21 @@
 //! The parsed circuit: devices, nets, and the groups the annotator recovers.
+//! In → out: a device's parameter rows → its [`MosSize`] (BSIM4 instance
+//! semantics). Cites: Philis 1.0 `pnr_core` (Q36); SPICE/BSIM4 `w`, `nf`, `m`.
+//!
+//! Contents:
+//! - `pub enum DeviceKind`
+//! - `pub struct Device`
+//! - `pub struct MosSize`
+//! - `pub struct Net`
+//! - `pub struct DeviceGroup`
+//! - `pub struct Netlist`
+//! - `pub struct SubcktInst`
+//! - `pub struct SourceCard`
+//! - `MosSize::w_finger_nm(self) -> i64`
+//! - `MosSize::fingers(self) -> u32`
+//! - `MosSize::gate_area_um2(self) -> f64`
+//! - `Device::mos_size(&self) -> Option<MosSize>`
+//! - `Device::gate_area_um2(&self) -> f64`
 
 use crate::base::ids::{DeviceId, NetId};
 
@@ -19,7 +36,9 @@ pub enum DeviceKind {
 /// One device instance from the netlist.
 #[derive(Clone)]
 pub struct Device {
+    /// Hierarchical instance name (`X1/M3`), unique in its netlist.
     pub name: String,
+    /// Selects the `cells` generator and which parameter keys apply.
     pub kind: DeviceKind,
     /// The SPICE model name as written (`sky130_fd_pr__res_high_po`, …):
     /// selects the drawn construction and the LVS recogniser. Empty = none.
@@ -39,21 +58,27 @@ pub struct Device {
 /// this one record, so the drawn channel is the simulated one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MosSize {
+    /// One instance's gate width over all its fingers, nm; > 0.
     pub w_total_nm: i64,
+    /// Drawn gate length, nm; > 0.
     pub l_nm: i64,
+    /// Fingers per instance; ≥ 1.
     pub nf: u32,
+    /// Instances in parallel (SPICE `m` times `multi`); ≥ 1.
     pub m: u32,
 }
 
 /// One net (a wire connecting terminals).
 #[derive(Clone)]
 pub struct Net {
+    /// Hierarchical net name (`X1/X3/out`); rails are recognised by it.
     pub name: String,
 }
 
 /// A group of devices the annotator has decided belong together (a diff pair,
 /// current mirror, cascode). The unit that `cells` draws and the placer places.
 pub struct DeviceGroup {
+    /// Members, each in at most one group.
     pub devices: Vec<DeviceId>,
 }
 
@@ -65,7 +90,9 @@ pub struct DeviceGroup {
 /// only; a netlist built elsewhere leaves them empty (every device top level).
 #[derive(Clone, Default)]
 pub struct Netlist {
+    /// Indexed by [`DeviceId`].
     pub devices: Vec<Device>,
+    /// Indexed by [`NetId`].
     pub nets: Vec<Net>,
     /// Top sub-circuit ports in declaration order (empty: no .subckt around the top).
     pub ports: Vec<NetId>,
@@ -157,6 +184,8 @@ impl Device {
 mod tests {
     use super::*;
 
+    /// Oracle: spec example, BSIM4 instance semantics worked by hand (10 µm
+    /// over 2 fingers is 5 µm each; area W·L·m).
     #[test]
     fn mos_size_follows_spice_semantics() {
         let mos = |params: &[(&str, i64)]| Device {
