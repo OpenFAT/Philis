@@ -88,9 +88,9 @@ impl Floorplan {
 pub enum Refusal {
     /// A row's `Left` and `Right` counts differ, or a pair's two outlines do.
     PairMismatch { row: u8 },
-    /// A fin-deck glue tile whose gates span other heights than tile 0's:
-    /// an exact gate pitch (ASAP7 GATE.S.1) reads the difference as a
-    /// missing gate.
+    /// A fin-deck glue tile whose gates share no height with its left
+    /// neighbour's: no field gate can link the two gate columns, so an exact
+    /// gate pitch (ASAP7 GATE.S.1) reads a missing gate.
     GateSpan { tile: u16 },
 }
 
@@ -98,7 +98,7 @@ impl std::fmt::Display for Refusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Refusal::PairMismatch { row } => write!(f, "row {row}: a pair's halves differ in count or outline"),
-            Refusal::GateSpan { tile } => write!(f, "glue tile {tile}: gates span other heights than tile 0's"),
+            Refusal::GateSpan { tile } => write!(f, "glue tile {tile}: gates share no height with its left neighbour's"),
         }
     }
 }

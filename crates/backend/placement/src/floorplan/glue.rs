@@ -21,7 +21,10 @@ use super::{up, Floorplan, Refusal};
 /// tile's, rounded up so its gates land on tile 0's gate lattice (pitch
 /// `width + space` of `poly`, GATE.S.1 54 nm); actives bottom-align, then
 /// shift up onto tile 0's fin lattice (FIN.S.1 27 nm). The fill is one field
-/// gate per empty pitch slot between neighbours, spanning the gates' height;
+/// gate per empty pitch slot between neighbours, spanning the height both
+/// neighbours' gates share: an exact pitch reads only the nearest gate that
+/// overlaps across, so the band links the two tiles' gate columns whatever
+/// their heights (tiles of different fin counts);
 /// the tiles' end gates (PODE) keep it the deck's gate-to-field spacing off
 /// their actives (GATE.ACTIVE.S.4), as within a cell. Neighbours that both
 /// draw a well are bridged by one (the break is narrower than the well
@@ -30,10 +33,8 @@ use super::{up, Floorplan, Refusal};
 /// `lattice` is unused: the gate pitch replaces it.
 ///
 /// # Errors
-/// [`Refusal::GateSpan`]: on a fin deck, a tile whose gates span other
-/// heights than tile 0's once aligned. ponytail: refuses rather than
-/// stretching gates; Q22's height target hands every cell in a row one gate
-/// span when the engine wires targets in.
+/// [`Refusal::GateSpan`]: on a fin deck, neighbours whose gates share no
+/// height once their actives align.
 pub fn glue(tiles: &[Macro], process: &dyn Process, spacing: &Spacing, lattice: i32) -> Result<(Floorplan, Macro), Refusal> {
     let n = tiles.len();
     assert!(n <= usize::from(u16::MAX), "tiles are u16-indexed");
@@ -65,6 +66,7 @@ pub fn glue(tiles: &[Macro], process: &dyn Process, spacing: &Spacing, lattice: 
 
     // Each tile's shift `(dx, dy)` from its local frame to the world.
     let (mut dx, mut dy) = (vec![0; n], vec![0; n]);
+    // The previous tile's gate span, world frame.
     let mut span = (0, 0);
     let well = process.layer("nwell");
     let mut prev: Option<(i32, i32)> = None; // previous tile's last gate x, active right edge
@@ -88,13 +90,16 @@ pub fn glue(tiles: &[Macro], process: &dyn Process, spacing: &Spacing, lattice: 
             let lifted: Vec<Shape> = shifted(&m.shapes, 0, dy[k]).collect();
             let x = (act_end + act_s - acts.x).max(clearance(&placed, &lifted, spacing, false, well));
             dx[k] = x + (last_gate - (gates.x + x)).rem_euclid(gate_p);
-            if (gates.y + dy[k], gates.y + gates.h + dy[k]) != span {
+            let own = (gates.y + dy[k], gates.y + gates.h + dy[k]);
+            let band = (span.0.max(own.0), span.1.min(own.1));
+            if band.0 >= band.1 {
                 return Err(Refusal::GateSpan { tile: k as u16 });
             }
+            span = own;
             let w = width_of(m, gate);
             let mut g = last_gate + gate_p;
             while g < gates.x + dx[k] {
-                fill.shapes.push(Shape { layer: gate, rect: Rect { x: g, y: span.0, w, h: span.1 - span.0 } });
+                fill.shapes.push(Shape { layer: gate, rect: Rect { x: g, y: band.0, w, h: band.1 - band.0 } });
                 g += gate_p;
             }
             // ponytail: bridges the wells' common height; wells of unequal

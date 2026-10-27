@@ -83,11 +83,11 @@ fn asap7() -> verify::Pdk {
     verify::Pdk::builtin("asap7").expect("asap7 loads")
 }
 
-/// One FinFet tile of `kind` and `nf` fingers, 1680 nm wide, as the engine draws
+/// One FinFet tile of `kind`, `nf` fingers of `w` nm, 1680 nm wide, as the engine draws
 /// a single-device call.
-fn finfet(kind: DeviceKind, nf: u16, pdk: &verify::Pdk) -> Macro {
+fn finfet(kind: DeviceKind, nf: u16, w: i32, pdk: &verify::Pdk) -> Macro {
     let group = DeviceGroup { devices: vec![DeviceId(0)] };
-    let c = analog::Constraints { unitization: vec![unit(kind, nf, 1680, 20)], ..analog::Constraints::default() };
+    let c = analog::Constraints { unitization: vec![unit(kind, nf, w, 20)], ..analog::Constraints::default() };
     FinFet { shared: false }.draw(&group, &c, pdk)
 }
 
@@ -115,7 +115,7 @@ const ASAP7_ROLES: [&str; 13] = ["fin", "poly", "diff", "sdt", "lisd", "lig", "l
 
 /// The glued row's DRC rule ids, density rules aside, with or without fill.
 fn glued_findings(tiles: &[Macro], with_fill: bool, pdk: &verify::Pdk) -> Vec<String> {
-    let (f, fill) = glue(tiles, pdk, &Spacing::of(pdk, &ASAP7_ROLES), 2).expect("same-height tiles glue");
+    let (f, fill) = glue(tiles, pdk, &Spacing::of(pdk, &ASAP7_ROLES), 2).expect("the gates share a band");
     let mut shapes: Vec<Shape> = place_macros(tiles, &f.layout()).into_iter().flat_map(|m| m.shapes).collect();
     if with_fill {
         assert!(!fill.shapes.is_empty(), "a break between tiles needs field gates");
@@ -134,7 +134,7 @@ fn glued_findings(tiles: &[Macro], with_fill: bool, pdk: &verify::Pdk) -> Vec<St
 fn glued_finfets_keep_the_pitches_on_asap7() {
     let pdk = asap7();
     for kind in [DeviceKind::Nmos, DeviceKind::Pmos] {
-        let tiles = [finfet(kind, 2, &pdk), finfet(kind, 3, &pdk)];
+        let tiles = [finfet(kind, 2, 1680, &pdk), finfet(kind, 3, 1680, &pdk)];
         let clean = glued_findings(&tiles, true, &pdk);
         assert!(clean.is_empty(), "{kind:?}: {clean:?}");
         let bare = glued_findings(&tiles, false, &pdk);
@@ -147,7 +147,7 @@ fn glued_finfets_keep_the_pitches_on_asap7() {
 #[test]
 fn glue_spacing_is_the_decks() {
     let pdk = asap7();
-    let tiles = [finfet(DeviceKind::Nmos, 2, &pdk), finfet(DeviceKind::Nmos, 2, &pdk)];
+    let tiles = [finfet(DeviceKind::Nmos, 2, 1680, &pdk), finfet(DeviceKind::Nmos, 2, 1680, &pdk)];
     let (f, fill) = glue(&tiles, &pdk, &Spacing::of(&pdk, &ASAP7_ROLES), 2).unwrap();
     let placed = place_macros(&tiles, &f.layout());
     let diff = Process::layer(&pdk, "diff").unwrap();
@@ -163,15 +163,36 @@ fn glue_spacing_is_the_decks() {
     assert!(xs.windows(2).all(|w| w[1] - w[0] == 54), "{xs:?}");
 }
 
-/// Negative control: tiles whose gates span different heights refuse.
+/// Oracle: the asap7 deck. Tiles of different fin counts (gates of
+/// different heights, taps on different fin rows) glue with no refusal,
+/// DRC clean, NMOS and PMOS, in both orders and short between tall; without the fill GATE.S.1
+/// fires.
 #[test]
-fn unequal_gate_spans_refuse() {
+fn different_fin_counts_glue_on_asap7() {
     let pdk = asap7();
-    let short = finfet(DeviceKind::Nmos, 2, &pdk);
-    let mut tall = finfet(DeviceKind::Nmos, 2, &pdk);
+    for kind in [DeviceKind::Nmos, DeviceKind::Pmos] {
+        let (few, many) = (finfet(kind, 2, 54, &pdk), finfet(kind, 3, 270, &pdk));
+        let poly = Process::layer(&pdk, "poly").unwrap();
+        let height = |m: &Macro| m.shapes.iter().filter(|s| s.layer == poly).map(|s| s.rect.y + s.rect.h).max();
+        assert_ne!(height(&few), height(&many), "the fixture needs unequal gate heights");
+        for tiles in [vec![few.clone(), many.clone()], vec![many.clone(), few.clone()], vec![many.clone(), few.clone(), many.clone()]] {
+            let clean = glued_findings(&tiles, true, &pdk);
+            assert!(clean.is_empty(), "{kind:?}: {clean:?}");
+            let bare = glued_findings(&tiles, false, &pdk);
+            assert!(bare.iter().any(|r| r == "GATE.S.1"), "{kind:?}: {bare:?}");
+        }
+    }
+}
+
+/// Negative control: gates that share no height refuse.
+#[test]
+fn disjoint_gate_spans_refuse() {
+    let pdk = asap7();
+    let short = finfet(DeviceKind::Nmos, 2, 1680, &pdk);
+    let mut far = short.clone();
     let poly = Process::layer(&pdk, "poly").unwrap();
-    tall.shapes.iter_mut().filter(|s| s.layer == poly).for_each(|s| s.rect.h += 27);
-    assert_eq!(glue(&[short, tall], &pdk, &Spacing::of(&pdk, &ASAP7_ROLES), 2).map(|_| ()), Err(Refusal::GateSpan { tile: 1 }));
+    far.shapes.iter_mut().filter(|s| s.layer == poly).for_each(|s| s.rect.y += 10_000);
+    assert_eq!(glue(&[short, far], &pdk, &Spacing::of(&pdk, &ASAP7_ROLES), 2).map(|_| ()), Err(Refusal::GateSpan { tile: 1 }));
 }
 
 /// sky130's drawn front-end and first-metal layers.
