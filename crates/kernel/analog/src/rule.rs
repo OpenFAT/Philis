@@ -1,4 +1,15 @@
 //! The hot seam: theory → algorithm as static-dispatch data.
+//! In → out: a state (`Layout` or `Routes`) → each rule's cost, legality, Θ
+//! residual, criticality and repair ids; `Vec<R>` is the monomorphised batch.
+//! Cites: Graeb 2007 ch. 1 (fail is never pass); D2, D17; AT-24, AT-31; Q2, S3.
+//!
+//! Contents:
+//! - `pub enum RepairKind`
+//! - `pub enum RuleKind`
+//! - `pub trait Rule: Copy`
+//! - `pub trait RuleBatch<On>: Send + Sync`
+//! - `pub struct Tagged<On>`
+//! - `pub(crate) fn over(excess: f32, budget: f32) -> f32`
 
 use crate::base::ids::BranchId;
 use crate::base::{BipartiteHypergraph, UnionFind};
@@ -54,6 +65,7 @@ pub enum RuleKind {
 /// [`Rule::On`] (`Layout` for placement, `Routes` for routing) and knows where
 /// it applies ([`Rule::extract`]). Every method is pure except `project`.
 pub trait Rule: Copy {
+    /// The state the rule scores: `Layout` for placement, `Routes` for routing.
     type On;
 
     /// Objective contribution (lower is better).
@@ -205,7 +217,9 @@ pub trait Rule: Copy {
 /// `Send + Sync`: a whole solve (its `Requirements` included) may run on a
 /// worker thread (the library's multi-start).
 pub trait RuleBatch<On>: Send + Sync {
+    /// The batch's objective contribution (lower is better).
     fn cost(&self, state: &On) -> f32;
+    /// How many rules of the batch `state` does not satisfy.
     fn violations(&self, state: &On) -> u32;
     /// Σ [`Rule::residual`] — this batch's Θ contribution. Default: one full
     /// budget per violation, so a batch that cannot measure its overshoot still
@@ -281,9 +295,13 @@ pub trait RuleBatch<On>: Send + Sync {
     fn touched(&self, out: &mut Vec<u32>) {
         let _ = out;
     }
+    /// Rewrites `state` so the batch's exact equalities hold on the `grid`
+    /// lattice; the default changes nothing.
     fn project(&self, state: &mut On, grid: i32) {
         let _ = (state, grid);
     }
+    /// Maps the batch's device ids through `cell_of[device] = cell` (group
+    /// collapse); the default changes nothing.
     fn retarget(&mut self, cell_of: &[u16]) {
         let _ = cell_of;
     }
@@ -345,7 +363,9 @@ pub trait RuleBatch<On>: Send + Sync {
 /// A batch with its [`crate::intent::BatchMeta`]: every method delegates to
 /// `inner`. Boxed so the annotator tags batches after emission.
 pub struct Tagged<On> {
+    /// The annotator's tag; `gp::Prices` re-finds the batch by its id.
     pub meta: crate::intent::BatchMeta,
+    /// The batch every method delegates to.
     pub inner: Box<dyn RuleBatch<On>>,
 }
 
@@ -612,6 +632,7 @@ mod tests {
         }
     }
 
+    /// Oracle: spec example, criticality from headroom and margin by hand.
     #[test]
     fn slack_rich_budget_is_ignored_tight_one_dominates() {
         let s = ();
@@ -629,6 +650,7 @@ mod tests {
         assert_eq!(over.violations(&s), 1);
     }
 
+    /// Oracle: spec example, (0.2 − 0.05)/0.2 = 0.75 by hand.
     #[test]
     fn batch_criticality_follows_the_tightest_rule() {
         let s = ();
@@ -651,6 +673,7 @@ mod tests {
         crate::routing::ParasiticBudget { net: crate::base::NetId(0), max_len_nm, max_c_af: 0, margin_pct: 20, stack: None }
     }
 
+    /// Oracle: spec example, overshoot over budget by hand.
     #[test]
     fn residual_is_zero_inside_budget_and_proportional_past_it() {
         let p = parasitic(10_000);
@@ -673,6 +696,7 @@ mod tests {
         assert_eq!(batch.violations(&one_wire(30_000, 100)), 1);
     }
 
+    /// Oracle: metamorphic, equal proportional overshoot in two units gives equal residuals (D17).
     #[test]
     fn different_units_give_comparable_residuals_at_equal_overshoot() {
         // The property that makes Θ summable, and the one D17 says was violated.
@@ -700,6 +724,7 @@ mod tests {
     }
 
     /// `touched` pushes every rule's ids, satisfied or not (FD-PEX flagging).
+    /// Oracle: spec example, the ids listed by hand.
     #[test]
     fn touched_pushes_every_rule_not_just_violating() {
         #[derive(Clone, Copy)]
@@ -731,6 +756,7 @@ mod tests {
         assert_eq!(res, vec![(2, 1.0)], "per violated rule, its own residual (default 1.0)");
     }
 
+    /// Oracle: the documented defaults of `Rule`.
     #[test]
     fn rule_without_declared_headroom_keeps_full_weight() {
         // The backward-compatibility guarantee: every pre-existing rule defaults
@@ -744,6 +770,7 @@ mod tests {
 
     /// Repair dispatches on this, so each routing rule's kind is pinned: a
     /// rule that forgets its override falls back to a blind `Reroute`.
+    /// Oracle: golden, the repair kind each routing rule declares.
     #[test]
     fn every_routing_rule_declares_its_repair() {
         use crate::routing::*;
@@ -766,6 +793,7 @@ mod tests {
 
     /// A failed check whose measure says "0 over" (at the edge, or a boolean
     /// with no scale) must still cost Θ; so must a batch with no residual.
+    /// Oracle: Graeb 2007 ch. 1, fail is never pass.
     #[test]
     fn a_failed_rule_never_reads_as_zero_theta() {
         #[derive(Clone, Copy)]
