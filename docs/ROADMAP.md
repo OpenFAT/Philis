@@ -62,12 +62,17 @@ and typed fields for the `pdk_data` tables.
   block harness (`engine/src/interface.rs`, 1.0's interface format): boundary
   pins routed and labelled as LVS ports; with a die, each call takes its
   smallest variant that fits. `tt_ota` and `ota_constrained` clean on sky130
-  (GPurify; KLayout and magic/netgen checked once). Open: `ota`, `tt_ota`,
-  `ota_constrained` on asap7; dr lands pins only on its two lowest layers, so
-  a harness pin above met2 carries a via stack down to met1 (dr should land
-  from the pin's own layer); routing recipes (mirror pair,
-  star) routed first; the stage `Order` for rows; dr's off-lattice landing
-  spacing in general (being made exhaustive and self-reporting).
+  (GPurify; KLayout and magic/netgen checked once); `ota` clean on asap7.
+  Routing recipes route first (Q23): mirror pairs and the annotator's common
+  nodes as star rows, the rest around them as fixed obstacles; dr's access
+  keeps spacing from fixed, ring and cell metal; a pin above the lattice's two
+  lowest layers lands from its own layer. Open: the M2 gate (differential
+  lead C and path R equal at signoff) is not met: MirrorPair requests come out
+  non-exact (sky130 `ota` vout1/vout2 4.949/4.562 fF); star branches are not
+  R-balanced (4.3-4.5 Ω, one extra cut in drawn access) and carry no ΔR
+  budget (no op point reaches the engine); an unreached pin reports no row
+  (#13); the stage `Order` for rows (#11); `tt_ota`, `ota_constrained` on
+  asap7.
 
 ## Known gaps (kept current)
 
