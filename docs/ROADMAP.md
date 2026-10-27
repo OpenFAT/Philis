@@ -44,6 +44,25 @@ Gate met. Each item and where it lives:
 Left open in M0 scope: the remaining Q59 dedup of verify's re-derivations,
 and typed fields for the `pdk_data` tables.
 
+## M1/M2 progress (2026-10-27)
+
+- **M1, mostly met.** Recipes MosAdjacent, MosCc1d, MosCc2d and
+  MosInterdigitated (Hastings Table 13.3) on ladders as data (Q19), the first
+  rung the deck draws taken; claims declared per recipe and scored by
+  kernel/analog's rules (Q2, `engine/src/claims.rs`, seeded violations per
+  rule kind); conformance over every kind, n 1–3, nf 1/2/4 (availability:
+  all four on sky130; Adjacent and Cc1d on asap7, Cc2d/Interdigitated are
+  planar). `pair`, `quad`, `mirror_ratio` clean on sky130 and asap7. A size
+  the deck cannot draw exactly is a coded `device` refusal. Open: the Ratioed
+  rung, the bounded candidate pick against a width target (Q3/Q22).
+- **M2, started.** Floorplan library (targets, symmetric row stack, glue row
+  with gaps from facing shapes and the fin-deck gate lattice); the engine
+  takes the row stack from the annotator's mirror pairs on planar decks, else
+  the glue row; fingers folded to the tap reach. `ota` clean on sky130. Open:
+  `ota` on asap7, `tt_ota`, `ota_constrained`; routing recipes (mirror pair,
+  star) routed first; the stage `Order` for rows; dr's off-lattice landing
+  spacing in general (being made exhaustive and self-reporting).
+
 ## Known gaps (kept current)
 
 - Found by the GPurify re-pin to `687c8bc` (M0). Fixed: the asap7 FinFET
