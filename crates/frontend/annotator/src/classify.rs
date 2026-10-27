@@ -1,6 +1,16 @@
 //! Per-net class + budgets. Name gives rails/clocks ([`crate::netrole`]);
 //! structure gives the two classes a name can't: **Sensitive** (feeds a matched
 //! device's gate, or gates-only = a bias rail) and **Substrate** (bulk-only).
+//!
+//! Contents:
+//! - `pub struct RefineCtx<'a>`
+//! - `pub(crate) fn budgets(class: NetClass, c_load_af: f32) -> (Option<i64>, Option<i64>)`
+//! - `pub fn classify(hg: &BipartiteHypergraph, roles: &[NetRole], sensitive_devices: &[bool], gate_um2: &[f32], gate_af_per_um2: Option<f32>, loads: &[(NetId, f32)]) -> Vec<NetClassification>`
+//! - `pub(crate) fn net_load_af(hg: &BipartiteHypergraph, gate_um2: &[f32], gate_af_per_um2: Option<f32>, loads: &[(NetId, f32)]) -> Vec<Option<f32>>`
+//! - `pub fn bias_lines(hg: &BipartiteHypergraph) -> Vec<bool>`
+//! - `pub fn refine(classes: &mut [NetClassification], cx: &RefineCtx) -> Vec<NetFacts>`
+//! - `pub(crate) fn set_class(c: &mut NetClassification, class: NetClass, load_af: Option<f32>)`
+//! - `pub fn census(classes: &[NetClassification]) -> Vec<(NetClass, usize)>`
 
 use analog::base::ids::NetId;
 use analog::base::BipartiteHypergraph;
@@ -10,6 +20,31 @@ use analog::metadata::{NetClass, NetClassification};
 use crate::class::SetRole;
 use crate::evidence::Evidence;
 use crate::netrole::NetRole;
+
+/// What [`refine`] reads: everything that exists only once sets are built.
+pub struct RefineCtx<'a> {
+    pub hg: &'a BipartiteHypergraph,
+    /// Every pattern match, overlapping (`recognize_all`).
+    pub matches: &'a [crate::pattern::PatternMatch],
+    pub sets: &'a [MatchSpec],
+    /// Role per `sets` entry (`MatchSpec` does not carry it).
+    pub set_roles: &'a [SetRole],
+    pub passive: &'a [crate::passive::PassiveSet],
+    /// Net named in the caller's config (testbench-derived names excluded).
+    pub user: &'a [bool],
+    pub ev: &'a Evidence,
+    /// Sidecar `NetClass` overrides (EXT-26): first, over every rule, `User` evidence.
+    pub user_classes: &'a [(NetId, NetClass)],
+    pub ports: &'a [NetId],
+    /// [`net_load_af`].
+    pub load_af: &'a [Option<f32>],
+}
+
+/// Gate-level logic templates: their nets are digital (EXT-18).
+const LOGIC: [&str; 3] = ["cmos_inverter", "nand_gate", "nor_gate"];
+
+/// A Signal net at or above this impedance is Sensitive (EXT-18; Philis policy).
+const HIGH_Z_OHM: f32 = 100_000.0;
 
 /// Budgets as multiples of the capacitive load `c_load_af` the net drives:
 /// `(wire C, total coupling)`, aF. A sensitive net (matched gate, bias rail)
@@ -119,31 +154,6 @@ pub(crate) fn net_load_af(hg: &BipartiteHypergraph, gate_um2: &[f32], gate_af_pe
         })
         .collect()
 }
-
-/// What [`refine`] reads: everything that exists only once sets are built.
-pub struct RefineCtx<'a> {
-    pub hg: &'a BipartiteHypergraph,
-    /// Every pattern match, overlapping (`recognize_all`).
-    pub matches: &'a [crate::pattern::PatternMatch],
-    pub sets: &'a [MatchSpec],
-    /// Role per `sets` entry (`MatchSpec` does not carry it).
-    pub set_roles: &'a [SetRole],
-    pub passive: &'a [crate::passive::PassiveSet],
-    /// Net named in the caller's config (testbench-derived names excluded).
-    pub user: &'a [bool],
-    pub ev: &'a Evidence,
-    /// Sidecar `NetClass` overrides (EXT-26): first, over every rule, `User` evidence.
-    pub user_classes: &'a [(NetId, NetClass)],
-    pub ports: &'a [NetId],
-    /// [`net_load_af`].
-    pub load_af: &'a [Option<f32>],
-}
-
-/// Gate-level logic templates: their nets are digital (EXT-18).
-const LOGIC: [&str; 3] = ["cmos_inverter", "nand_gate", "nor_gate"];
-
-/// A Signal net at or above this impedance is Sensitive (EXT-18; Philis policy).
-const HIGH_Z_OHM: f32 = 100_000.0;
 
 /// Nets touched only by FET gates and diode-connected drains: the structural Bias rule of
 /// [`refine`] step 7 (rails not excluded), readable before `refine` runs (EXT-27 arrays).
@@ -312,6 +322,21 @@ pub(crate) fn set_class(c: &mut NetClassification, class: NetClass, load_af: Opt
     (c.c_budget_af, c.max_coupling_af) = load_af.map_or((None, None), |l| budgets(class, l));
 }
 
+/// Count of each class, for reporting.
+#[must_use]
+pub fn census(classes: &[NetClassification]) -> Vec<(NetClass, usize)> {
+    let mut out: Vec<(NetClass, usize)> = Vec::new();
+    for c in classes {
+        match out.iter_mut().find(|(k, _)| *k == c.class) {
+            Some((_, n)) => *n += 1,
+            None => out.push((c.class, 1)),
+        }
+    }
+    out
+}
+
+// ---- private ----
+
 /// Small-signal impedance to AC ground per net, Ω: `1/(Σ gds of FETs with D on
 /// the net + Σ gm of diode FETs on it)`, known only when every such gds is.
 fn impedance(hg: &BipartiteHypergraph, op: Option<&crate::evidence::OpFacts>) -> Vec<Option<f32>> {
@@ -354,19 +379,6 @@ fn classify_one(role: NetRole, gate_of_sensitive: bool, touches_gate: bool, touc
             }
         }
     }
-}
-
-/// Count of each class, for reporting.
-#[must_use]
-pub fn census(classes: &[NetClassification]) -> Vec<(NetClass, usize)> {
-    let mut out: Vec<(NetClass, usize)> = Vec::new();
-    for c in classes {
-        match out.iter_mut().find(|(k, _)| *k == c.class) {
-            Some((_, n)) => *n += 1,
-            None => out.push((c.class, 1)),
-        }
-    }
-    out
 }
 
 #[cfg(test)]

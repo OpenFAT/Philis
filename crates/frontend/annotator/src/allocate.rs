@@ -5,6 +5,12 @@
 //! `Σ_k S_jk·δ_k ≤ M_j` for every row (each δ_k is at most its share of every
 //! row touching it). Allowances are 1σ ΔV_T, mV: a Current FET set's ledger
 //! converts them to % itself (`MatchedSet::budget_in`).
+//!
+//! Contents:
+//! - `pub struct SetIn`
+//! - `pub(crate) fn margins(s: &SpecSens, beta: f64) -> Vec<(f64, f64, f64)>`
+//! - `pub fn allocate(sets: &[SetIn], sens: &Sensitivities, beta: f64, max_eta: f32) -> (Vec<(Option<f32>, Option<f32>)>, Vec<Diagnostic>)`
+//! - `pub(crate) fn set_in(s: &MatchSpec, nl: &Netlist, avt: [Option<f32>; 2]) -> Option<SetIn>`
 
 use analog::base::ids::DeviceId;
 use analog::base::Netlist;

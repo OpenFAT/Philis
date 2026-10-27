@@ -3,6 +3,10 @@
 //! saturate at LAMBDA_MAX. (a) symmetry seeds: `symmetry::analyze`; (b) a
 //! sidecar pull vs Isolation: `annotate_with`; (c) a sidecar Match on unequal
 //! kind/model/L: `sidecar::parse`; (d) here.
+//!
+//! Contents:
+//! - `pub(crate) fn diag(ids: &[ConstraintId], devices: Vec<DeviceId>, what: impl std::fmt::Display) -> Diagnostic`
+//! - `pub fn check(p: &Problem, nl: &Netlist) -> Vec<Diagnostic>`
 
 use analog::base::ids::DeviceId;
 use analog::base::Netlist;

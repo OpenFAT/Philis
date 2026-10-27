@@ -16,6 +16,10 @@
 //! One batch per kind per arm: `gp::Prices` keys a budget's (λ, ρ) by kind.
 //! EXT-24 also writes the intent's common nodes, stars, Kelvin requests, DAC
 //! plate RC classes and shield references.
+//!
+//! Contents:
+//! - `pub fn routing(hg: &BipartiteHypergraph, classes: &[NetClassification], gate_um2: &[f32], process: &crate::ProcessNumbers, intent: &mut Intent, set_roles: &[crate::class::SetRole], policy: &crate::policy::Policy, ports: &[NetId], op: Option<&crate::evidence::OpFacts>) -> Requirements<Routes>`
+//! - `pub fn quiet_ground(classes: &[NetClassification], net_names: &[String], aggressors: &[Aggressor], hg: &BipartiteHypergraph) -> Option<(NetId, bool)>`
 
 use analog::base::ids::DeviceId;
 use analog::base::{BipartiteHypergraph, NetId, Routes};
@@ -24,17 +28,9 @@ use analog::metadata::{NetClass, NetClassification};
 use analog::routing::{Antenna, CouplingBudget, CrosstalkExclusion, Differential, ParasiticBudget, Shield};
 use analog::Requirements;
 
-fn victim_net(c: NetClass) -> bool {
-    matches!(c, NetClass::Sensitive | NetClass::Bias | NetClass::Reference)
-}
-
-fn aggressor_net(c: NetClass) -> bool {
-    matches!(c, NetClass::Clock | NetClass::DigitalSwitching | NetClass::Noisy)
-}
-
-fn rail(c: NetClass) -> bool {
-    matches!(c, NetClass::Supply | NetClass::Ground | NetClass::Substrate)
-}
+/// Star threshold (EXT-24 step 4, **Philis threshold**): a shared node is a
+/// star when non-member current exceeds this share of the members' current.
+const STAR_CURRENT_SHARE: f64 = 0.01;
 
 /// Assemble the routing [`Requirements`] from structure (EXT-24) and fill
 /// `intent`'s routing facts. `classes` is indexed by net id; `set_roles` by
@@ -231,9 +227,19 @@ pub fn quiet_ground(
     grounds().find(analog).or_else(|| grounds().find(quiet)).map(|n| (n, false)).or_else(|| grounds().next().map(|n| (n, true)))
 }
 
-/// Star threshold (EXT-24 step 4, **Philis threshold**): a shared node is a
-/// star when non-member current exceeds this share of the members' current.
-const STAR_CURRENT_SHARE: f64 = 0.01;
+// ---- private ----
+
+fn victim_net(c: NetClass) -> bool {
+    matches!(c, NetClass::Sensitive | NetClass::Bias | NetClass::Reference)
+}
+
+fn aggressor_net(c: NetClass) -> bool {
+    matches!(c, NetClass::Clock | NetClass::DigitalSwitching | NetClass::Noisy)
+}
+
+fn rail(c: NetClass) -> bool {
+    matches!(c, NetClass::Supply | NetClass::Ground | NetClass::Substrate)
+}
 
 /// EXT-24 steps 3–6: common nodes of sets sharing a source (emitter), star
 /// points where other devices share that node, Kelvin sensing of a resistor

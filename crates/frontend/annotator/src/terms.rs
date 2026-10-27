@@ -1,4 +1,9 @@
 //! What a terminal is, by its name and its device's kind (AA-16): never by position.
+//!
+//! Contents:
+//! - `pub enum TermRole`
+//! - `pub fn term_role(kind: DeviceKind, term: &str) -> TermRole`
+
 use analog::base::DeviceKind;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

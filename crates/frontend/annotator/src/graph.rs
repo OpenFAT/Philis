@@ -2,6 +2,12 @@
 //! importance order, Algorithm 3.1). Overlapping requirements (a tail in a
 //! compound and in a shared-bias group, AA-01) live here, not in the disjoint
 //! `Problem::blocks`.
+//!
+//! Contents:
+//! - `pub struct Req`
+//! - `pub fn requirements(matches: &[PatternMatch], compounds: &[Compound], shared_bias: &[Vec<DeviceId>], passive: &[Vec<DeviceId>], user_groups: &[(u32, Vec<DeviceId>)], hier_pairs: &[(DeviceId, DeviceId)], arrays: &[Vec<DeviceId>], inst: &[Option<u32>], hg: &BipartiteHypergraph, classes: &[NetClassification], canon: &[u64], policy: &Policy) -> Vec<Req>`
+//! - `pub fn hsmpg(n_devices: usize, reqs: &[Req], canon: &[u64]) -> Vec<GroupNode>`
+//! - `pub fn render(tree: &[GroupNode], names: &[&str]) -> String`
 
 use analog::base::ids::DeviceId;
 use analog::base::BipartiteHypergraph;

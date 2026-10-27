@@ -19,6 +19,10 @@
 //! | `Load`                                   | `net`, `ff` (external load, fF)         |
 //! | `Order`                                  | `instances` (names or aliases), `direction` (`bottom_to_top`, `top_to_bottom`, `left_to_right`, `right_to_left`) |
 //! | `IsolatedTub`                            | `instances` (NMOS, one bulk net), `tie` |
+//!
+//! Contents:
+//! - `pub fn parse(json: &str, nl: &Netlist) -> Result<(AnnotationConfig, Vec<Diagnostic>), String>`
+//! - `AnnotationConfig::from_json(json: &str, nl: &Netlist) -> Result<(Self, Vec<Diagnostic>), String>`
 
 use std::collections::HashMap;
 

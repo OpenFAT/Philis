@@ -1,5 +1,22 @@
 //! Pattern DSL + backtracking matcher. The patterns themselves are data in
 //! [`crate::catalog`].
+//!
+//! Contents:
+//! - `pub enum PinRel`
+//! - `pub enum SlotKind`
+//! - `pub enum SizeMatch`
+//! - `pub enum DiodeReq`
+//! - `pub struct Slot`
+//! - `pub struct PinLink`
+//! - `pub struct Pattern`
+//! - `pub struct PatternMatch`
+//! - `pub(crate) fn pin_net(hg: &BipartiteHypergraph, cell: u32, pin: &str) -> Option<NetId>`
+//! - `pub(crate) fn pins(hg: &BipartiteHypergraph) -> Vec<[Option<NetId>; 8]>`
+//! - `pub(crate) fn on_pin(hg: &BipartiteHypergraph, pins: &[[Option<NetId>; 8]]) -> Vec<[Vec<u32>; 16]>`
+//! - `pub(crate) fn matches(pat: &'static Pattern, hg: &BipartiteHypergraph, pins: &[[Option<NetId>; 8]], on: &[[Vec<u32>; 16]], drawn: &[Drawn], roles: &[NetRole], allowed: &[bool], rank: &[u32]) -> Vec<PatternMatch>`
+//! - `pub fn recognize_all(hg: &BipartiteHypergraph, drawn: &[Drawn], roles: &[NetRole], cfg: &AnnotationConfig, canon: &[u64], names: &[&str]) -> Vec<PatternMatch>`
+//! - `pub fn canonical_labels(hg: &BipartiteHypergraph, drawn: &[Drawn], models: &[String], roles: &[NetRole]) -> Vec<u64>`
+//! - `pub fn select_disjoint(all: &[PatternMatch], canon: &[u64], names: &[&str]) -> Vec<PatternMatch>`
 
 use std::cmp::Reverse;
 use std::collections::hash_map::DefaultHasher;
@@ -87,14 +104,37 @@ pub struct PatternMatch {
     pub priority: u32,
 }
 
+/// An unassigned slot.
+const EMPTY: u32 = u32::MAX;
+
+struct Search<'a> {
+    pat: &'static Pattern,
+    order: Vec<usize>,
+    hg: &'a BipartiteHypergraph,
+    pins: &'a [[Option<NetId>; 8]],
+    on: &'a [[Vec<u32>; 16]],
+    drawn: &'a [Drawn],
+    roles: &'a [NetRole],
+    allowed: &'a [bool],
+    rank: &'a [u32],
+    /// Per slot, the devices [`Candidates::All`] tries; filled on first use.
+    free: Vec<std::cell::OnceCell<Vec<u32>>>,
+}
+
+/// Where the next slot's devices come from.
+enum Candidates {
+    /// Devices with pin column `.1` on net `.0` and a polarity in `.2` ([`on_pin`]).
+    Net(NetId, usize, std::ops::Range<usize>),
+    /// A linking net is absent or not a signal where one must be: nothing fits.
+    None,
+    /// No link to an assigned slot: every allowed device passing [`unary_ok`]
+    /// (listed once per slot, not rescanned per partial assignment).
+    All,
+}
+
 pub(crate) fn pin_net(hg: &BipartiteHypergraph, cell: u32, pin: &str) -> Option<NetId> {
     let i = cell as usize;
     hg.terminals[i].iter().position(|p| p == pin).map(|t| hg.device_nets[i][t])
-}
-
-/// Column of `pin` in a [`pins`] row: G, D, S, B, C, E, P, N.
-fn pin_index(pin: &str) -> Option<usize> {
-    ["G", "D", "S", "B", "C", "E", "P", "N"].iter().position(|p| *p == pin)
 }
 
 /// Every device's net per [`pin_index`] column, built once so the matcher never
@@ -115,19 +155,6 @@ pub(crate) fn pins(hg: &BipartiteHypergraph) -> Vec<[Option<NetId>; 8]> {
         .collect()
 }
 
-/// [`on_pin`] column half: 0 NMOS or NPN, 1 PMOS or PNP.
-fn pol(k: DeviceKind) -> usize {
-    usize::from(matches!(k, DeviceKind::Pmos | DeviceKind::Pnp))
-}
-
-fn fet(k: DeviceKind) -> bool {
-    matches!(k, DeviceKind::Nmos | DeviceKind::Pmos)
-}
-
-fn bjt(k: DeviceKind) -> bool {
-    matches!(k, DeviceKind::Npn | DeviceKind::Pnp)
-}
-
 /// Per net, the FETs and BJTs with [`pin_index`] pin `i` on that net and polarity [`pol`]
 /// `p` at column `2i + p` (ascending id), so a candidate list holds only devices
 /// that can satisfy the link and the slot's polarity: a rail's thousands of
@@ -146,6 +173,131 @@ pub(crate) fn on_pin(hg: &BipartiteHypergraph, pins: &[[Option<NetId>; 8]]) -> V
         }
     }
     on
+}
+
+/// Every match of one pattern over the devices `allowed`; `pins` from [`pins`], `on` from [`on_pin`],
+/// `rank` (by device) picks a device set's slot assignment ([`Search::run`]).
+#[allow(clippy::too_many_arguments)] // the per-netlist tables are built once by the caller
+pub(crate) fn matches(
+    pat: &'static Pattern,
+    hg: &BipartiteHypergraph,
+    pins: &[[Option<NetId>; 8]],
+    on: &[[Vec<u32>; 16]],
+    drawn: &[Drawn],
+    roles: &[NetRole],
+    allowed: &[bool],
+    rank: &[u32],
+) -> Vec<PatternMatch> {
+    let free = vec![std::cell::OnceCell::new(); pat.slots.len()];
+    let s = Search { pat, order: slot_order(pat), hg, pins, on, drawn, roles, allowed, rank, free };
+    let mut out = Vec::new();
+    s.run(0, &mut vec![EMPTY; pat.slots.len()], &mut out, &mut HashMap::new());
+    out
+}
+
+/// Every match of every allowed pattern; one per (template, device set), its
+/// slots assigned by least `(canon, name)` per slot ([`canonical_labels`],
+/// device names), so the result does not depend on netlist order.
+/// `cfg.do_not_identify` devices and `cfg.do_not_use` templates are skipped.
+#[must_use]
+pub fn recognize_all(
+    hg: &BipartiteHypergraph,
+    drawn: &[Drawn],
+    roles: &[NetRole],
+    cfg: &AnnotationConfig,
+    canon: &[u64],
+    names: &[&str],
+) -> Vec<PatternMatch> {
+    let allowed: Vec<bool> = (0..hg.device_count() as u32).map(|d| !cfg.do_not_identify.contains(&d)).collect();
+    let pins = pins(hg);
+    let on = on_pin(hg, &pins);
+    let mut by: Vec<usize> = (0..canon.len()).collect();
+    by.sort_by_key(|&d| (canon[d], names[d]));
+    let mut rank = vec![0u32; by.len()];
+    by.iter().enumerate().for_each(|(r, &d)| rank[d] = r as u32);
+    PATTERNS.iter().filter(|p| !cfg.do_not_use.contains(p.name)).flat_map(|p| matches(p, hg, &pins, &on, drawn, roles, &allowed, &rank)).collect()
+}
+
+/// Permutation-invariant labels: 3 rounds of WL refinement on the device–net
+/// bipartite graph, indexed by device id. Round 0 hashes kind, drawn size,
+/// model name and each pin's (name, net role, net degree); never an id or a
+/// model index (both depend on netlist order). `DefaultHasher::new()` has fixed
+/// keys, so labels are deterministic.
+#[must_use]
+pub fn canonical_labels(hg: &BipartiteHypergraph, drawn: &[Drawn], models: &[String], roles: &[NetRole]) -> Vec<u64> {
+    let role = |n: NetId| roles[n.0 as usize] as u8;
+    let mut dev: Vec<u64> = (0..hg.device_count())
+        .map(|d| {
+            let s = &drawn[d];
+            let mut p: Vec<(&str, u8, usize)> =
+                hg.terminals[d].iter().zip(&hg.device_nets[d]).map(|(t, &n)| (t.as_str(), role(n), hg.net_devices[n.0 as usize].len())).collect();
+            p.sort_unstable();
+            hash(&(hg.kinds[d] as u8, s.w_finger_nm, s.l_nm, s.fingers, &models[s.model as usize], p))
+        })
+        .collect();
+    for _ in 0..3 {
+        let net: Vec<u64> = (0..hg.net_devices.len())
+            .map(|n| {
+                let mut v: Vec<u64> = hg.net_devices[n].iter().map(|d| dev[d.0 as usize]).collect();
+                v.sort_unstable();
+                hash(&(roles[n] as u8, v))
+            })
+            .collect();
+        dev = (0..dev.len())
+            .map(|d| {
+                let mut v: Vec<(&str, u64)> = hg.terminals[d].iter().zip(&hg.device_nets[d]).map(|(t, n)| (t.as_str(), net[n.0 as usize])).collect();
+                v.sort_unstable();
+                hash(&(dev[d], v))
+            })
+            .collect();
+    }
+    dev
+}
+
+/// Disjoint subset for `Problem::blocks` (interim, until EXT-13), in selection
+/// order: priority first, then patterns declaring pairs, then the sorted
+/// [`canonical_labels`] of the members, then their sorted names; kept greedily.
+#[must_use]
+pub fn select_disjoint(all: &[PatternMatch], canon: &[u64], names: &[&str]) -> Vec<PatternMatch> {
+    let key = |m: &PatternMatch| {
+        let mut c: Vec<u64> = m.instances.iter().map(|&i| canon[i as usize]).collect();
+        c.sort_unstable();
+        // ponytail: names break exact label ties (automorphic instances); ids would not be permutation-invariant.
+        let mut n: Vec<&str> = m.instances.iter().map(|&i| names[i as usize]).collect();
+        n.sort_unstable();
+        (Reverse(m.priority), roles_of(m.pattern).pairs.is_empty(), c, n)
+    };
+    let mut keyed: Vec<_> = all.iter().map(|m| (key(m), m)).collect();
+    keyed.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut consumed = vec![false; canon.len()];
+    let mut out = Vec::new();
+    for (_, m) in keyed {
+        if m.instances.iter().all(|&i| !consumed[i as usize]) {
+            m.instances.iter().for_each(|&i| consumed[i as usize] = true);
+            out.push(m.clone());
+        }
+    }
+    out
+}
+
+// ---- private ----
+
+/// Column of `pin` in a [`pins`] row: G, D, S, B, C, E, P, N.
+fn pin_index(pin: &str) -> Option<usize> {
+    ["G", "D", "S", "B", "C", "E", "P", "N"].iter().position(|p| *p == pin)
+}
+
+/// [`on_pin`] column half: 0 NMOS or NPN, 1 PMOS or PNP.
+fn pol(k: DeviceKind) -> usize {
+    usize::from(matches!(k, DeviceKind::Pmos | DeviceKind::Pnp))
+}
+
+fn fet(k: DeviceKind) -> bool {
+    matches!(k, DeviceKind::Nmos | DeviceKind::Pmos)
+}
+
+fn bjt(k: DeviceKind) -> bool {
+    matches!(k, DeviceKind::Npn | DeviceKind::Pnp)
 }
 
 fn pin_of(pins: &[[Option<NetId>; 8]], cell: u32, pin: &str) -> Option<NetId> {
@@ -217,9 +369,6 @@ fn links_ok(s: &Search, k: u8, assigned: &[u32]) -> bool {
     })
 }
 
-/// An unassigned slot.
-const EMPTY: u32 = u32::MAX;
-
 /// The order [`Search`] fills `p`'s slots in: slot 0, then repeatedly the
 /// smallest unplaced slot whose `SlotKind`/`SizeMatch` references are placed and
 /// that has a `Same`/`SameSignal` link to a placed slot on a pin pair not both
@@ -263,31 +412,6 @@ fn slot_order(p: &Pattern) -> Vec<usize> {
         order.push(k);
     }
     order
-}
-
-struct Search<'a> {
-    pat: &'static Pattern,
-    order: Vec<usize>,
-    hg: &'a BipartiteHypergraph,
-    pins: &'a [[Option<NetId>; 8]],
-    on: &'a [[Vec<u32>; 16]],
-    drawn: &'a [Drawn],
-    roles: &'a [NetRole],
-    allowed: &'a [bool],
-    rank: &'a [u32],
-    /// Per slot, the devices [`Candidates::All`] tries; filled on first use.
-    free: Vec<std::cell::OnceCell<Vec<u32>>>,
-}
-
-/// Where the next slot's devices come from.
-enum Candidates {
-    /// Devices with pin column `.1` on net `.0` and a polarity in `.2` ([`on_pin`]).
-    Net(NetId, usize, std::ops::Range<usize>),
-    /// A linking net is absent or not a signal where one must be: nothing fits.
-    None,
-    /// No link to an assigned slot: every allowed device passing [`unary_ok`]
-    /// (listed once per slot, not rescanned per partial assignment).
-    All,
 }
 
 impl Search<'_> {
@@ -369,115 +493,10 @@ impl Search<'_> {
     }
 }
 
-/// Every match of one pattern over the devices `allowed`; `pins` from [`pins`], `on` from [`on_pin`],
-/// `rank` (by device) picks a device set's slot assignment ([`Search::run`]).
-#[allow(clippy::too_many_arguments)] // the per-netlist tables are built once by the caller
-pub(crate) fn matches(
-    pat: &'static Pattern,
-    hg: &BipartiteHypergraph,
-    pins: &[[Option<NetId>; 8]],
-    on: &[[Vec<u32>; 16]],
-    drawn: &[Drawn],
-    roles: &[NetRole],
-    allowed: &[bool],
-    rank: &[u32],
-) -> Vec<PatternMatch> {
-    let free = vec![std::cell::OnceCell::new(); pat.slots.len()];
-    let s = Search { pat, order: slot_order(pat), hg, pins, on, drawn, roles, allowed, rank, free };
-    let mut out = Vec::new();
-    s.run(0, &mut vec![EMPTY; pat.slots.len()], &mut out, &mut HashMap::new());
-    out
-}
-
-/// Every match of every allowed pattern; one per (template, device set), its
-/// slots assigned by least `(canon, name)` per slot ([`canonical_labels`],
-/// device names), so the result does not depend on netlist order.
-/// `cfg.do_not_identify` devices and `cfg.do_not_use` templates are skipped.
-#[must_use]
-pub fn recognize_all(
-    hg: &BipartiteHypergraph,
-    drawn: &[Drawn],
-    roles: &[NetRole],
-    cfg: &AnnotationConfig,
-    canon: &[u64],
-    names: &[&str],
-) -> Vec<PatternMatch> {
-    let allowed: Vec<bool> = (0..hg.device_count() as u32).map(|d| !cfg.do_not_identify.contains(&d)).collect();
-    let pins = pins(hg);
-    let on = on_pin(hg, &pins);
-    let mut by: Vec<usize> = (0..canon.len()).collect();
-    by.sort_by_key(|&d| (canon[d], names[d]));
-    let mut rank = vec![0u32; by.len()];
-    by.iter().enumerate().for_each(|(r, &d)| rank[d] = r as u32);
-    PATTERNS.iter().filter(|p| !cfg.do_not_use.contains(p.name)).flat_map(|p| matches(p, hg, &pins, &on, drawn, roles, &allowed, &rank)).collect()
-}
-
 fn hash<T: Hash>(t: &T) -> u64 {
     let mut h = DefaultHasher::new();
     t.hash(&mut h);
     h.finish()
-}
-
-/// Permutation-invariant labels: 3 rounds of WL refinement on the device–net
-/// bipartite graph, indexed by device id. Round 0 hashes kind, drawn size,
-/// model name and each pin's (name, net role, net degree); never an id or a
-/// model index (both depend on netlist order). `DefaultHasher::new()` has fixed
-/// keys, so labels are deterministic.
-#[must_use]
-pub fn canonical_labels(hg: &BipartiteHypergraph, drawn: &[Drawn], models: &[String], roles: &[NetRole]) -> Vec<u64> {
-    let role = |n: NetId| roles[n.0 as usize] as u8;
-    let mut dev: Vec<u64> = (0..hg.device_count())
-        .map(|d| {
-            let s = &drawn[d];
-            let mut p: Vec<(&str, u8, usize)> =
-                hg.terminals[d].iter().zip(&hg.device_nets[d]).map(|(t, &n)| (t.as_str(), role(n), hg.net_devices[n.0 as usize].len())).collect();
-            p.sort_unstable();
-            hash(&(hg.kinds[d] as u8, s.w_finger_nm, s.l_nm, s.fingers, &models[s.model as usize], p))
-        })
-        .collect();
-    for _ in 0..3 {
-        let net: Vec<u64> = (0..hg.net_devices.len())
-            .map(|n| {
-                let mut v: Vec<u64> = hg.net_devices[n].iter().map(|d| dev[d.0 as usize]).collect();
-                v.sort_unstable();
-                hash(&(roles[n] as u8, v))
-            })
-            .collect();
-        dev = (0..dev.len())
-            .map(|d| {
-                let mut v: Vec<(&str, u64)> = hg.terminals[d].iter().zip(&hg.device_nets[d]).map(|(t, n)| (t.as_str(), net[n.0 as usize])).collect();
-                v.sort_unstable();
-                hash(&(dev[d], v))
-            })
-            .collect();
-    }
-    dev
-}
-
-/// Disjoint subset for `Problem::blocks` (interim, until EXT-13), in selection
-/// order: priority first, then patterns declaring pairs, then the sorted
-/// [`canonical_labels`] of the members, then their sorted names; kept greedily.
-#[must_use]
-pub fn select_disjoint(all: &[PatternMatch], canon: &[u64], names: &[&str]) -> Vec<PatternMatch> {
-    let key = |m: &PatternMatch| {
-        let mut c: Vec<u64> = m.instances.iter().map(|&i| canon[i as usize]).collect();
-        c.sort_unstable();
-        // ponytail: names break exact label ties (automorphic instances); ids would not be permutation-invariant.
-        let mut n: Vec<&str> = m.instances.iter().map(|&i| names[i as usize]).collect();
-        n.sort_unstable();
-        (Reverse(m.priority), roles_of(m.pattern).pairs.is_empty(), c, n)
-    };
-    let mut keyed: Vec<_> = all.iter().map(|m| (key(m), m)).collect();
-    keyed.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut consumed = vec![false; canon.len()];
-    let mut out = Vec::new();
-    for (_, m) in keyed {
-        if m.instances.iter().all(|&i| !consumed[i as usize]) {
-            m.instances.iter().for_each(|&i| consumed[i as usize] = true);
-            out.push(m.clone());
-        }
-    }
-    out
 }
 
 #[cfg(test)]

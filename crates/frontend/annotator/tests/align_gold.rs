@@ -2,6 +2,8 @@
 //! `benchmarks/competition/ALIGN/examples/high_speed_comparator/high_speed_comparator.const.json`
 //! (a vendored tree that may not be checked out). Only its port declarations
 //! are input; its symmetry entries are what the annotator must recover.
+//!
+//! Contents: none public.
 
 mod common;
 
@@ -12,8 +14,15 @@ use common::{canon, canon_intent, net, sorted, strongarm_cfg, STRONGARM};
 /// `xinv_n`/`xinv_p` expanded to their instances).
 const GOLD_PAIRS: [(&str, &str); 7] =
     [("mn1", "mn2"), ("mn3", "mn4"), ("mp5", "mp6"), ("mp7", "mp8"), ("mp9", "mp10"), ("mp11", "mp12"), ("mn13", "mn14")];
+
 const GOLD_SELF: [&str; 1] = ["mn0"];
+
 const GOLD_NET_PAIRS: [(&str, &str); 3] = [("vin", "vip"), ("vin_d", "vip_d"), ("vin_o", "vip_o")];
+
+/// The gold `.const.json` verbatim (minified), so the test never reads the vendored tree.
+const GOLD_JSON: &str = r#"[{"constraint":"PowerPorts","ports":["VCC"]},{"constraint":"GroundPorts","ports":["VSS"]},{"constraint":"ClockPorts","ports":["clk"]},{"constraint":"HorizontalDistance","abs_distance":0},{"constraint":"VerticalDistance","abs_distance":0},{"constraint":"GroupBlocks","instances":["mn1","mn2"],"instance_name":"xdp"},{"constraint":"GroupBlocks","instances":["mn3","mn4"],"instance_name":"xccn"},{"constraint":"GroupBlocks","instances":["mp5","mp6"],"instance_name":"xccp"},{"constraint":"GroupBlocks","instances":["mp11","mn13"],"instance_name":"xinv_n"},{"constraint":"GroupBlocks","instances":["mp12","mn14"],"instance_name":"xinv_p"},{"constraint":"SymmetricBlocks","direction":"V","pairs":[["mn0"],["xdp"],["xccn"],["xccp"],["mp7","mp8"],["mp9","mp10"],["xinv_n","xinv_p"]]},{"constraint":"Order","direction":"top_to_bottom","instances":["mn0","xdp","xccn","xccp"]},{"constraint":"Align","line":"h_bottom","instances":["mp9","mp7","xdp","mp8","mp10"]},{"constraint":"Align","line":"h_bottom","instances":["xinv_n","xccp","xinv_p"]},{"constraint":"SymmetricNets","direction":"V","net1":"vin","pins1":["mn1/G"],"net2":"vip","pins2":["mn2/G"]},{"constraint":"SymmetricNets","direction":"V","net1":"vin_d","pins1":["mn1/D","mn3/S","mp7/D"],"net2":"vip_d","pins2":["mn2/D","mn4/S","mp8/D"]},{"constraint":"SymmetricNets","direction":"V","net1":"vin_o","pins1":["mn3/D","mn4/G","mp5/D","mp6/G","mp9/D","mp12/G","mn14/G"],"net2":"vip_o","pins2":["mn3/G","mn4/D","mp5/G","mp6/D","mp10/D","mp11/G","mn13/G"]}]"#;
+
+// ---- private ----
 
 /// T1: every gold pair and no other, `mn0` and the 3 net pairs, one axis.
 #[test]
@@ -29,9 +38,6 @@ fn strongarm_matches_align_gold() {
     assert!(GOLD_NET_PAIRS.iter().all(|&(a, b)| np.contains(&sorted(a, b))), "net pairs {np:?}");
     assert_eq!(c.axes, 1);
 }
-
-/// The gold `.const.json` verbatim (minified), so the test never reads the vendored tree.
-const GOLD_JSON: &str = r#"[{"constraint":"PowerPorts","ports":["VCC"]},{"constraint":"GroundPorts","ports":["VSS"]},{"constraint":"ClockPorts","ports":["clk"]},{"constraint":"HorizontalDistance","abs_distance":0},{"constraint":"VerticalDistance","abs_distance":0},{"constraint":"GroupBlocks","instances":["mn1","mn2"],"instance_name":"xdp"},{"constraint":"GroupBlocks","instances":["mn3","mn4"],"instance_name":"xccn"},{"constraint":"GroupBlocks","instances":["mp5","mp6"],"instance_name":"xccp"},{"constraint":"GroupBlocks","instances":["mp11","mn13"],"instance_name":"xinv_n"},{"constraint":"GroupBlocks","instances":["mp12","mn14"],"instance_name":"xinv_p"},{"constraint":"SymmetricBlocks","direction":"V","pairs":[["mn0"],["xdp"],["xccn"],["xccp"],["mp7","mp8"],["mp9","mp10"],["xinv_n","xinv_p"]]},{"constraint":"Order","direction":"top_to_bottom","instances":["mn0","xdp","xccn","xccp"]},{"constraint":"Align","line":"h_bottom","instances":["mp9","mp7","xdp","mp8","mp10"]},{"constraint":"Align","line":"h_bottom","instances":["xinv_n","xccp","xinv_p"]},{"constraint":"SymmetricNets","direction":"V","net1":"vin","pins1":["mn1/G"],"net2":"vip","pins2":["mn2/G"]},{"constraint":"SymmetricNets","direction":"V","net1":"vin_d","pins1":["mn1/D","mn3/S","mp7/D"],"net2":"vip_d","pins2":["mn2/D","mn4/S","mp8/D"]},{"constraint":"SymmetricNets","direction":"V","net1":"vin_o","pins1":["mn3/D","mn4/G","mp5/D","mp6/G","mp9/D","mp12/G","mn14/G"],"net2":"vip_o","pins2":["mn3/G","mn4/D","mp5/G","mp6/D","mp10/D","mp11/G","mn13/G"]}]"#;
 
 /// EXT-26: the gold's port entries name the rails and the clock.
 #[test]

@@ -1,6 +1,18 @@
 //! Matched sets (EXT-15): shared-bias groups, ratio inference and unitization
 //! (Hastings MOS rules 1, 11 and eq. 13.49; resistor rule 5; BJT unit
 //! emitters; Lampaert: a ratioed group is built of equal units).
+//!
+//! Contents:
+//! - `pub struct UnitDeck`
+//! - `pub(crate) fn diode(hg: &BipartiteHypergraph, d: usize) -> bool`
+//! - `pub fn shared_bias_groups(hg: &BipartiteHypergraph, drawn: &[Drawn], classes: &[NetClassification]) -> Vec<Vec<DeviceId>>`
+//! - `pub(crate) fn group<K: std::hash::Hash + Eq + Clone, T>(items: impl IntoIterator<Item = (K, T)>) -> Vec<(K, Vec<T>)>`
+//! - `pub(crate) fn device_index<'a>(n: usize, items: impl IntoIterator<Item = &'a [DeviceId]>) -> Vec<Vec<usize>>`
+//! - `pub(crate) fn inside(idx: &[Vec<usize>], g: impl IntoIterator<Item = usize>, all_in: impl Fn(usize) -> bool) -> Vec<usize>`
+//! - `pub fn unitize(members: &[DeviceId], drawn: &[Drawn], kind: DeviceKind, class: MatchClass, deck: &UnitDeck) -> Result<(UnitGeom, Vec<(u16, u16)>), Diagnostic>`
+//! - `pub fn matched_sets(reqs: &[Req], compounds: &[Compound], shared: &[Vec<DeviceId>], passive: &[crate::passive::PassiveSet], leaves: &[&Block], canon: &[u64], drawn: &[Drawn], hg: &BipartiteHypergraph, deck: &UnitDeck, diags: &mut Vec<Diagnostic>) -> Vec<MatchSpec>`
+//! - `pub fn unitize_set(members: &[DeviceId], passive: &[crate::passive::PassiveSet], drawn: &[Drawn], kind: DeviceKind, class: MatchClass, deck: &UnitDeck) -> Result<(UnitGeom, Vec<(u16, u16)>), Diagnostic>`
+//! - `pub fn set_pairs(compounds: &mut [Compound], sets: &[MatchSpec])`
 
 use analog::base::ids::DeviceId;
 use analog::base::netlist::DeviceKind;
@@ -25,18 +37,6 @@ pub struct UnitDeck {
     pub max_w_nm: i64,
     pub min_l_nm: i64,
     pub res_min_segment_nm: i64,
-}
-
-fn fet(k: DeviceKind) -> bool {
-    matches!(k, DeviceKind::Nmos | DeviceKind::Pmos)
-}
-
-fn bjt(k: DeviceKind) -> bool {
-    matches!(k, DeviceKind::Npn | DeviceKind::Pnp)
-}
-
-fn net(hg: &BipartiteHypergraph, d: usize, t: &str) -> Option<analog::base::ids::NetId> {
-    hg.terminals[d].iter().position(|p| p == t).map(|i| hg.device_nets[d][i])
 }
 
 /// Diode-connected: a FET with `D == G`, a BJT with `C == B`.
@@ -116,18 +116,6 @@ pub(crate) fn inside(idx: &[Vec<usize>], g: impl IntoIterator<Item = usize>, all
     c.dedup();
     c.retain(|&i| all_in(i));
     c
-}
-
-fn gcd(a: i64, b: i64) -> i64 {
-    if b == 0 {
-        a.abs()
-    } else {
-        gcd(b, a % b)
-    }
-}
-
-fn err(kind: &'static str, members: &[DeviceId], message: String) -> Diagnostic {
-    Diagnostic { kind, devices: members.to_vec(), message }
 }
 
 /// The ratio as identical units: `(unit, (parallel, series) per member)`.
@@ -433,6 +421,32 @@ pub fn set_pairs(compounds: &mut [Compound], sets: &[MatchSpec]) {
         }
         c.set_pairs = found;
     }
+}
+
+// ---- private ----
+
+fn fet(k: DeviceKind) -> bool {
+    matches!(k, DeviceKind::Nmos | DeviceKind::Pmos)
+}
+
+fn bjt(k: DeviceKind) -> bool {
+    matches!(k, DeviceKind::Npn | DeviceKind::Pnp)
+}
+
+fn net(hg: &BipartiteHypergraph, d: usize, t: &str) -> Option<analog::base::ids::NetId> {
+    hg.terminals[d].iter().position(|p| p == t).map(|i| hg.device_nets[d][i])
+}
+
+fn gcd(a: i64, b: i64) -> i64 {
+    if b == 0 {
+        a.abs()
+    } else {
+        gcd(b, a % b)
+    }
+}
+
+fn err(kind: &'static str, members: &[DeviceId], message: String) -> Diagnostic {
+    Diagnostic { kind, devices: members.to_vec(), message }
 }
 
 #[cfg(test)]

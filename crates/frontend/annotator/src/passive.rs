@@ -2,6 +2,15 @@
 //! two-terminal device has no fixed orientation for the pattern DSL (Hastings
 //! H08-61 matched passives from topology, H08-56 one material, H09-05 bandgap
 //! cores, H09-26 emitter degeneration; DACP eq. 1 split DAC).
+//!
+//! Contents:
+//! - `pub struct PassiveSet`
+//! - `pub fn resistor_sets(hg: &BipartiteHypergraph, drawn: &[Drawn], classes: &[NetClassification], compounds: &[Compound]) -> Vec<PassiveSet>`
+//! - `pub fn bandgap_cores(hg: &BipartiteHypergraph, drawn: &[Drawn], bjt_pairs: &[(DeviceId, DeviceId)]) -> Vec<PassiveSet>`
+//! - `pub fn capacitor_sets(hg: &BipartiteHypergraph, drawn: &[Drawn], classes: &[NetClassification], diags: &mut Vec<Diagnostic>) -> Vec<PassiveSet>`
+//! - `pub fn degeneration(hg: &BipartiteHypergraph, drawn: &[Drawn], pairs: &[(DeviceId, DeviceId)], diags: &mut Vec<Diagnostic>) -> Vec<PassiveSet>`
+//! - `pub fn degenerated_pairs(hg: &BipartiteHypergraph, drawn: &[Drawn], roles: &[crate::NetRole]) -> Vec<(DeviceId, DeviceId)>`
+//! - `pub fn diode_sets(hg: &BipartiteHypergraph, drawn: &[Drawn]) -> Vec<PassiveSet>`
 
 use analog::base::ids::{DeviceId, NetId};
 use analog::base::netlist::DeviceKind;
@@ -23,23 +32,6 @@ pub struct PassiveSet {
     pub role: SetRole,
     pub reference: Option<DeviceId>,
     pub bridge: Option<DeviceId>,
-}
-
-fn net(hg: &BipartiteHypergraph, d: usize, t: &str) -> Option<NetId> {
-    hg.terminals[d].iter().position(|p| p == t).map(|i| hg.device_nets[d][i])
-}
-
-fn rail(classes: &[NetClassification], n: NetId) -> bool {
-    matches!(classes[n.0 as usize].class, NetClass::Supply | NetClass::Ground | NetClass::Substrate)
-}
-
-fn set(devices: Vec<usize>, rule: &'static str, role: SetRole) -> PassiveSet {
-    PassiveSet { devices: devices.into_iter().map(|d| DeviceId(d as u16)).collect(), rule, role, reference: None, bridge: None }
-}
-
-/// Same model and width (H08-56: another material is not matched).
-fn one_material(drawn: &[Drawn], g: &[usize]) -> bool {
-    g.iter().all(|&d| (drawn[d].model, drawn[d].w_finger_nm) == (drawn[g[0]].model, drawn[g[0]].w_finger_nm))
 }
 
 /// Resistor sets of one model and width: (a) dividers and ladders, the
@@ -113,14 +105,6 @@ pub fn bandgap_cores(hg: &BipartiteHypergraph, drawn: &[Drawn], bjt_pairs: &[(De
             (rs.len() > 1 && one_material(drawn, &rs)).then(|| set(rs, "bandgap_r", SetRole::BandgapCore))
         })
         .collect()
-}
-
-/// `true` when `counts`, sorted, are `[1, 1, 2, …, 2^(N-1)]`, N ≥ 2 (card D-h:
-/// `cells::cap_array::bits` is out of the annotator's reach).
-fn binary(counts: &[u32]) -> bool {
-    let mut c = counts.to_vec();
-    c.sort_unstable();
-    c.len() >= 3 && c[0] == 1 && c[1..].iter().enumerate().all(|(i, &u)| u == 1 << i)
 }
 
 /// Capacitors sharing a top plate `P` with one W, L and model: one set each,
@@ -266,6 +250,33 @@ pub fn diode_sets(hg: &BipartiteHypergraph, drawn: &[Drawn]) -> Vec<PassiveSet> 
         .filter(|&d| hg.kinds[d] == DeviceKind::Diode)
         .flat_map(|d| ["P", "N"].map(|t| ((t, net(hg, d, t), drawn[d].model, drawn[d].w_finger_nm, drawn[d].l_nm), d)));
     crate::sets::group(keyed).into_iter().filter(|(_, v)| v.len() > 1).map(|(_, v)| set(v, "diode_set", SetRole::Other)).collect()
+}
+
+// ---- private ----
+
+fn net(hg: &BipartiteHypergraph, d: usize, t: &str) -> Option<NetId> {
+    hg.terminals[d].iter().position(|p| p == t).map(|i| hg.device_nets[d][i])
+}
+
+fn rail(classes: &[NetClassification], n: NetId) -> bool {
+    matches!(classes[n.0 as usize].class, NetClass::Supply | NetClass::Ground | NetClass::Substrate)
+}
+
+fn set(devices: Vec<usize>, rule: &'static str, role: SetRole) -> PassiveSet {
+    PassiveSet { devices: devices.into_iter().map(|d| DeviceId(d as u16)).collect(), rule, role, reference: None, bridge: None }
+}
+
+/// Same model and width (H08-56: another material is not matched).
+fn one_material(drawn: &[Drawn], g: &[usize]) -> bool {
+    g.iter().all(|&d| (drawn[d].model, drawn[d].w_finger_nm) == (drawn[g[0]].model, drawn[g[0]].w_finger_nm))
+}
+
+/// `true` when `counts`, sorted, are `[1, 1, 2, …, 2^(N-1)]`, N ≥ 2 (card D-h:
+/// `cells::cap_array::bits` is out of the annotator's reach).
+fn binary(counts: &[u32]) -> bool {
+    let mut c = counts.to_vec();
+    c.sort_unstable();
+    c.len() >= 3 && c[0] == 1 && c[1..].iter().enumerate().all(|(i, &u)| u == 1 << i)
 }
 
 #[cfg(test)]

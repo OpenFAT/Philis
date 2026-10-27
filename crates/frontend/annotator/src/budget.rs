@@ -7,6 +7,9 @@
 //! (`limit 0`, `scale = |bound|`, 1 for a zero bound; GRAEB-11). Helpful terms
 //! (`w ≤ 0`) are dropped unless `Policy.credit_helpful` (BAL2-16: the linear
 //! model's credit is not trusted by default).
+//!
+//! Contents:
+//! - `pub fn rows(sens: &Sensitivities, af_per_nm: f32, r_ohm_per_um: Option<f32>, policy: &Policy) -> (Vec<PerformanceBudget>, Vec<(NetId, RcClass)>, Vec<Diagnostic>)`
 
 use std::collections::BTreeMap;
 

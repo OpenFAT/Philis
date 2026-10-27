@@ -1,5 +1,9 @@
 //! Signal-flow and current-flow ordering (EXT-28): device steps a placer lines
 //! up, inputs to outputs (horizontal) and ground to supply (vertical).
+//!
+//! Contents:
+//! - `pub fn stage_order(hg: &BipartiteHypergraph, classes: &[NetClassification], ports: &[NetId], canon: &[u64]) -> Vec<Vec<DeviceId>>`
+//! - `pub fn current_paths(hg: &BipartiteHypergraph, op: Option<&OpFacts>, classes: &[NetClassification], canon: &[u64]) -> Vec<(Vec<Vec<DeviceId>>, f64)>`
 
 use std::collections::VecDeque;
 
@@ -10,14 +14,6 @@ use analog::metadata::{NetClass, NetClassification};
 
 use crate::evidence::OpFacts;
 use crate::pattern::pin_net;
-
-fn rail(c: NetClass) -> bool {
-    matches!(c, NetClass::Supply | NetClass::Ground | NetClass::Substrate)
-}
-
-fn sort_steps(steps: &mut [Vec<DeviceId>], canon: &[u64]) {
-    steps.iter_mut().for_each(|s| s.sort_by_key(|d| (canon[d.0 as usize], d.0)));
-}
 
 /// Signal stages: BFS from input nets over net edges control→drain (FET G→D, BJT B→C) and
 /// source→drain (S→D, E→C), rails never traversed. Inputs: nets touched only by G/B terminals,
@@ -169,6 +165,16 @@ pub fn current_paths(hg: &BipartiteHypergraph, op: Option<&OpFacts>, classes: &[
     }
     out.sort_by_key(|(s, _)| (canon[s[0][0].0 as usize], s[0][0].0));
     out
+}
+
+// ---- private ----
+
+fn rail(c: NetClass) -> bool {
+    matches!(c, NetClass::Supply | NetClass::Ground | NetClass::Substrate)
+}
+
+fn sort_steps(steps: &mut [Vec<DeviceId>], canon: &[u64]) {
+    steps.iter_mut().for_each(|s| s.sort_by_key(|d| (canon[d.0 as usize], d.0)));
 }
 
 #[cfg(test)]

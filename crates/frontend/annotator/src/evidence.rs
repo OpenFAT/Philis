@@ -2,6 +2,15 @@
 //! testbench sources, spec sensitivities), and the per-device region and role
 //! derived from it. Every field is optional: [`Evidence::default`] is the
 //! structure-only annotation [`crate::annotate`] runs.
+//!
+//! Contents:
+//! - `pub struct Evidence`
+//! - `pub struct OpFacts`
+//! - `pub struct DeviceOp`
+//! - `pub struct Sensitivities`
+//! - `pub struct SpecSens`
+//! - `pub fn region(op: &DeviceOp, max_id_ua: f64) -> Region`
+//! - `pub fn device_facts(nl: &Netlist, op: Option<&OpFacts>, classes: &[NetClassification], shared_bias: &[Vec<DeviceId>], load_leaf: &[bool]) -> Vec<DeviceFacts>`
 
 use analog::base::ids::{DeviceId, NetId};
 use analog::base::{DeviceKind, Netlist};

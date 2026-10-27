@@ -1,5 +1,12 @@
 //! Precision class and match kind per matched set (EXT-16; Hastings §13.3,
 //! §10.3, §8.3 class tables via `analog::matching::class::limit`).
+//!
+//! Contents:
+//! - `pub enum SetRole`
+//! - `pub struct ClassCtx<'a>`
+//! - `pub fn kind_of(set: &MatchSpec, leaf_kinds: &[BlockKind], dk: DeviceKind) -> MatchKind`
+//! - `pub fn class_of(set: &MatchSpec, ctx: &mut ClassCtx) -> (MatchClass, ClassSource)`
+//! - `pub fn style_of(class: MatchClass, kind: MatchKind, shares_source: bool) -> ArrayStyle`
 
 use analog::base::netlist::DeviceKind;
 use analog::intent::{ArrayStyle, ClassSource, Diagnostic, MatchClass, MatchKind, MatchSpec};

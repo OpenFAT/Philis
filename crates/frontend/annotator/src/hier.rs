@@ -2,6 +2,14 @@
 //! ≥ 3 identical instances on a shared bias net an array. Reads the parser's
 //! `Netlist.insts` / `device_inst` (FLOW-07); a netlist without them has no
 //! hierarchy and every function returns empty.
+//!
+//! Contents:
+//! - `pub fn devices(nl: &Netlist, i: u32) -> Vec<(DeviceId, &str)>`
+//! - `pub fn corresponding(nl: &Netlist, drawn: &[Drawn], a: u32, b: u32) -> Option<Vec<(DeviceId, DeviceId)>>`
+//! - `pub fn same_template(nl: &Netlist, drawn: &[Drawn]) -> Vec<(u32, u32)>`
+//! - `pub fn arrays(nl: &Netlist, drawn: &[Drawn], bias: &[bool]) -> Vec<Vec<u32>>`
+//! - `pub fn ports_pair(nl: &Netlist, a: u32, b: u32) -> bool`
+//! - `pub(crate) fn array_steps(netlist: &Netlist, drawn: &[Drawn], hg: &analog::base::BipartiteHypergraph, net_classes: &[analog::metadata::NetClassification], canon: &[u64]) -> Vec<Vec<Vec<DeviceId>>>`
 
 use std::collections::HashMap;
 
@@ -46,18 +54,6 @@ pub fn corresponding(nl: &Netlist, drawn: &[Drawn], a: u32, b: u32) -> Option<Ve
     da.iter().zip(&db).map(|(&(x, nx), &(y, ny))| (nx == ny && s(x) == s(y)).then_some((x, y))).collect()
 }
 
-/// Instances grouped by (subckt, parent), in instance order.
-fn siblings(nl: &Netlist) -> Vec<Vec<u32>> {
-    let mut g: Vec<Vec<u32>> = Vec::new();
-    for (i, x) in nl.insts.iter().enumerate() {
-        match g.iter_mut().find(|v| nl.insts[v[0] as usize].subckt == x.subckt && nl.insts[v[0] as usize].parent == x.parent) {
-            Some(v) => v.push(i as u32),
-            None => g.push(vec![i as u32]),
-        }
-    }
-    g
-}
-
 /// Instance pairs of one subckt under one parent, exactly two such instances, device-wise identical
 /// (`corresponding` is `Some`); a subckt with ≥ 3 instances is an array candidate, never paired (**Philis policy**).
 #[must_use]
@@ -95,6 +91,49 @@ pub fn ports_pair(nl: &Netlist, a: u32, b: u32) -> bool {
     let mut mate: HashMap<NetId, NetId> = HashMap::new();
     let mut bind = |x: NetId, y: NetId| *mate.entry(x).or_insert(y) == y;
     pa.len() == pb.len() && pa.iter().zip(pb).all(|(&x, &y)| bind(x, y) && bind(y, x))
+}
+
+/// EXT-27 arrays: per array, one step per instance, each step its devices in
+/// canonical order; the caller makes one ProxBlock group and one horizontal,
+/// reversible order of each. Bias lines exclude rails and clocks.
+pub(crate) fn array_steps(
+    netlist: &Netlist,
+    drawn: &[Drawn],
+    hg: &analog::base::BipartiteHypergraph,
+    net_classes: &[analog::metadata::NetClassification],
+    canon: &[u64],
+) -> Vec<Vec<Vec<DeviceId>>> {
+    let ck2 = |d: &DeviceId| (canon[d.0 as usize], d.0);
+    arrays(netlist, drawn, &{
+        use analog::metadata::NetClass as C;
+        let fixed = |c: C| matches!(c, C::Supply | C::Ground | C::Substrate | C::Clock);
+        crate::classify::bias_lines(hg).into_iter().zip(net_classes).map(|(b, c)| b && !fixed(c.class)).collect::<Vec<bool>>()
+    })
+    .into_iter()
+    .map(|a| {
+        a.into_iter()
+            .map(|i| {
+                let mut v: Vec<DeviceId> = devices(netlist, i).into_iter().map(|(d, _)| d).collect();
+                v.sort_by_key(ck2);
+                v
+            })
+            .collect()
+    })
+    .collect()
+}
+
+// ---- private ----
+
+/// Instances grouped by (subckt, parent), in instance order.
+fn siblings(nl: &Netlist) -> Vec<Vec<u32>> {
+    let mut g: Vec<Vec<u32>> = Vec::new();
+    for (i, x) in nl.insts.iter().enumerate() {
+        match g.iter_mut().find(|v| nl.insts[v[0] as usize].subckt == x.subckt && nl.insts[v[0] as usize].parent == x.parent) {
+            Some(v) => v.push(i as u32),
+            None => g.push(vec![i as u32]),
+        }
+    }
+    g
 }
 
 #[cfg(test)]

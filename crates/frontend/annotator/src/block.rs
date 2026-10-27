@@ -1,4 +1,12 @@
 //! Recognised blocks — the annotator's output vocabulary.
+//!
+//! Contents:
+//! - `pub struct Block`
+//! - `pub enum BlockKind`
+//! - `BlockKind::from_template(t: &str, n_devices: usize) -> Self`
+//! - `BlockKind::is_sensitive(self) -> bool`
+//! - `Block::from_match(m: &PatternMatch) -> Self`
+//! - `pub fn leaves(blocks: &[Block]) -> Vec<&Block>`
 
 use analog::base::ids::DeviceId;
 

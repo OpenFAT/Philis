@@ -19,6 +19,11 @@
 //!   wells are never one drawn unit (AA-20).
 //!
 //! Guard rings are not emitted here: [`crate::rings::plan`] places them by role (REL-07).
+//!
+//! Contents:
+//! - `pub(crate) fn fingers(dev: &analog::base::netlist::Device) -> u16`
+//! - `pub(crate) fn dummy_required(kind: DeviceKind, class: MatchClass) -> bool`
+//! - `pub fn assemble(netlist: &Netlist, drawn: &[Drawn], blocks: &[Block], sets: &[MatchSpec]) -> Constraints`
 
 use analog::base::ids::DeviceId;
 use analog::base::netlist::DeviceKind;
@@ -36,30 +41,10 @@ pub(crate) fn fingers(dev: &analog::base::netlist::Device) -> u16 {
     dev.mos_size().map_or(1, |s| s.fingers().min(u32::from(u16::MAX)) as u16)
 }
 
-fn series_parallel(kind: DeviceKind) -> SeriesParallel {
-    match kind {
-        DeviceKind::Resistor | DeviceKind::Capacitor => SeriesParallel::Series,
-        _ => SeriesParallel::Parallel,
-    }
-}
-
 /// Dummies by class (Hastings MOS rule 12: minimal need none, moderate and
 /// exceptional do), MOS, R and C only: bipolar sets keep none (card D-g).
 pub(crate) fn dummy_required(kind: DeviceKind, class: MatchClass) -> bool {
     !matches!(kind, DeviceKind::Npn | DeviceKind::Pnp) && class >= MatchClass::Moderate
-}
-
-/// The member of `s` whose `P` and `N` nets are both `P` nets of other members
-/// (a split DAC's bridge), if exactly one is.
-fn split_bridge(netlist: &Netlist, s: &MatchSpec) -> Option<DeviceId> {
-    let net = |d: DeviceId, t: &str| netlist.devices[d.0 as usize].terminals.iter().find(|(n, _)| n == t).map(|x| x.1);
-    let tops = |d: DeviceId| s.members.iter().filter(|m| m.device != d).filter_map(|m| net(m.device, "P")).collect::<Vec<_>>();
-    let mut it = s.members.iter().map(|m| m.device).filter(|&d| {
-        let t = tops(d);
-        [net(d, "P"), net(d, "N")].iter().all(|n| n.is_some_and(|n| t.contains(&n)))
-    });
-    let b = it.next();
-    it.next().is_none().then_some(b).flatten()
 }
 
 #[must_use]
@@ -175,6 +160,28 @@ pub fn assemble(netlist: &Netlist, drawn: &[Drawn], blocks: &[Block], sets: &[Ma
         });
     }
     c
+}
+
+// ---- private ----
+
+fn series_parallel(kind: DeviceKind) -> SeriesParallel {
+    match kind {
+        DeviceKind::Resistor | DeviceKind::Capacitor => SeriesParallel::Series,
+        _ => SeriesParallel::Parallel,
+    }
+}
+
+/// The member of `s` whose `P` and `N` nets are both `P` nets of other members
+/// (a split DAC's bridge), if exactly one is.
+fn split_bridge(netlist: &Netlist, s: &MatchSpec) -> Option<DeviceId> {
+    let net = |d: DeviceId, t: &str| netlist.devices[d.0 as usize].terminals.iter().find(|(n, _)| n == t).map(|x| x.1);
+    let tops = |d: DeviceId| s.members.iter().filter(|m| m.device != d).filter_map(|m| net(m.device, "P")).collect::<Vec<_>>();
+    let mut it = s.members.iter().map(|m| m.device).filter(|&d| {
+        let t = tops(d);
+        [net(d, "P"), net(d, "N")].iter().all(|n| n.is_some_and(|n| t.contains(&n)))
+    });
+    let b = it.next();
+    it.next().is_none().then_some(b).flatten()
 }
 
 fn gcd(a: u16, b: u16) -> u16 {

@@ -1,6 +1,13 @@
 //! What a device draws, as the matcher and the unitization classes compare it:
 //! size, model flavour and bulk net. The one reader of the size convention
 //! ([`analog::base::MosSize`], FLOW-01) inside the annotator's matching.
+//!
+//! Contents:
+//! - `pub struct Drawn`
+//! - `pub fn drawn(dev: &Device, models: &mut Vec<String>) -> Drawn`
+//! - `pub fn unknown_size(kind: DeviceKind, d: &Drawn) -> bool`
+//! - `pub(crate) fn exact_as(kind: DeviceKind, a: &Drawn, b: &Drawn, roles: &[NetRole]) -> bool`
+//! - `pub(crate) fn same_l_as(a: &Drawn, b: &Drawn) -> bool`
 
 use analog::base::ids::NetId;
 use analog::base::netlist::{Device, DeviceKind};
@@ -41,12 +48,6 @@ pub fn drawn(dev: &Device, models: &mut Vec<String>) -> Drawn {
     Drawn { w_finger_nm, l_nm, fingers, model, bulk }
 }
 
-/// A bipolar or diode written without W/L: a fixed-geometry PDK device whose
-/// size is its model (`bgr_core`'s `pnp_05v5_W3p40L3p40`).
-fn fixed_geometry(kind: DeviceKind, d: &Drawn) -> bool {
-    matches!(kind, DeviceKind::Npn | DeviceKind::Pnp | DeviceKind::Diode) && d.w_finger_nm.is_none() && d.l_nm.is_none()
-}
-
 /// The size is unknown: never `ExactAs`, and reported as missing `device W/L`.
 pub fn unknown_size(kind: DeviceKind, d: &Drawn) -> bool {
     !fixed_geometry(kind, d) && (d.w_finger_nm.is_none() || d.l_nm.is_none())
@@ -73,6 +74,14 @@ pub(crate) fn exact_as(kind: DeviceKind, a: &Drawn, b: &Drawn, roles: &[NetRole]
 /// `SizeMatch::SameLAs`: same known L, same model.
 pub(crate) fn same_l_as(a: &Drawn, b: &Drawn) -> bool {
     a.l_nm.is_some() && a.l_nm == b.l_nm && a.model == b.model
+}
+
+// ---- private ----
+
+/// A bipolar or diode written without W/L: a fixed-geometry PDK device whose
+/// size is its model (`bgr_core`'s `pnp_05v5_W3p40L3p40`).
+fn fixed_geometry(kind: DeviceKind, d: &Drawn) -> bool {
+    matches!(kind, DeviceKind::Npn | DeviceKind::Pnp | DeviceKind::Diode) && d.w_finger_nm.is_none() && d.l_nm.is_none()
 }
 
 #[cfg(test)]

@@ -1,5 +1,9 @@
 //! Structure and bias audit (EXT-29): Hastings' checks on a matched set's bias
 //! and geometry, reported as diagnostics. Never alters a constraint.
+//!
+//! Contents:
+//! - `pub const KINDS`
+//! - `pub fn audit(intent: &Intent, nl: &Netlist, cascodes: &[[DeviceId; 4]], op: Option<&OpFacts>) -> Vec<Diagnostic>`
 
 use analog::base::ids::DeviceId;
 use analog::base::Netlist;
@@ -13,16 +17,9 @@ pub const KINDS: [&str; 7] = ["vgst_low", "clm_mismatch", "cascode_ratio", "casc
 
 /// H13-32: a current-matched FET below this overdrive, mV (Hastings: V_GT ≥ 0.1 V for Moderate+).
 const VGST_MIN_MV: f64 = 100.0;
+
 /// H09-23: unequal V_CE across a matched bipolar set, mV (**Philis threshold**).
 const VCE_MAX_MV: f64 = 10.0;
-
-fn mos_current(s: &MatchSpec) -> bool {
-    s.kind == MatchKind::Current && s.class >= MatchClass::Moderate && s.family == Family::Mos
-}
-
-fn bjt(s: &MatchSpec) -> bool {
-    s.family == Family::Bipolar && s.class >= MatchClass::Moderate
-}
 
 /// H13-32/33/34, H09-04/23 checks. `cascodes`: slot order 0 bottom ref, 1 bottom out, 2 top ref, 3 top out.
 /// `vgst_low`: a Moderate+ MOS Current set's members under 100 mV of `|V_GS|−|V_th|` (else `2·Id/gm`);
@@ -138,6 +135,16 @@ pub fn audit(intent: &Intent, nl: &Netlist, cascodes: &[[DeviceId; 4]], op: Opti
         out.push(Diagnostic { kind: "audit_not_checked", devices: vec![], message: format!("no op data: {} not checked", skipped.join(", ")) });
     }
     out
+}
+
+// ---- private ----
+
+fn mos_current(s: &MatchSpec) -> bool {
+    s.kind == MatchKind::Current && s.class >= MatchClass::Moderate && s.family == Family::Mos
+}
+
+fn bjt(s: &MatchSpec) -> bool {
+    s.family == Family::Bipolar && s.class >= MatchClass::Moderate
 }
 
 #[cfg(test)]

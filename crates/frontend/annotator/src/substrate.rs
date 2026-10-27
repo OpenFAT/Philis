@@ -1,16 +1,16 @@
 //! EXT-23: substrate aggressor and victim tags (Charbon 2001 ch.2: injection
 //! → propagation → reception). What isolation ([`crate::emit::isolation`])
 //! and guard rings ([`crate::rings`]) read.
+//!
+//! Contents:
+//! - `pub fn tag(nl: &Netlist, classes: &[NetClassification], sets: &[MatchSpec]) -> (Vec<Aggressor>, Vec<Victim>)`
+//! - `pub fn injectors(nl: &Netlist, classes: &[NetClassification], op: Option<&crate::evidence::OpFacts>, inj_series_ohm: f64, missing: &mut Vec<(&'static str, &'static str)>) -> Vec<Aggressor>`
+//! - `pub fn victim_mask(n_devices: usize, v: &[Victim]) -> Vec<bool>`
 
 use analog::base::ids::DeviceId;
 use analog::base::{DeviceKind, Netlist};
 use analog::intent::{Aggressor, Inject, MatchClass, MatchSpec, Victim};
 use analog::metadata::{NetClass, NetClassification};
-
-/// A net whose voltage swings hard enough to inject: Clock, DigitalSwitching, Noisy.
-fn aggressor_net(c: NetClass) -> bool {
-    matches!(c, NetClass::Clock | NetClass::DigitalSwitching | NetClass::Noisy)
-}
 
 /// EXT-23 steps 1–3 (GAP-03 adds the minority kinds): aggressors, then
 /// victims (non-aggressors), each in device-id order, one tag per device.
@@ -150,6 +150,13 @@ pub fn victim_mask(n_devices: usize, v: &[Victim]) -> Vec<bool> {
     let mut out = vec![false; n_devices];
     v.iter().for_each(|v| out[v.device.0 as usize] = true);
     out
+}
+
+// ---- private ----
+
+/// A net whose voltage swings hard enough to inject: Clock, DigitalSwitching, Noisy.
+fn aggressor_net(c: NetClass) -> bool {
+    matches!(c, NetClass::Clock | NetClass::DigitalSwitching | NetClass::Noisy)
 }
 
 #[cfg(test)]

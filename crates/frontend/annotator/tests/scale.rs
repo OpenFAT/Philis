@@ -6,6 +6,8 @@
 //! EXT-14..19 review fixes 1: set origins, roles and `set_pairs` look leaves, passive
 //! and shared groups up through a per-device index rather than scanning every set and
 //! leaf (debug 5.0 s → 1.0 s; release 437 ms before the fix).
+//!
+//! Contents: none public.
 
 mod common;
 
@@ -20,6 +22,8 @@ const OTA5T: &str = "XM1_{k} vout1_{k} vinp_{k} vtail_{k} VSS nfet w=10u l=1u
     XM3_{k} vout1_{k} vbias_{k} VDD VDD pfet w=20u l=1u
     XM4_{k} vout2_{k} vbias_{k} VDD VDD pfet w=20u l=1u
     XM5_{k} vtail_{k} vbn_{k} VSS VSS nfet w=40u l=2u";
+
+// ---- private ----
 
 /// 2,500 disjoint copies sharing only VDD/VSS: 12,500 devices, 17,502 nets
 /// (below the `u16` id limit).

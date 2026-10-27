@@ -3,10 +3,18 @@
 //! §12.2.9; Charbon §8.6.1 / App. D.3: a ring on a shared return can be
 //! worse than none). Anything else gets no ring: the cells carry their own
 //! taps (CELL-13).
+//!
+//! Contents:
+//! - `pub enum Carrier`
+//! - `pub struct RingInputs<'a>`
+//! - `pub fn plan(i: &RingInputs) -> (Vec<GuardRingRequirement>, Vec<(&'static str, &'static str)>)`
+//! - `pub(crate) fn plan_tagged(netlist: &Netlist, net_classes: &[NetClassification], intent: &Intent, aggressor: &[bool], victim: &[bool], cfg: &crate::AnnotationConfig) -> (Vec<GuardRingRequirement>, Vec<(&'static str, &'static str)>)`
 
 use analog::base::ids::{DeviceId, NetId};
 use analog::base::{DeviceKind, Netlist, SubstrateKind};
 use analog::cell::{GuardRingRequirement, GuardRingType, RingRole};
+use analog::intent::Intent;
+use analog::metadata::NetClassification;
 
 /// Which minority carrier a device injects into the substrate.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -134,4 +142,63 @@ pub fn plan(i: &RingInputs) -> (Vec<GuardRingRequirement>, Vec<(&'static str, &'
         }
     }
     (rings, missing)
+}
+
+/// The guard rings by role from the EXT-23 substrate tags (REL-07): injector
+/// carriers from the aggressors, the quiet ring net (the sidecar's, else an
+/// analog ground no aggressor touches), the highest supply by DC level.
+/// Returns the rings and the missing-rule notes, an `IsolatedTub` note first
+/// when a tub's tie is no supply or ground net (GAP-14).
+pub(crate) fn plan_tagged(
+    netlist: &Netlist,
+    net_classes: &[NetClassification],
+    intent: &Intent,
+    aggressor: &[bool],
+    victim: &[bool],
+    cfg: &crate::AnnotationConfig,
+) -> (Vec<GuardRingRequirement>, Vec<(&'static str, &'static str)>) {
+    use analog::metadata::NetClass;
+    let of_class = |c: NetClass| net_classes.iter().filter(move |k| k.class == c).map(|k| k.net);
+    let mut injector = vec![None; netlist.devices.len()];
+    for a in &intent.aggressors {
+        match a.inject {
+            analog::intent::Inject::MinorityElectron => injector[a.device.0 as usize] = Some(Carrier::Electrons),
+            analog::intent::Inject::MinorityHole => injector[a.device.0 as usize] = Some(Carrier::Holes),
+            _ => {}
+        }
+    }
+    let touched_by_aggressor = |n: NetId| netlist.devices.iter().zip(aggressor).any(|(d, &a)| a && d.terminals.iter().any(|t| t.1 == n));
+    let name = |n: NetId| netlist.nets[n.0 as usize].name.to_lowercase();
+    let quiet_ring_net = match &cfg.quiet_ring_net {
+        Some(q) => (0..netlist.nets.len()).map(|n| NetId(n as u16)).find(|&n| name(n) == q.to_lowercase()),
+        None => {
+            of_class(NetClass::Ground).filter(|&n| ["avss", "vssa", "agnd"].iter().any(|k| name(n).contains(k))).find(|&n| !touched_by_aggressor(n))
+        }
+    };
+    let p = &cfg.process;
+    let mut tub_notes = Vec::new();
+    // GAP-14: the tie is a quiet supply; any other net is drawn as asked and reported.
+    if cfg.tubs.iter().any(|(_, t)| !of_class(NetClass::Supply).chain(of_class(NetClass::Ground)).any(|n| n == *t)) {
+        tub_notes.push(("IsolatedTub", "tie is not a supply net"));
+    }
+    let (rings, notes) = plan(&RingInputs {
+        netlist,
+        aggressor,
+        victim,
+        injector: &injector,
+        substrate: p.substrate,
+        quiet_ring_net,
+        // The Supply net at the highest known DC level; the lowest id
+        // when the op point gives none.
+        highest_supply: of_class(NetClass::Supply).max_by_key(|n| (intent.nets[n.0 as usize].dc_mv.map(|v| v.0), std::cmp::Reverse(n.0))),
+        ground: of_class(NetClass::Ground).min_by_key(|n| n.0),
+        min_ring_width_nm: p.min_ring_width_nm,
+        ecgr_min_width_nm: p.ecgr_min_width_nm,
+        ecgr_drawable: p.ecgr_drawable,
+        hcgr_drawable: p.hcgr_drawable,
+        tubs: &cfg.tubs,
+        tub_drawable: p.tub_drawable,
+    });
+    tub_notes.extend(notes);
+    (rings, tub_notes)
 }
