@@ -29,7 +29,7 @@ pub use gdsverify::engine::Checks;
 pub use gdsverify::ingest::deck::DeviceKind;
 pub use geom::LabeledPin;
 pub use netlist::{extract_spice, Detail};
-pub use pdk::{EmLimit, FetLimit, Pdk};
+pub use pdk::{EmLimit, Pdk};
 pub use reference::{RefDeviceIn, RefInput, RefKind};
 
 /// Shortfall of one violation row, in one of two units. A length pair is nm
@@ -782,7 +782,12 @@ mod tests {
     #[test]
     fn density_wider_than_the_block_is_chip_level() {
         let pdk = Pdk::builtin("ihp_sg13g2").unwrap();
-        assert!(pdk.density_rules().iter().any(|&(_, w, lim, max)| w == 800_000 && (lim - 0.25).abs() < 1e-9 && !max), "AFil.g2 read as a minimum");
+        let afil = (0..pdk.layers.len() as u16).flat_map(|l| pdk.compiled.density(gdsverify::geom::LayerId(l))).any(|d| {
+            d.window.is_some_and(|(w, _)| w.raw() == 800_000)
+                && (d.limit - 0.25).abs() < 1e-9
+                && d.sense == gdsverify::check::report::LimitSense::Minimum
+        });
+        assert!(afil, "AFil.g2 read as a minimum");
         let mut small = Checker::new(&pdk, false).unwrap();
         let gone = small.defer_density_wider_than(34_000, 21_000);
         assert!(gone.iter().any(|n| n == "AFil.g2"), "{gone:?}");
