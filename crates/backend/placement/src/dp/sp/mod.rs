@@ -8,6 +8,9 @@
 //! index order is a post-order and reverse index order a pre-order.
 //!
 //! Contents:
+//! - `pub use decode::{decode, to_layout, Fail, Geo, Out, Scratch}`
+//! - `pub use moves::{m1, m2, m3}`
+//! - `pub use verify::verify`
 //! - `pub enum Kid`
 //! - `pub struct Sym`
 //! - `pub struct Node`

@@ -7,6 +7,9 @@
 //! into the `Layout` columns `place_macros` stamps.
 //!
 //! Contents:
+//! - `pub use glue::glue`
+//! - `pub use row_stack::row_stack`
+//! - `pub use spacing::Spacing`
 //! - `pub enum Side`
 //! - `pub struct Stack`
 //! - `pub struct Floorplan`

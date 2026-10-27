@@ -9,6 +9,7 @@
 //! any residue.
 //!
 //! Contents:
+//! - `pub use anneal::{place_sp, DpMode, PlaceInput, Start}`
 //! - `pub struct Schedule`
 //! - `pub struct PlaceStats`
 //! - `Schedule::cold() -> Self`
