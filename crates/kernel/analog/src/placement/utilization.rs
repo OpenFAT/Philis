@@ -1,4 +1,9 @@
 //! Declared utilization floor (placement tier, budget).
+//! In → out: a [`Layout`] → footprint over the allowed footprint (cost, Θ).
+//! Cites: Graeb 2007 ch. 1 (scalarising a vector optimum is policy).
+//!
+//! Contents:
+//! - `pub struct Utilization`
 
 use crate::base::layout::Layout;
 use crate::rule::RuleBatch;
@@ -11,18 +16,8 @@ use crate::rule::RuleBatch;
 /// (area, C, …) and scalarising it is the designer's call (Graeb 2007 ch.1).
 /// An area spec from the design would replace `u_min`.
 pub struct Utilization {
+    /// Floor on Σ cell area / footprint, in `(0, 1]`; `≤ 0` disables the rule.
     pub u_min: f32,
-}
-
-impl Utilization {
-    /// Footprint over the allowed footprint (`1.0` = at the floor).
-    fn used(&self, l: &Layout) -> f32 {
-        let cells: f64 = (0..l.x.len()).map(|i| 4.0 * f64::from(l.hw[i]) * f64::from(l.hh[i])).sum();
-        if cells <= 0.0 || self.u_min <= 0.0 {
-            return 0.0;
-        }
-        (l.footprint_nm2() * f64::from(self.u_min) / cells) as f32
-    }
 }
 
 impl RuleBatch<Layout> for Utilization {
@@ -50,6 +45,19 @@ impl RuleBatch<Layout> for Utilization {
     }
 }
 
+// ---- private ----
+
+impl Utilization {
+    /// Footprint over the allowed footprint (`1.0` = at the floor).
+    fn used(&self, l: &Layout) -> f32 {
+        let cells: f64 = (0..l.x.len()).map(|i| 4.0 * f64::from(l.hw[i]) * f64::from(l.hh[i])).sum();
+        if cells <= 0.0 || self.u_min <= 0.0 {
+            return 0.0;
+        }
+        (l.footprint_nm2() * f64::from(self.u_min) / cells) as f32
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -71,6 +79,7 @@ mod tests {
         }
     }
 
+    /// Oracle: spec example, 2 µm² in a 4 µm² box at a 60 % floor, by hand.
     #[test]
     fn sprawl_past_the_floor_is_a_budget_overshoot() {
         let u = Utilization { u_min: 0.6 };

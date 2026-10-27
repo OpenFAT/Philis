@@ -1,4 +1,21 @@
 //! The parsed circuit: devices, nets, and the groups the annotator recovers.
+//! In → out: a device's parameter rows → its [`MosSize`] (BSIM4 instance
+//! semantics). Cites: Philis 1.0 `pnr_core` (Q36); SPICE/BSIM4 `w`, `nf`, `m`.
+//!
+//! Contents:
+//! - `pub enum DeviceKind`
+//! - `pub struct Device`
+//! - `pub struct MosSize`
+//! - `pub struct Net`
+//! - `pub struct DeviceGroup`
+//! - `pub struct Netlist`
+//! - `pub struct SubcktInst`
+//! - `pub struct SourceCard`
+//! - `MosSize::w_finger_nm(self) -> i64`
+//! - `MosSize::fingers(self) -> u32`
+//! - `MosSize::gate_area_um2(self) -> f64`
+//! - `Device::mos_size(&self) -> Option<MosSize>`
+//! - `Device::gate_area_um2(&self) -> f64`
 
 use crate::base::ids::{DeviceId, NetId};
 
@@ -19,7 +36,9 @@ pub enum DeviceKind {
 /// One device instance from the netlist.
 #[derive(Clone)]
 pub struct Device {
+    /// Hierarchical instance name (`X1/M3`), unique in its netlist.
     pub name: String,
+    /// Selects the `cells` generator and which parameter keys apply.
     pub kind: DeviceKind,
     /// The SPICE model name as written (`sky130_fd_pr__res_high_po`, …):
     /// selects the drawn construction and the LVS recogniser. Empty = none.
@@ -39,10 +58,80 @@ pub struct Device {
 /// this one record, so the drawn channel is the simulated one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MosSize {
+    /// One instance's gate width over all its fingers, nm; > 0.
     pub w_total_nm: i64,
+    /// Drawn gate length, nm; > 0.
     pub l_nm: i64,
+    /// Fingers per instance; ≥ 1.
     pub nf: u32,
+    /// Instances in parallel (SPICE `m` times `multi`); ≥ 1.
     pub m: u32,
+}
+
+/// One net (a wire connecting terminals).
+#[derive(Clone)]
+pub struct Net {
+    /// Hierarchical net name (`X1/X3/out`); rails are recognised by it.
+    pub name: String,
+}
+
+/// A group of devices the annotator has decided belong together (a diff pair,
+/// current mirror, cascode). The unit that `cells` draws and the placer places.
+pub struct DeviceGroup {
+    /// Members, each in at most one group.
+    pub devices: Vec<DeviceId>,
+}
+
+/// The whole circuit as flat SoA tables. IDs index these vectors.
+///
+/// Hierarchy is flattened by the parser: a device inside instance `X1/X3`
+/// is named `X1/X3/<name>` and its internal nets `X1/X3/<net>`. `ports`,
+/// `insts`, `device_inst` and `sources` are filled by the SPICE front end
+/// only; a netlist built elsewhere leaves them empty (every device top level).
+#[derive(Clone, Default)]
+pub struct Netlist {
+    /// Indexed by [`DeviceId`].
+    pub devices: Vec<Device>,
+    /// Indexed by [`NetId`].
+    pub nets: Vec<Net>,
+    /// Top sub-circuit ports in declaration order (empty: no .subckt around the top).
+    pub ports: Vec<NetId>,
+    /// Every flattened sub-circuit instance, parents before children.
+    pub insts: Vec<SubcktInst>,
+    /// Innermost instance of each device; `None` = top level. Parallel to
+    /// `devices` when the parser built it, else empty.
+    pub device_inst: Vec<Option<u32>>,
+    /// Independent/controlled sources and couplings: evidence, not devices.
+    pub sources: Vec<SourceCard>,
+}
+
+/// One flattened `.subckt` instance.
+#[derive(Clone, Debug)]
+pub struct SubcktInst {
+    /// Hierarchical instance path, `"X1/X3"`.
+    pub path: String,
+    /// The sub-circuit's name as declared.
+    pub subckt: String,
+    /// Index of the enclosing instance in [`Netlist::insts`]; `None` = top.
+    pub parent: Option<u32>,
+    /// Actual nets, in the sub-circuit's formal-port order.
+    pub ports: Vec<NetId>,
+}
+
+/// A `V I E F G H B K` card: what drives or couples the circuit, kept as
+/// evidence (rails, inputs, clocks) rather than drawn.
+#[derive(Clone, Debug)]
+pub struct SourceCard {
+    /// Hierarchical card name (`V1`, `X1/Vb`).
+    pub name: String,
+    /// Card letter, upper case: `V I E F G H B K`.
+    pub kind: char,
+    /// Nodes in card order: 2 for `V I F H B`, 4 for `E G`, none for `K`.
+    pub nodes: Vec<NetId>,
+    /// DC value of a `V`/`I` card (after `dc`, else its first value), base SI.
+    pub dc: Option<f64>,
+    /// A `PULSE`/`PWL`/`SIN`/`EXP` waveform is present.
+    pub waveform: bool,
 }
 
 impl MosSize {
@@ -91,72 +180,12 @@ impl Device {
     }
 }
 
-/// One net (a wire connecting terminals).
-#[derive(Clone)]
-pub struct Net {
-    pub name: String,
-}
-
-/// A group of devices the annotator has decided belong together (a diff pair,
-/// current mirror, cascode). The unit that `cells` draws and the placer places.
-pub struct DeviceGroup {
-    pub devices: Vec<DeviceId>,
-}
-
-/// The whole circuit as flat SoA tables. IDs index these vectors.
-///
-/// Hierarchy is flattened by the parser: a device inside instance `X1/X3`
-/// is named `X1/X3/<name>` and its internal nets `X1/X3/<net>`. `ports`,
-/// `insts`, `device_inst` and `sources` are filled by the SPICE front end
-/// only; a netlist built elsewhere leaves them empty (every device top level).
-#[derive(Clone, Default)]
-pub struct Netlist {
-    pub devices: Vec<Device>,
-    pub nets: Vec<Net>,
-    /// Top sub-circuit ports in declaration order (empty: no .subckt around the top).
-    pub ports: Vec<NetId>,
-    /// Every flattened sub-circuit instance, parents before children.
-    pub insts: Vec<SubcktInst>,
-    /// Innermost instance of each device; `None` = top level. Parallel to
-    /// `devices` when the parser built it, else empty.
-    pub device_inst: Vec<Option<u32>>,
-    /// Independent/controlled sources and couplings: evidence, not devices.
-    pub sources: Vec<SourceCard>,
-}
-
-/// One flattened `.subckt` instance.
-#[derive(Clone, Debug)]
-pub struct SubcktInst {
-    /// Hierarchical instance path, `"X1/X3"`.
-    pub path: String,
-    /// The sub-circuit's name as declared.
-    pub subckt: String,
-    /// Index of the enclosing instance in [`Netlist::insts`]; `None` = top.
-    pub parent: Option<u32>,
-    /// Actual nets, in the sub-circuit's formal-port order.
-    pub ports: Vec<NetId>,
-}
-
-/// A `V I E F G H B K` card: what drives or couples the circuit, kept as
-/// evidence (rails, inputs, clocks) rather than drawn.
-#[derive(Clone, Debug)]
-pub struct SourceCard {
-    /// Hierarchical card name (`V1`, `X1/Vb`).
-    pub name: String,
-    /// Card letter, upper case: `V I E F G H B K`.
-    pub kind: char,
-    /// Nodes in card order: 2 for `V I F H B`, 4 for `E G`, none for `K`.
-    pub nodes: Vec<NetId>,
-    /// DC value of a `V`/`I` card (after `dc`, else its first value), base SI.
-    pub dc: Option<f64>,
-    /// A `PULSE`/`PWL`/`SIN`/`EXP` waveform is present.
-    pub waveform: bool,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Oracle: spec example, BSIM4 instance semantics worked by hand (10 µm
+    /// over 2 fingers is 5 µm each; area W·L·m).
     #[test]
     fn mos_size_follows_spice_semantics() {
         let mos = |params: &[(&str, i64)]| Device {

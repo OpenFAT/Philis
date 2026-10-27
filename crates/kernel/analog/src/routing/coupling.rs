@@ -3,6 +3,16 @@
 //! Pairwise [`crate::routing::CrosstalkExclusion`] cannot express this: a net
 //! flanked by five aggressors at the legal minimum spacing passes every
 //! pairwise check while taking five times its coupling budget.
+//!
+//! In → out: [`Routes`] → each victim's weighted coupling from every other
+//! net, aF, against its budget. Cites: Lampaert 1999 eq. 2.33; TOPO eqs
+//! 4.2–4.3; BAL2-10; PLAN §4c.
+//!
+//! Contents:
+//! - `pub struct CouplingBudget`
+//! - `pub fn net_pair_af(stack: Option<&Stack>, a: &[Shape], b: &[Shape], screens: &[Shape]) -> f32`
+//! - `pub fn screens_but(r: &Routes, skip: &[usize]) -> Vec<Shape>`
+//! - `CouplingBudget::default_weights(classes: &[NetClassification], n_nets: usize) -> Vec<f32>`
 
 use crate::base::geom::{Rect, Shape};
 use crate::base::ids::NetId;
@@ -12,46 +22,30 @@ use super::Stack;
 use crate::metadata::{NetClass, NetClassification};
 use crate::rule::Rule;
 
+/// Budget on the total coupling onto `net`, aF. Registered in the budget arm.
+#[derive(Clone, Copy)]
+pub struct CouplingBudget {
+    /// The victim.
+    pub net: NetId,
+    /// Budget on the summed coupling, aF.
+    pub max_coupling_af: i64,
+    /// Safety margin held back from the budget, percent.
+    pub margin_pct: u8,
+    /// Per-layer `ε·t`; `None` = one constant for the stack.
+    pub stack: Option<&'static Stack>,
+    /// The victim's shield reference: never an aggressor (a grounded shield is
+    /// the remedy the rule asks for, BAL2-10, not coupling to book).
+    pub exclude: Option<NetId>,
+    /// Aggressor weight in `[0, 1]` by `NetId`; a missing index reads 1.0;
+    /// `None` = all 1.0. `&'static` because rules are `Copy` (as `stack`).
+    pub aggressor_weight: Option<&'static [f32]>,
+}
+
 /// `ε·h` in `C = ε·h·run/gap`, aF (εr 3.9, ~0.35 µm metal): two wires 400 nm
 /// apart couple ~30 aF/µm of parallel run.
 ///
 /// The fallback when the deck gives no per-layer `ε·t` ([`Stack::lateral_af`]).
 const EPS_H_AF: f32 = 12.0;
-
-/// Lateral coupling over `run` nm at `gap` nm on `layer`, aF: the deck's
-/// `ε0·k·t·run/gap` when known (TOPO eq. 4.3), else `EPS_H_AF`.
-fn run_af(stack: Option<&Stack>, layer: u16, run: i32, gap: i32) -> f32 {
-    stack.and_then(|s| s.lateral_run_af(layer, run, gap)).unwrap_or(EPS_H_AF * run as f32 / gap.max(1) as f32)
-}
-
-/// `shapes` merged per layer into maximal runs `(layer, rect, along x)`:
-/// longest first, a shape joins a run it touches when it is not longer across
-/// the run than along it (a collinear piece or a pad), extending the run's
-/// span; the run keeps its own width. So a pad over a wire end counts once.
-fn runs(shapes: &[Shape]) -> Vec<(u16, Rect, bool)> {
-    let mut order: Vec<&Shape> = shapes.iter().collect();
-    order.sort_by_key(|s| std::cmp::Reverse(s.rect.w.max(s.rect.h)));
-    let mut out: Vec<(u16, Rect, bool)> = Vec::new();
-    for s in order {
-        let r = s.rect;
-        let joined = out.iter_mut().find(|(l, q, horiz)| {
-            let touch = r.x <= q.x + q.w && q.x <= r.x + r.w && r.y <= q.y + q.h && q.y <= r.y + r.h;
-            *l == s.layer.0 && touch && if *horiz { r.w >= r.h } else { r.h >= r.w }
-        });
-        match joined {
-            Some((_, q, true)) => {
-                let (x0, x1) = (q.x.min(r.x), (q.x + q.w).max(r.x + r.w));
-                (q.x, q.w) = (x0, x1 - x0);
-            }
-            Some((_, q, false)) => {
-                let (y0, y1) = (q.y.min(r.y), (q.y + q.h).max(r.y + r.h));
-                (q.y, q.h) = (y0, y1 - y0);
-            }
-            None => out.push((s.layer.0, r, r.w >= r.h)),
-        }
-    }
-    out
-}
 
 /// Coupling between two nets, aF (Lampaert 1999 eq. 2.33; TOPO eqs. 4.2–4.3):
 /// `a` is merged into runs ([`runs`]); per run and side, the parallel
@@ -142,24 +136,6 @@ pub fn screens_but(r: &Routes, skip: &[usize]) -> Vec<Shape> {
     r.wires.iter().enumerate().filter(|(n, _)| !skip.contains(n)).flat_map(|(_, w)| w.iter().copied()).collect()
 }
 
-/// Budget on the total coupling onto `net`, aF. Registered in the budget arm.
-#[derive(Clone, Copy)]
-pub struct CouplingBudget {
-    /// The victim.
-    pub net: NetId,
-    pub max_coupling_af: i64,
-    /// Safety margin held back from the budget, percent.
-    pub margin_pct: u8,
-    /// Per-layer `ε·t`; `None` = one constant for the stack.
-    pub stack: Option<&'static Stack>,
-    /// The victim's shield reference: never an aggressor (a grounded shield is
-    /// the remedy the rule asks for, BAL2-10, not coupling to book).
-    pub exclude: Option<NetId>,
-    /// Aggressor weight in `[0, 1]` by `NetId`; a missing index reads 1.0;
-    /// `None` = all 1.0. `&'static` because rules are `Copy` (as `stack`).
-    pub aggressor_weight: Option<&'static [f32]>,
-}
-
 impl CouplingBudget {
     /// `1.0` per net, `0.0` for the quiet rails (Supply, Ground, Substrate):
     /// coupling to a DC node injects no noise. `classes` entries past
@@ -231,6 +207,43 @@ impl Rule for CouplingBudget {
     }
 }
 
+// ---- private ----
+
+/// Lateral coupling over `run` nm at `gap` nm on `layer`, aF: the deck's
+/// `ε0·k·t·run/gap` when known (TOPO eq. 4.3), else `EPS_H_AF`.
+fn run_af(stack: Option<&Stack>, layer: u16, run: i32, gap: i32) -> f32 {
+    stack.and_then(|s| s.lateral_run_af(layer, run, gap)).unwrap_or(EPS_H_AF * run as f32 / gap.max(1) as f32)
+}
+
+/// `shapes` merged per layer into maximal runs `(layer, rect, along x)`:
+/// longest first, a shape joins a run it touches when it is not longer across
+/// the run than along it (a collinear piece or a pad), extending the run's
+/// span; the run keeps its own width. So a pad over a wire end counts once.
+fn runs(shapes: &[Shape]) -> Vec<(u16, Rect, bool)> {
+    let mut order: Vec<&Shape> = shapes.iter().collect();
+    order.sort_by_key(|s| std::cmp::Reverse(s.rect.w.max(s.rect.h)));
+    let mut out: Vec<(u16, Rect, bool)> = Vec::new();
+    for s in order {
+        let r = s.rect;
+        let joined = out.iter_mut().find(|(l, q, horiz)| {
+            let touch = r.x <= q.x + q.w && q.x <= r.x + r.w && r.y <= q.y + q.h && q.y <= r.y + r.h;
+            *l == s.layer.0 && touch && if *horiz { r.w >= r.h } else { r.h >= r.w }
+        });
+        match joined {
+            Some((_, q, true)) => {
+                let (x0, x1) = (q.x.min(r.x), (q.x + q.w).max(r.x + r.w));
+                (q.x, q.w) = (x0, x1 - x0);
+            }
+            Some((_, q, false)) => {
+                let (y0, y1) = (q.y.min(r.y), (q.y + q.h).max(r.y + r.h));
+                (q.y, q.h) = (y0, y1 - y0);
+            }
+            None => out.push((s.layer.0, r, r.w >= r.h)),
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,6 +269,7 @@ mod tests {
         vec![CouplingBudget { net: NetId(0), max_coupling_af: max_af, margin_pct: 20, stack: None, exclude: None, aggressor_weight: None }]
     }
 
+    /// Oracle: metamorphic, four equal neighbours couple four times one.
     #[test]
     fn coupling_accumulates_over_aggressors() {
         // This is the whole point: each aggressor sits at the *same* legal
@@ -273,6 +287,7 @@ mod tests {
         assert_eq!(budget(400).violations(&routes(1, 400)), 0);
     }
 
+    /// Oracle: spec example, 4× the coupling on a 1× budget is 3 over (PLAN §4c).
     #[test]
     fn residual_is_the_set_sum_normalised_by_the_budget() {
         // The budget is per victim over the **whole** aggressor set (PLAN §4c), so the
@@ -291,6 +306,7 @@ mod tests {
         assert!((b.cost(&routes(4, 400)) - four).abs() < 1e-6);
     }
 
+    /// Oracle: physics, C ∝ 1/gap.
     #[test]
     fn coupling_falls_off_with_spacing() {
         let near = CouplingBudget { net: NetId(0), max_coupling_af: 1, margin_pct: 0, stack: None, exclude: None, aggressor_weight: None }
@@ -300,6 +316,7 @@ mod tests {
         assert!((near / far - 4.0).abs() < 0.1, "1/d: 4× the gap ⇒ ¼ the coupling");
     }
 
+    /// Oracle: physics, lateral coupling is same-layer.
     #[test]
     fn different_layers_do_not_couple_laterally() {
         let mut r = routes(1, 400);
@@ -308,6 +325,7 @@ mod tests {
         assert_eq!(t, 0.0, "lateral coupling is same-layer");
     }
 
+    /// Oracle: the documented ends of the criticality scale.
     #[test]
     fn criticality_rises_as_the_budget_is_consumed() {
         // Comfortable: well inside the margin ⇒ no pressure.
@@ -318,6 +336,7 @@ mod tests {
         assert_eq!(tight, 1.0);
     }
 
+    /// Oracle: physics, ε·h·run/gap for two min-width wires (~300 aF).
     #[test]
     fn magnitude_is_physical() {
         // Two min-width wires 400 nm apart, 10 µm of parallel run: ~300 aF.
@@ -326,6 +345,7 @@ mod tests {
         assert!((250.0..350.0).contains(&t), "expected ~300 aF, got {t}");
     }
 
+    /// Oracle: spec example, 2·12·10 000/280 aF by hand; BAL2-10.
     #[test]
     fn the_victims_own_shield_is_not_an_aggressor() {
         // 10 µm victim (net 0), reference (net 1) tracks both sides at 280 nm.
@@ -341,6 +361,7 @@ mod tests {
 
     /// Victim 10 µm along y; X at gap 280 over the full run, Y at gap 1 000
     /// behind X: Y couples nothing through X, and alone it does.
+    /// Oracle: physics, a nearer conductor screens one behind it.
     #[test]
     fn a_wire_behind_a_nearer_wire_is_screened() {
         let victim = [wire(0, 0, 100, 10_000, 0)];
@@ -351,6 +372,7 @@ mod tests {
     }
 
     /// A 260-wide met1 crossed by a 280-wide met2: 0.0728 µm² × 147.6 aF/µm².
+    /// Oracle: spec example, the overlap area by hand.
     #[test]
     fn a_crossing_couples_by_overlap_area() {
         use crate::routing::stack::Layer;
@@ -369,6 +391,7 @@ mod tests {
 
     /// A pad over the victim's end merges into its run: the same C to an
     /// aggressor alongside as the wire alone.
+    /// Oracle: metamorphic, adding a pad inside the run leaves C unchanged.
     #[test]
     fn a_pad_over_a_wire_end_counts_once() {
         let w = wire(0, 0, 100, 10_000, 0);
@@ -379,6 +402,7 @@ mod tests {
         assert_eq!(net_pair_af(None, &[w, pad], &agg, &[]), alone);
     }
 
+    /// Oracle: the documented weight table.
     #[test]
     fn a_quiet_rail_weighs_nothing() {
         let w: &'static [f32] = Box::leak(vec![1.0, 0.0].into_boxed_slice());
@@ -387,6 +411,7 @@ mod tests {
         assert_eq!(b.total_af(&routes(1, 400)), 0.0);
     }
 
+    /// Oracle: spec example, the rail classes by hand.
     #[test]
     fn default_weights_zero_only_the_rails() {
         let c = |n: u16, class| NetClassification { net: NetId(n), class, c_budget_af: None, max_coupling_af: None };

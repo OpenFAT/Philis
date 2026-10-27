@@ -1,4 +1,17 @@
 //! Layout-dependent environment of matched devices (placement tier, budget).
+//! In → out: placed cells' n-well and diffusion rects → each matched pair's
+//! WPE and OSE distances and the budget they spend. Cites: Hastings §13.3
+//! rule 19 (WPE clearance); PLC-29.
+//!
+//! Contents:
+//! - `pub const ENV_TOL: f32`
+//! - `pub struct Surroundings`
+//! - `pub struct Environment(pub Vec<Surroundings>)`
+//! - `pub struct EnvGeo`
+//! - `pub struct LiveEnvironment`
+//! - `Surroundings::usage(&self) -> Option<f32>`
+//! - `LiveEnvironment::surroundings_with(&self, l: &Layout, extra_wells: &[Rect]) -> Vec<Surroundings>`
+//! - `LiveEnvironment::surroundings(&self, l: &Layout) -> Vec<Surroundings>`
 
 use crate::base::{place_rect, DeviceId, Layout, Rect};
 use crate::rule::RuleBatch;
@@ -18,9 +31,44 @@ pub const ENV_TOL: f32 = 0.2;
 /// gives none, and that half reads unknown.
 #[derive(Clone, Copy, Debug)]
 pub struct Surroundings {
+    /// Each member's mean channel distance to the n-well union's edge, nm.
     pub wpe_nm: [f32; 2],
+    /// Each member's diffusion gap to the nearest foreign diffusion, nm.
     pub ose_nm: [f32; 2],
+    /// The deck's WPE clearance, nm; `0` = not given.
     pub wpe_min_nm: f32,
+    /// The deck's LOD extension, nm; `0` = not given.
+    pub ose_range_nm: f32,
+}
+
+/// Every matched pair's [`Surroundings`], measured once per placed layout.
+/// State-free (the numbers are precomputed), so it reports on any stage.
+#[derive(Clone, Debug, Default)]
+pub struct Environment(pub Vec<Surroundings>);
+
+/// Per cell, per variant, in the macro's own frame: its bbox, n-well rects
+/// and diff rects.
+#[derive(Debug, Default)]
+pub struct EnvGeo {
+    /// `bbox[cell][variant]`: the frame the rects below are local to.
+    pub bbox: Vec<Vec<Rect>>,
+    /// `wells[cell][variant]`: n-well rects.
+    pub wells: Vec<Vec<Vec<Rect>>>,
+    /// `diffs[cell][variant]`: diffusion rects.
+    pub diffs: Vec<Vec<Vec<Rect>>>,
+}
+
+/// Every matched pair's [`Surroundings`], re-measured on each layout it is
+/// asked about: the placement-tier batch (PLC-29), so gp/dp see WPE/OSE in Θ.
+#[derive(Clone, Debug)]
+pub struct LiveEnvironment {
+    /// `(member a, member b, cell of a, cell of b)`.
+    pub pairs: Vec<(DeviceId, DeviceId, u16, u16)>,
+    /// Every cell's local well and diffusion rects, shared across epochs.
+    pub geo: std::sync::Arc<EnvGeo>,
+    /// As [`Surroundings::wpe_min_nm`].
+    pub wpe_min_nm: f32,
+    /// As [`Surroundings::ose_range_nm`].
     pub ose_range_nm: f32,
 }
 
@@ -48,11 +96,6 @@ impl Surroundings {
     }
 }
 
-/// Every matched pair's [`Surroundings`], measured once per placed layout.
-/// State-free (the numbers are precomputed), so it reports on any stage.
-#[derive(Clone, Debug, Default)]
-pub struct Environment(pub Vec<Surroundings>);
-
 impl<S> RuleBatch<S> for Environment {
     fn cost(&self, _: &S) -> f32 {
         self.0.iter().filter_map(Surroundings::usage).sum()
@@ -77,31 +120,11 @@ impl<S> RuleBatch<S> for Environment {
     }
 }
 
-/// Per cell, per variant, in the macro's own frame: its bbox, n-well rects
-/// and diff rects.
-#[derive(Debug, Default)]
-pub struct EnvGeo {
-    pub bbox: Vec<Vec<Rect>>,
-    pub wells: Vec<Vec<Vec<Rect>>>,
-    pub diffs: Vec<Vec<Vec<Rect>>>,
-}
-
-/// Every matched pair's [`Surroundings`], re-measured on each layout it is
-/// asked about: the placement-tier batch (PLC-29), so gp/dp see WPE/OSE in Θ.
-#[derive(Clone, Debug)]
-pub struct LiveEnvironment {
-    /// `(member a, member b, cell of a, cell of b)`.
-    pub pairs: Vec<(DeviceId, DeviceId, u16, u16)>,
-    pub geo: std::sync::Arc<EnvGeo>,
-    pub wpe_min_nm: f32,
-    pub ose_range_nm: f32,
-}
-
 impl LiveEnvironment {
     /// Each pair's [`Surroundings`] on `l`, with `extra_wells` (placed, world
     /// frame) joining the cells' n-wells: WPE is a member's channels' mean
     /// distance to the nwell union's edge, OSE its cell's diffusion's gap to
-    /// every other cell's.
+    /// every other cell's. O(pairs · units · wells²) for WPE, O(Σ diff rects²) for OSE.
     #[must_use]
     pub fn surroundings_with(&self, l: &Layout, extra_wells: &[Rect]) -> Vec<Surroundings> {
         let n = self.geo.bbox.len().min(l.x.len());
@@ -217,6 +240,7 @@ impl RuleBatch<Layout> for LiveEnvironment {
 mod tests {
     use super::*;
 
+    /// Oracle: spec example, each usage worked by hand from the documented formula.
     #[test]
     fn near_or_unequal_surroundings_spend_the_budget() {
         let far = Surroundings { wpe_nm: [f32::INFINITY; 2], ose_nm: [f32::INFINITY; 2], wpe_min_nm: 3_000.0, ose_range_nm: 3_000.0 };
@@ -272,6 +296,7 @@ mod tests {
         }
     }
 
+    /// Oracle: spec example, the well distances and 3000/36500 worked by hand.
     #[test]
     fn a_foreign_well_near_one_member_violates() {
         let env = env();
@@ -284,6 +309,7 @@ mod tests {
         assert!((u - 3000.0 / 36_500.0).abs() < 1e-6, "{u}");
     }
 
+    /// Oracle: spec example, the 500 nm distance to the added ring well by hand.
     #[test]
     fn ring_wells_join_the_report_only() {
         let (env, l) = (env(), layout(41_000));

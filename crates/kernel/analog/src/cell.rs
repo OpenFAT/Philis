@@ -1,4 +1,13 @@
 //! Cell-tier structural directives, read cold by `cells` (not scored per move).
+//! In → out: none; plain directive rows the annotator writes and `cells`
+//! reads. Cites: REL-07 (ring roles), GAP-11, GAP-14, GAP-18, EXT-15, EXT-16, C16.
+//!
+//! Contents:
+//! - `pub struct GuardRingRequirement`
+//! - `pub enum RingRole`
+//! - `pub enum GuardRingType`
+//! - `pub struct Unitization`
+//! - `pub enum SeriesParallel`
 
 use crate::base::ids::{DeviceId, NetId};
 use crate::base::netlist::DeviceKind;
@@ -6,7 +15,9 @@ use crate::base::netlist::DeviceKind;
 /// A latch-up guard ring around `device`, tied to `connection_net`.
 #[derive(Clone, Copy)]
 pub struct GuardRingRequirement {
+    /// The ringed device.
     pub device: DeviceId,
+    /// What the ring is drawn as.
     pub ring_type: GuardRingType,
     /// May merge with a neighbouring ring of the same class.
     pub shareable: bool,
@@ -24,22 +35,32 @@ pub struct GuardRingRequirement {
 /// carriers, an aggressor's majority-carrier noise, or a victim's exposure.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RingRole {
+    /// The device injects minority carriers into the substrate.
     Injector,
+    /// The device injects majority-carrier noise.
     Aggressor,
+    /// The device is the one being protected.
     Victim,
 }
 
+/// How a guard ring is drawn.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum GuardRingType {
     /// Majority-carrier tap ring: p+ in substrate, or n+ in n-well when
     /// `in_well` (the device's own bulk tap).
-    Tap { in_well: bool },
+    Tap {
+        /// The ring sits in the device's n-well (an n+ tap).
+        in_well: bool,
+    },
     /// Electron-collecting: n+ ring in its own n-well band, tied to a
     /// supply, collects electrons (the band well is drawn separately).
     Ecgr,
     /// User-declared isolated tub (GAP-14): n+ ring in an n-well band over a deep n-well, tied to a quiet supply;
     /// the devices' bulk is the isolated p-well. `id` keeps distinct tubs from merging (distinct p-wells).
-    Tub { id: u16 },
+    Tub {
+        /// Distinguishes tubs; two ids never share a p-well.
+        id: u16,
+    },
     /// Hole-collecting: p+ collecting ring, needs a retrograde/isolated well
     /// the deck declares.
     Hcgr,
@@ -50,7 +71,9 @@ pub enum GuardRingType {
 /// variant). The layout pattern is chosen by the cell generator.
 #[derive(Clone)]
 pub struct Unitization {
+    /// The matched devices, parallel to `dev_nf` and `target_ratio`.
     pub devices: Vec<DeviceId>,
+    /// One kind for every member.
     pub device_type: DeviceKind,
     /// Unit count per device.
     pub dev_nf: Vec<u16>,
@@ -60,8 +83,11 @@ pub struct Unitization {
     pub unit_w: i32,
     /// Unit length, nm.
     pub unit_l: i32,
+    /// How each instance's units compose.
     pub series_parallel: SeriesParallel,
+    /// The generator must draw end dummies.
     pub dummy_required: bool,
+    /// The members' leads must be route-matched.
     pub route_matching_required: bool,
     /// Match class of the set (EXT-16 from a spec, or the user); `None` = not given, matched-cell readers use
     /// `unwrap_or(Moderate)` (C16). Read by `cells::cap_array` (GAP-18): an Exceptional binary bank lists its
@@ -78,6 +104,8 @@ pub struct Unitization {
 /// How units compose into one instance.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SeriesParallel {
+    /// Units in parallel: the instance is `n` units wide.
     Parallel,
+    /// Units in series: the instance is `n` units long.
     Series,
 }

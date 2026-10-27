@@ -1,5 +1,29 @@
 //! The routing stack's per-layer parasitics and antenna limits, from the deck:
 //! what the budget rules measure drawn metal with.
+//!
+//! In → out: drawn shapes on stack layers → ground C, lateral and crossing C,
+//! series R (whole, worst path, per terminal) and the antenna ratio per etch
+//! stage. Cites: Lampaert 1999 eqs 2.29–2.32; TOPO eq. 4.3; Hastings pp.
+//! 228–229, §5.1.6; GAP-13.
+//!
+//! Contents:
+//! - `pub struct Layer`
+//! - `pub struct Stack`
+//! - `pub struct DiodeCredit`
+//! - `pub(crate) struct PortGraph`
+//! - `Stack::ground_af(&self, shapes: &[Shape]) -> f32`
+//! - `Stack::resistance_ohm(&self, shapes: &[Shape]) -> f32`
+//! - `Stack::path_resistance_ohm(&self, shapes: &[Shape]) -> f32`
+//! - `Stack::terminal_resistance_ohm(&self, shapes: &[Shape], terminals: &[Rect]) -> Vec<Option<f32>>`
+//! - `Stack::fed_resistance_ohm(&self, shapes: &[Shape], feeds: &[Rect], terminals: &[Rect]) -> Vec<Option<f32>>`
+//! - `Stack::port_graph(&self, shapes: &[Shape], terminals: &[Rect], lowest: bool) -> PortGraph`
+//! - `Stack::lateral_af(&self, layer: u16, p: &Rect, q: &Rect) -> Option<f32>`
+//! - `Stack::lateral_run_af(&self, layer: u16, run: i32, gap: i32) -> Option<f32>`
+//! - `Stack::cross_af_um2(&self, a: u16, b: u16) -> Option<f32>`
+//! - `Stack::connected(&self, shapes: &[Shape]) -> Vec<Vec<usize>>`
+//! - `Stack::antenna(&self, shapes: &[Shape], cell: &[Shape], others: &[Shape], gates: &[GatePin], fallback_nm2: i64) -> Option<(f32, f32)>`
+//! - `PortGraph::tree(&self, root: usize) -> Vec<Option<(usize, f32, u32)>>`
+//! - `pub fn parallel(p: &Rect, q: &Rect) -> Option<(i32, i32)>`
 
 use crate::base::geom::{Rect, Shape};
 use crate::base::GatePin;
@@ -12,6 +36,7 @@ pub struct Layer {
     pub id: u16,
     /// Ground capacitance per area and per edge length: aF/µm², aF/µm.
     pub area_af_um2: f32,
+    /// Ground capacitance per edge length, aF/µm.
     pub fringe_af_um: f32,
     /// `ε0·k·t` in aF·nm/µm: lateral coupling to a parallel wire `gap` nm
     /// away is `lateral · run_µm / gap_nm` aF (TOPO eq. 4.3).
@@ -41,6 +66,7 @@ pub struct Layer {
 /// The routing stack, bottom-up (metals and cuts interleaved).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Stack {
+    /// Bottom-up; metals and cuts alternate from the first metal.
     pub layers: Vec<Layer>,
     /// The deck's antenna rules sum every layer up to the stage
     /// (`antenna_cumulative_*`); else each stage counts its own layer.
@@ -56,8 +82,18 @@ pub struct Stack {
 /// with `diode_credit: 0`, whose area term is refused as unit-less).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DiodeCredit {
+    /// `LayerId` of the diode marker layer.
     pub layer: u16,
+    /// Ratio subtracted from a piece touching it.
     pub bonus: f32,
+}
+
+/// [`Stack::port_graph`]'s resistor network: adjacency `(node, Ω, shape
+/// index)` (`u32::MAX`: a 0-Ω junction or terminal link) and each terminal's
+/// node.
+pub(crate) struct PortGraph {
+    pub(crate) adj: Vec<Vec<(usize, f32, u32)>>,
+    pub(crate) term: Vec<Option<usize>>,
 }
 
 impl Stack {
@@ -347,7 +383,7 @@ impl Stack {
             let built: Vec<(usize, Rect)> = all.iter().filter_map(|s| Some((rank(s)?, s.rect))).filter(|&(r, _)| r <= stage).collect();
             // Cumulative: the stage's own kind below it too (metals with metals,
             // cuts with cuts — they alternate in the stack).
-            let counts = |r: usize| r == stage || (self.antenna_cumulative && (stage - r) % 2 == 0);
+            let counts = |r: usize| r == stage || (self.antenna_cumulative && (stage - r).is_multiple_of(2));
             let exposed = |q: Rect| match layer.antenna_sidewall_nm {
                 t if t > 0.0 => 2.0 * (q.w + q.h) as f32 * t,
                 _ => q.w as f32 * q.h as f32,
@@ -389,14 +425,6 @@ impl Stack {
         }
         worst
     }
-}
-
-/// [`Stack::port_graph`]'s resistor network: adjacency `(node, Ω, shape
-/// index)` (`u32::MAX`: a 0-Ω junction or terminal link) and each terminal's
-/// node.
-pub(crate) struct PortGraph {
-    pub(crate) adj: Vec<Vec<(usize, f32, u32)>>,
-    pub(crate) term: Vec<Option<usize>>,
 }
 
 impl PortGraph {
@@ -461,6 +489,8 @@ pub fn parallel(p: &Rect, q: &Rect) -> Option<(i32, i32)> {
         None
     }
 }
+
+// ---- private ----
 
 /// Area (nm²) and perimeter (nm) of the union of `rects`, by coordinate
 /// compression: the distinct edge coordinates cut the plane into X·Y cells, a
@@ -569,6 +599,7 @@ mod tests {
         }
     }
 
+    /// Oracle: spec example, 25·5 + 40·21 aF by hand (Lampaert eqs 2.29–2.32).
     #[test]
     fn ground_c_is_area_plus_fringe_per_layer() {
         // 10 µm × 0.5 µm on m1: 25·5 + 40·21 = 965 aF; an unknown layer adds 0.
@@ -576,6 +607,7 @@ mod tests {
         assert!((c - 965.0).abs() < 1e-3, "{c}");
     }
 
+    /// Oracle: spec example, the union's area and perimeter by hand.
     #[test]
     fn overlapping_shapes_count_once() {
         // Union 15 µm × 0.5 µm: 25·7.5 + 40·31 = 1 427.5 aF (summed: 1 930).
@@ -583,12 +615,14 @@ mod tests {
         assert!((c - 1_427.5).abs() < 1e-2, "{c}");
     }
 
+    /// Oracle: metamorphic, a pad inside the wire leaves the union unchanged.
     #[test]
     fn a_pad_inside_a_wire_adds_nothing() {
         let c = stack(0.0, 0.0, false).ground_af(&[shape(1, 0, 0, 10_000, 500), shape(1, 4_000, 0, 500, 500)]);
         assert!((c - 965.0).abs() < 1e-3, "{c}");
     }
 
+    /// Oracle: spec example, 20 □ · 0.125 + 2 · 4.5 Ω by hand.
     #[test]
     fn resistance_is_squares_times_sheet_plus_cuts() {
         // 10 µm × 0.5 µm on m1 = 20 □ · 0.125 = 2.5 Ω; two cuts at 4.5 Ω.
@@ -598,6 +632,7 @@ mod tests {
 
     /// A rail with branches: the worst path runs trunk + one branch, not the
     /// sum of every branch.
+    /// Oracle: spec example, each branch's squares by hand.
     #[test]
     fn terminal_resistance_is_each_branch_from_the_centre() {
         let s = stack(0.0, 0.0, false);
@@ -612,10 +647,12 @@ mod tests {
         // Tips are 3.95 µm up their stubs (0.9875 Ω); the joints 4 µm apart
         // on the trunk (1 Ω): centred on the middle joint.
         assert!((r[1].unwrap() - 0.9875).abs() < 1e-3, "{r:?}");
-        assert!((r[0].unwrap() - 1.9875).abs() < 1e-3 && (r[2].unwrap() - 1.9875).abs() < 1e-3, "{r:?}");
+        assert!((r[0].unwrap() - 1.9875).abs() < 1e-3, "{r:?}");
+        assert!((r[2].unwrap() - 1.9875).abs() < 1e-3, "{r:?}");
         assert_eq!(r[3], None, "a terminal no shape reaches");
     }
 
+    /// Oracle: spec example, stub + trunk + stub by hand.
     #[test]
     fn path_resistance_is_the_worst_path_not_the_sum() {
         let s = stack(0.0, 0.0, false);
@@ -629,6 +666,7 @@ mod tests {
         assert!((p - 4.5).abs() < 1e-3, "stub + trunk + stub: {p}");
     }
 
+    /// Oracle: physics, C ∝ 1/gap; ε0·k·t·run/gap by hand (TOPO eq. 4.3).
     #[test]
     fn lateral_c_falls_off_with_the_gap() {
         let s = stack(0.0, 0.0, false);
@@ -644,6 +682,7 @@ mod tests {
     /// Hastings' worked example: a long m1 run fails at the m1 stage; a jumper
     /// through m2 splits it, so at the m1 stage each piece is short; the m2
     /// stage still checks the whole net.
+    /// Oracle: spec example, Hastings' jumper example worked by hand.
     #[test]
     fn a_jumper_splits_the_lower_stage() {
         let s = stack(100.0, 400.0, false);
@@ -665,7 +704,8 @@ mod tests {
         assert_eq!(limit, 400.0);
         // Cumulative rules count m1 (not the cuts) at the m2 stage too: 142 + 40.
         let cum = stack(100.0, 400.0, true).antenna(&bridged, &[], &[], &[], gate).unwrap();
-        assert!((cum.0 - 182.0).abs() < 1e-3 && cum.1 == 400.0, "{cum:?}");
+        assert!((cum.0 - 182.0).abs() < 1e-3, "{cum:?}");
+        assert_eq!(cum.1, 400.0, "{cum:?}");
         // A sidewall rule counts perimeter × thickness: 2·(180+1) µm · 0.36 µm.
         let mut side = stack(100.0, 400.0, false);
         side.layers[0].antenna_sidewall_nm = 360.0;
@@ -674,6 +714,7 @@ mod tests {
 
     /// A piece is charged the oxide of the gates it touches, each device once,
     /// not the net's whole gate area (Hastings §5.1.6: per node, per stage).
+    /// Oracle: spec example, Hastings §5.1.6, each piece's ratio by hand.
     #[test]
     fn a_piece_is_charged_only_the_gates_it_reaches() {
         let s = stack(100.0, 400.0, false);
@@ -690,6 +731,7 @@ mod tests {
 
     /// The diode credit is the deck's `diode_bonus`, to a piece touching a
     /// diode shape; with no deck credit a drawn diode lowers nothing.
+    /// Oracle: spec example, 120 − 50 by hand.
     #[test]
     fn diode_credit_is_the_decks_bonus_only() {
         let gate = 1_000_000;
@@ -703,6 +745,7 @@ mod tests {
 
     /// A cell's plate on the net counts with the wires; once a jumper cuts it
     /// off the gate at a stage, it charges nothing there.
+    /// Oracle: spec example, (2 + 150)/1 by hand.
     #[test]
     fn a_cell_plate_counts_until_cut_off_the_gate() {
         let s = stack(100.0, 400.0, false);
@@ -727,6 +770,7 @@ mod tests {
     }
 
     /// GAP-13: a foreign met1 run 140 nm off joins the piece: 60 + 60 > 100.
+    /// Oracle: spec example, GAP-13's merge distance by hand.
     #[test]
     fn two_min_spaced_pieces_share_one_antenna() {
         let gate = 1_000_000;
@@ -740,6 +784,7 @@ mod tests {
         assert_eq!(latent().antenna(&mine, &[], &[shape(1, 60_090, 1_100, 60_000, 1_000)], &[], gate), Some((120.0, 100.0)));
     }
 
+    /// Oracle: spec example, 141 nm is past the 140 nm merge distance.
     #[test]
     fn a_wider_gap_is_independent() {
         let mine = [shape(1, 0, 0, 60_000, 1_000)];

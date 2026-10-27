@@ -1,4 +1,22 @@
-//! Geometry primitives. Plain data, all coordinates in nanometres (`nm`).
+//! Geometry primitives: plain data, every coordinate in nanometres (`nm`).
+//! In → out: points and rects → their image under one [`Orient`] (the D4 group
+//! action). Cites: GDSII `SREF` (angle, mirror_x) for the eight orientations;
+//! Philis 1.0 `pnr_core` (Q36).
+//!
+//! Contents:
+//! - `pub struct LayerId(pub u16)`
+//! - `pub struct Rect`
+//! - `pub enum Orient`
+//! - `pub struct Shape`
+//! - `pub struct Pin`
+//! - `pub enum Dir`
+//! - `Rect::touches(&self, o: &Rect) -> bool`
+//! - `Orient::ALL: [Orient; 8]`
+//! - `Orient::then(self, next: Orient) -> Orient`
+//! - `Orient::inverse(self) -> Orient`
+//! - `Orient::swaps_axes(self) -> bool`
+//! - `Orient::apply(self, x: i32, y: i32) -> (i32, i32)`
+//! - `Orient::apply_rect(self, r: Rect) -> Rect`
 
 use crate::base::ids::NetId;
 
@@ -9,19 +27,14 @@ pub struct LayerId(pub u16);
 /// Axis-aligned rectangle in `nm`. `(x, y)` is the lower-left corner.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
 pub struct Rect {
+    /// Lower-left x, nm.
     pub x: i32,
+    /// Lower-left y, nm.
     pub y: i32,
+    /// Width, nm; a drawn shape has `w > 0`.
     pub w: i32,
+    /// Height, nm; a drawn shape has `h > 0`.
     pub h: i32,
-}
-
-impl Rect {
-    /// Closed intervals on both axes: edge or corner contact counts, so two
-    /// abutting shapes on one conductor are connected.
-    #[must_use]
-    pub fn touches(&self, o: &Rect) -> bool {
-        self.x <= o.x + o.w && o.x <= self.x + self.w && self.y <= o.y + o.h && o.y <= self.y + self.h
-    }
 }
 
 /// How a placed cell is turned before stamping: the D4 group, the same eight
@@ -39,6 +52,45 @@ pub enum Orient {
     Mx90,
     Mx180,
     Mx270,
+}
+
+/// One drawn rectangle on one layer — the atom of [`crate::base::Macro`] geometry.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Shape {
+    /// Index into the PDK's layer table.
+    pub layer: LayerId,
+    /// Absolute once placed; local to its macro before.
+    pub rect: Rect,
+}
+
+/// A physical point where a net attaches to a macro — a routing entry point.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Pin {
+    /// `d{owner}:{terminal}` for a member's terminal (`d0:S`), else the port name.
+    pub name: String,
+    /// The net the pin lands on.
+    pub net: NetId,
+    /// The pin's drawn rect.
+    pub at: Rect,
+    /// The layer the pin is drawn on (pin access must not guess it).
+    pub layer: LayerId,
+}
+
+/// Signal direction of a port.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Dir {
+    In,
+    Out,
+    InOut,
+}
+
+impl Rect {
+    /// Closed intervals on both axes: edge or corner contact counts, so two
+    /// abutting shapes on one conductor are connected.
+    #[must_use]
+    pub fn touches(&self, o: &Rect) -> bool {
+        self.x <= o.x + o.w && o.x <= self.x + self.w && self.y <= o.y + o.h && o.y <= self.y + self.h
+    }
 }
 
 impl Orient {
@@ -92,35 +144,11 @@ impl Orient {
     }
 }
 
-/// One drawn rectangle on one layer — the atom of [`crate::base::Macro`] geometry.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Shape {
-    pub layer: LayerId,
-    pub rect: Rect,
-}
-
-/// A physical point where a net attaches to a macro — a routing entry point.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Pin {
-    pub name: String,
-    pub net: NetId,
-    pub at: Rect,
-    /// The layer the pin is drawn on (pin access must not guess it).
-    pub layer: LayerId,
-}
-
-/// Signal direction of a port.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Dir {
-    In,
-    Out,
-    InOut,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Oracle: spec example (closed intervals: abutting touches, a 1 nm gap does not).
     #[test]
     fn edge_contact_touches_and_a_gap_does_not() {
         let a = Rect { x: 0, y: 0, w: 10, h: 10 };
@@ -128,6 +156,7 @@ mod tests {
         assert!(!a.touches(&Rect { x: 11, y: 0, w: 5, h: 5 }));
     }
 
+    /// Oracle: group theory, |D4| = 8.
     /// D4 is a group of order 8: no two members may act identically, or the
     /// placer's rotate move would propose a no-op it believes is a real turn.
     #[test]
@@ -141,6 +170,7 @@ mod tests {
 
     /// dp turns Mirror partners by composing with `then`; a wrong product
     /// would break the partner's reflection on every rotate.
+    /// Oracle: the definition of composition, applying `a` then `b` to a point.
     #[test]
     fn then_matches_apply_on_all_64_products() {
         for a in Orient::ALL {
@@ -153,6 +183,7 @@ mod tests {
 
     /// `swaps_axes` is what the placer trusts when it transposes `hw`/`hh`; if it
     /// disagrees with the actual transform the layout's extents go stale.
+    /// Oracle: `apply_rect`'s drawn extents, independent of `swaps_axes`'s table.
     #[test]
     fn swaps_axes_matches_the_drawn_extents() {
         let r = Rect { x: 10, y: 20, w: 300, h: 700 };
@@ -168,6 +199,7 @@ mod tests {
 
     /// Four quarter-turns are the identity, and a rect stays on-grid throughout —
     /// the property the stamping site relies on to keep geometry snapped.
+    /// Oracle: group theory, R90⁴ = R0 and R180² = R0.
     #[test]
     fn rotation_is_grid_preserving_and_periodic() {
         let r = Rect { x: 15, y: -40, w: 305, h: 700 };

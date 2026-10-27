@@ -1,5 +1,12 @@
 //! One circuit spec as a shared parasitic budget over the routed nets
 //! (routing tier, budget).
+//!
+//! In → out: [`Routes`] → one spec bound's linearised use, `Σ w_i·C_i`, against
+//! its limit. Cites: GRAEB-11; BAL2-16; master §6 C12; RTE-21; EXT-25; PERF-12.
+//!
+//! Contents:
+//! - `pub struct PerformanceBudget`
+//! - `PerformanceBudget::ground_c(metric: String, nets: Vec<NetId>, weights: Vec<f32>, af_per_nm: f32) -> Self`
 
 use crate::base::ids::NetId;
 use crate::base::routes::Routes;
@@ -28,6 +35,7 @@ use crate::rule::RuleBatch;
 pub struct PerformanceBudget {
     /// The spec's metric, for reports.
     pub metric: String,
+    /// Nets whose ground C spends the bound, parallel to `weights`.
     pub nets: Vec<NetId>,
     /// Per-net weight, 1/aF (fraction of the headroom one aF spends).
     pub weights: Vec<f32>,
@@ -131,13 +139,15 @@ mod tests {
 
     /// The trade independent caps cannot make: a sensitive net and a numb one
     /// share one margin, so the numb one may run long.
+    /// Oracle: spec example, Σ w·C by hand (0.5 + 0.4).
     #[test]
     fn nets_share_one_margin_by_sensitivity() {
         // 1 aF/nm. Net 0 spends 1% of the margin per aF, net 1 0.01%.
         let b = PerformanceBudget::ground_c("ugf".into(), vec![NetId(0), NetId(1)], vec![1e-2, 1e-4], 1.0);
         // 50 aF on the sensitive net + 4000 aF on the numb one: 0.5 + 0.4.
         let ok = Routes { wires: vec![wire(50), wire(4_000)], ..Default::default() };
-        assert!(b.violations(&ok) == 0 && (b.worst_usage(&ok).unwrap() - 0.9).abs() < 1e-4);
+        assert_eq!(b.violations(&ok), 0);
+        assert!((b.worst_usage(&ok).unwrap() - 0.9).abs() < 1e-4);
         // Swap them and the same total C blows the spec 40×.
         let bad = Routes { wires: vec![wire(4_000), wire(50)], ..Default::default() };
         assert_eq!(b.violations(&bad), 1);
@@ -148,6 +158,7 @@ mod tests {
     }
 
     /// A bound the schematic already misses: any adverse C violates.
+    /// Oracle: spec example, 0.1 · 1 aF by hand (GRAEB-11 do-not-worsen).
     #[test]
     fn a_zero_limit_row_violates_on_any_adverse_c() {
         let b = PerformanceBudget { limit: 0.0, ..PerformanceBudget::ground_c("gain:min".into(), vec![NetId(0)], vec![0.1], 1.0) };
@@ -161,15 +172,21 @@ mod tests {
         assert_eq!(b.violations(&Routes { wires: vec![Vec::new()], ..Default::default() }), 0);
     }
 
+    /// Oracle: the documented defaults of `ground_c`.
     #[test]
     fn ground_c_helper_is_todays_row() {
         let b = PerformanceBudget::ground_c("ugf:min".into(), vec![NetId(0)], vec![0.5], 2.0);
         assert_eq!((b.limit, b.af_per_nm, b.weights.as_slice()), (1.0, 2.0, &[0.5][..]));
-        assert!(b.r_nets.is_empty() && b.r_weights.is_empty() && b.diff_pairs.is_empty() && b.diff_weights.is_empty() && b.coupling.is_empty());
+        assert!(b.r_nets.is_empty());
+        assert!(b.r_weights.is_empty());
+        assert!(b.diff_pairs.is_empty());
+        assert!(b.diff_weights.is_empty());
+        assert!(b.coupling.is_empty());
         assert_eq!(b.unknown(&Routes::default()), 0);
     }
 
     /// An R term nobody measures yet is unknown, not a free pass; `used` keeps the ground part.
+    /// Oracle: the documented rule, unknown is never pass; 0.01 · 50 by hand.
     #[test]
     fn extra_terms_are_unknown_not_zero() {
         let mut b = PerformanceBudget::ground_c("ugf:min".into(), vec![NetId(0)], vec![0.01], 1.0);

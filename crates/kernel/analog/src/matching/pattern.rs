@@ -2,6 +2,36 @@
 //! hold a matched set point-symmetrically ([`grids`]) and which member owns
 //! each cell ([`centro_assign`]). Doubled offsets from the grid centre
 //! (`2r − rows + 1`, `2c − cols + 1`) keep every moment an integer.
+//!
+//! In → out: member unit counts → admissible grids, per-cell owners and
+//! diffusion-legal rows; resistances → segmentations. Cites: Hastings Table
+//! 8.5, fig. 8.19, fig. 10.24A; DACP (spiral, chessboard fills); the Nth-order
+//! central-symmetry paper (fig. 3b).
+//!
+//! Contents:
+//! - `pub enum Fill`
+//! - `pub struct Grid`
+//! - `pub enum Outer`
+//! - `pub fn grids(counts: &[u16], max_aspect: f64) -> Vec<(usize, usize)>`
+//! - `pub fn cc_feasible(counts: &[u16]) -> bool`
+//! - `pub fn spiral(rows: usize, cols: usize) -> Vec<usize>`
+//! - `pub fn centro_assign(counts: &[u16], rows: usize, cols: usize, fill: Fill) -> (Vec<Option<u8>>, bool)`
+//! - `pub fn segment_row(counts: &[u16]) -> (Vec<usize>, bool)`
+//! - `pub fn scale2(counts: &[u16]) -> Vec<u16>`
+//! - `Grid::refl(&self, i: usize) -> usize`
+//! - `Grid::free_pair(&self, i: usize) -> bool`
+//! - `Grid::put_pair(&mut self, i: usize, s: u8)`
+//! - `Grid::rect(&self, (r0, c0, rows, cols): (usize, usize, usize, usize)) -> Vec<usize>`
+//! - `Grid::rc(&self, i: usize) -> (i64, i64)`
+//! - `Grid::chessboard(&mut self, rect: (usize, usize, usize, usize), top: u8)`
+//! - `Grid::spread(&mut self, cells: &[usize], s: u8, count: usize)`
+//! - `Grid::corridor(&mut self, outer: (usize, usize, usize, usize), inner: (usize, usize, usize, usize), i: u8, bs: usize)`
+//! - `pub fn diffusion_legal(s: &[usize], outer: Outer) -> bool`
+//! - `pub fn nth_order_rows(order: u8, row: &[u8]) -> Vec<Vec<u8>>`
+//! - `pub fn segmentation(r_n_ohm: f64, r_m_ohm: f64, n_max: u16) -> Vec<(u16, u16, f64)>`
+//! - `pub fn partial_segments(r_n_ohm: f64, r_m_ohm: f64, r0_ohm: f64) -> (u16, u16, f64, f64, f64)`
+//! - `pub fn diffusion_cc_row(counts: &[u16], outer: Outer) -> Option<Vec<usize>>`
+//! - `pub fn diffusion_interdig_row(counts: &[u16]) -> Option<(Vec<usize>, Outer)>`
 
 use std::cmp::Reverse;
 
@@ -18,6 +48,26 @@ pub enum Fill {
     /// outermost pair first, to the member furthest below its share
     /// `count_d · R / T` of the total r² (LPT).
     Balanced,
+}
+
+/// A row-major unit grid under construction. Point reflection through the
+/// centre is index reversal: `(R-1-r)·C + (C-1-c) = RC-1-i`.
+pub struct Grid {
+    /// Cells per row; `slot.len()` is a multiple of it.
+    pub cols: usize,
+    /// Owner per cell, row-major; `None` = free (or a dummy once done).
+    pub slot: Vec<Option<u8>>,
+}
+
+/// Which region the row's two ends are: `Drain` = multi-device rows (region
+/// `i` is S iff `i` is odd), `Source` = mirror-pins rows (region 0 = S); in
+/// both, every boundary between two devices is a shared source.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Outer {
+    /// The row's ends are drains (multi-device rows).
+    Drain,
+    /// The row's ends are sources (mirror-pin rows).
+    Source,
 }
 
 /// Grids `(rows, cols)` that can hold `counts` point-symmetrically, nearest
@@ -177,23 +227,20 @@ pub fn scale2(counts: &[u16]) -> Vec<u16> {
     counts.iter().map(|&c| c * k).collect()
 }
 
-/// A row-major unit grid under construction. Point reflection through the
-/// centre is index reversal: `(R-1-r)·C + (C-1-c) = RC-1-i`.
-pub struct Grid {
-    pub cols: usize,
-    pub slot: Vec<Option<u8>>,
-}
-
 impl Grid {
+    /// Cell `i`'s point reflection through the grid centre.
     pub fn refl(&self, i: usize) -> usize {
         self.slot.len() - 1 - i
     }
 
+    /// Whether `i` and its reflection are two distinct free cells (the centre
+    /// cell of an odd grid is never a pair).
     pub fn free_pair(&self, i: usize) -> bool {
         let j = self.refl(i);
         i != j && self.slot[i].is_none() && self.slot[j].is_none()
     }
 
+    /// Gives `i` and its reflection to `s`, overwriting whatever held them.
     pub fn put_pair(&mut self, i: usize, s: u8) {
         let j = self.refl(i);
         self.slot[i] = Some(s);
@@ -205,6 +252,7 @@ impl Grid {
         (r0..r0 + rows).flat_map(|r| (c0..c0 + cols).map(move |c| (r, c))).map(|(r, c)| r * self.cols + c).collect()
     }
 
+    /// `(row, col)` of cell `i`.
     pub fn rc(&self, i: usize) -> (i64, i64) {
         ((i / self.cols) as i64, (i % self.cols) as i64)
     }
@@ -286,15 +334,6 @@ impl Grid {
     }
 }
 
-/// Which region the row's two ends are: `Drain` = multi-device rows (region
-/// `i` is S iff `i` is odd), `Source` = mirror-pins rows (region 0 = S); in
-/// both, every boundary between two devices is a shared source.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Outer {
-    Drain,
-    Source,
-}
-
 /// Whether `s` never joins two different devices across the wrong region:
 /// the boundary between fingers `i, i+1` is region `i+1`, legal only on a
 /// source: even (`S`) when `outer` is `Source`, odd (`S`) when `outer` is
@@ -353,63 +392,6 @@ pub fn partial_segments(r_n_ohm: f64, r_m_ohm: f64, r0_ohm: f64) -> (u16, u16, f
     (m as u16, n as u16, j, k, ((n + 1.0) / (n + k) - (m + 1.0) / (m + j)).abs())
 }
 
-/// Deals `p` reflected pairs of fingers at `seq[off..off + 2p]` in quads
-/// (token `t` with its mirror `p − 1 − t`), each quad to the member whose
-/// share of the centred weight `Σ(2i − n + 1)²` is furthest ahead of what it
-/// already holds in `seq`. `h[d]` is device `d`'s remaining quad count.
-fn deal(counts: &[u16], n: usize, seq: &mut [Option<usize>], p: usize, h: &mut [usize], off: usize) {
-    let k = |i: usize| -> i64 {
-        let v = 2 * i as i64 - n as i64 + 1;
-        v * v
-    };
-    // Q is the weight not yet committed to any device: it starts at the
-    // row's total and shrinks by every quad dealt (and by what the caller
-    // pre-placed), so each pick compares against what is still in play.
-    let mut q: i64 = (0..n).map(k).sum();
-    let mut s = vec![0i64; counts.len()];
-    for (i, slot) in seq.iter().enumerate() {
-        if let Some(d) = *slot {
-            let ki = k(i);
-            s[d] += ki;
-            q -= ki;
-        }
-    }
-    for t in 0..p / 2 {
-        let mut best_d = None;
-        let mut best_val = i64::MIN;
-        for (d, &hd) in h.iter().enumerate() {
-            if hd == 0 {
-                continue;
-            }
-            let val = i64::from(counts[d]) * q - n as i64 * s[d];
-            if val > best_val {
-                best_val = val;
-                best_d = Some(d);
-            }
-        }
-        let d = best_d.expect("a device with quads left");
-        let fingers = [off + 2 * t, off + 2 * t + 1, off + 2 * (p - 1 - t), off + 2 * (p - 1 - t) + 1];
-        let sum_k: i64 = fingers.iter().map(|&f| k(f)).sum();
-        for &f in &fingers {
-            seq[f] = Some(d);
-        }
-        s[d] += sum_k;
-        q -= sum_k;
-        h[d] -= 1;
-    }
-}
-
-/// The second-moment residual (Hastings §13.3) of `seq`'s per-member finger
-/// indices, treated as unit weights on a line: lower is a tighter centroid.
-fn row_r2(seq: &[usize], ndev: usize) -> f64 {
-    let mut by_member: Vec<Vec<moments::Pt>> = vec![Vec::new(); ndev];
-    for (i, &d) in seq.iter().enumerate() {
-        by_member[d].push(moments::Pt { x: i as f64, y: 0.0, w: 1.0, phi: (0, 0) });
-    }
-    let refs: Vec<&[moments::Pt]> = by_member.iter().map(Vec::as_slice).collect();
-    moments::cancelled_order(&refs, 2, 0.0).1[2]
-}
-
 /// A diffusion-legal common-centroid finger row for a ratioed MOS mirror
 /// (plan-02 §3 step 2–3): `counts[d]` fingers per device, mirror-symmetric,
 /// with every inter-device boundary landing on `outer`'s region so no two
@@ -419,7 +401,7 @@ pub fn diffusion_cc_row(counts: &[u16], outer: Outer) -> Option<Vec<usize>> {
     match outer {
         Outer::Drain => {
             let n: usize = counts.iter().map(|&c| usize::from(c)).sum();
-            if n == 0 || n % 2 != 0 || counts.iter().any(|&c| c % 2 != 0) {
+            if n == 0 || !n.is_multiple_of(2) || counts.iter().any(|&c| c % 2 != 0) {
                 return None;
             }
             let p = (n - 2) / 2;
@@ -508,6 +490,65 @@ pub fn diffusion_interdig_row(counts: &[u16]) -> Option<(Vec<usize>, Outer)> {
     Some((seq, if odd.is_empty() { Outer::Source } else { Outer::Drain }))
 }
 
+// ---- private ----
+
+/// Deals `p` reflected pairs of fingers at `seq[off..off + 2p]` in quads
+/// (token `t` with its mirror `p − 1 − t`), each quad to the member whose
+/// share of the centred weight `Σ(2i − n + 1)²` is furthest ahead of what it
+/// already holds in `seq`. `h[d]` is device `d`'s remaining quad count.
+fn deal(counts: &[u16], n: usize, seq: &mut [Option<usize>], p: usize, h: &mut [usize], off: usize) {
+    let k = |i: usize| -> i64 {
+        let v = 2 * i as i64 - n as i64 + 1;
+        v * v
+    };
+    // Q is the weight not yet committed to any device: it starts at the
+    // row's total and shrinks by every quad dealt (and by what the caller
+    // pre-placed), so each pick compares against what is still in play.
+    let mut q: i64 = (0..n).map(k).sum();
+    let mut s = vec![0i64; counts.len()];
+    for (i, slot) in seq.iter().enumerate() {
+        if let Some(d) = *slot {
+            let ki = k(i);
+            s[d] += ki;
+            q -= ki;
+        }
+    }
+    for t in 0..p / 2 {
+        let mut best_d = None;
+        let mut best_val = i64::MIN;
+        for (d, &hd) in h.iter().enumerate() {
+            if hd == 0 {
+                continue;
+            }
+            let val = i64::from(counts[d]) * q - n as i64 * s[d];
+            if val > best_val {
+                best_val = val;
+                best_d = Some(d);
+            }
+        }
+        let d = best_d.expect("a device with quads left");
+        let fingers = [off + 2 * t, off + 2 * t + 1, off + 2 * (p - 1 - t), off + 2 * (p - 1 - t) + 1];
+        let sum_k: i64 = fingers.iter().map(|&f| k(f)).sum();
+        for &f in &fingers {
+            seq[f] = Some(d);
+        }
+        s[d] += sum_k;
+        q -= sum_k;
+        h[d] -= 1;
+    }
+}
+
+/// The second-moment residual (Hastings §13.3) of `seq`'s per-member finger
+/// indices, treated as unit weights on a line: lower is a tighter centroid.
+fn row_r2(seq: &[usize], ndev: usize) -> f64 {
+    let mut by_member: Vec<Vec<moments::Pt>> = vec![Vec::new(); ndev];
+    for (i, &d) in seq.iter().enumerate() {
+        by_member[d].push(moments::Pt { x: i as f64, y: 0.0, w: 1.0, phi: (0, 0) });
+    }
+    let refs: Vec<&[moments::Pt]> = by_member.iter().map(Vec::as_slice).collect();
+    moments::cancelled_order(&refs, 2, 0.0).1[2]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -527,6 +568,7 @@ mod tests {
         (m2(&a) - m2(&b)).abs()
     }
 
+    /// Oracle: spec example, Hastings Table 8.5 (counts and |ΔM| of the book strings), plus `cancelled_order` as an independent moment check.
     #[test]
     fn table_8_5_every_ratio_is_exact_and_no_worse() {
         // (counts, Hastings Table 8.5 book string, generated, generated |ΔM|).
@@ -555,6 +597,7 @@ mod tests {
         }
     }
 
+    /// Oracle: spec example, the parity rule (two odd counts doubled become even).
     #[test]
     fn scale2_makes_two_odd_members_exact() {
         assert_eq!(scale2(&[3, 1]), vec![6, 2]);
@@ -569,6 +612,7 @@ mod tests {
 
     /// Every a:b with at most one odd count, on every grid offered, is exact:
     /// counts kept, each member's doubled offsets sum to zero, empties paired.
+    /// Oracle: certificate, the counts and centroid offsets re-summed.
     #[test]
     fn every_single_odd_ratio_is_exact() {
         for a in 1..=4u16 {
@@ -596,6 +640,7 @@ mod tests {
         }
     }
 
+    /// Oracle: spec example, ABBA's 2×2 diagonal by hand.
     #[test]
     fn equal_pair_is_a_diagonal_quad() {
         assert_eq!(grids(&[2, 2], 3.0), [(2, 2), (3, 2), (1, 4)]);
@@ -604,6 +649,7 @@ mod tests {
 
     /// 1:4 is the "+" cross on 3×3 (not Hastings' Fig. 10.24A, which needs a
     /// half-row offset no grid cell has); 1:6 and 1:8 fill outward.
+    /// Oracle: spec example, the cross and outward fills drawn by hand.
     #[test]
     fn four_to_one_is_a_cross() {
         assert_eq!(grids(&[1, 4], 3.0), [(3, 3), (1, 5)]);
@@ -614,6 +660,7 @@ mod tests {
         assert_eq!(s(&[4, 4, 4], 3, 4), "020121121020");
     }
 
+    /// Oracle: theory, two odd members have no point-symmetric assignment.
     #[test]
     fn two_odd_members_are_reported_inexact() {
         assert!(!cc_feasible(&[1, 1, 2]));
@@ -622,6 +669,7 @@ mod tests {
         assert_eq!(slot.iter().flatten().count(), 4);
     }
 
+    /// Oracle: golden, the grid order `grids` documents, worked by hand.
     #[test]
     fn grid_order_is_deterministic() {
         assert_eq!(grids(&[4, 4, 4], 3.0), [(3, 4), (4, 3), (5, 3), (2, 6), (1, 12)]);
@@ -642,6 +690,7 @@ mod tests {
     /// Every admitted row keeps counts, is a palindrome (mirror symmetry),
     /// and never joins two devices across the wrong region; an odd count
     /// never admits one.
+    /// Oracle: certificate (counts, palindrome) and `diffusion_legal`.
     #[test]
     fn diffusion_rows_never_join_two_devices_on_a_drain() {
         let check = |counts: &[u16], outer: Outer| {
@@ -676,6 +725,7 @@ mod tests {
 
     /// Every interdigitated row keeps its counts and puts every boundary on a
     /// source; mixed parity has none.
+    /// Oracle: certificate (counts) and `diffusion_legal`; spec examples by hand.
     #[test]
     fn an_interdig_row_never_abuts_two_drains() {
         assert_eq!(diffusion_interdig_row(&[4, 4]).map(|(s, o)| (letters(&s), o)), Some(("AABBAABB".into(), Outer::Source)));
@@ -686,7 +736,8 @@ mod tests {
         let check = |counts: &[u16]| {
             let Some((s, outer)) = diffusion_interdig_row(counts) else {
                 let odd = counts.iter().filter(|&&c| c % 2 == 1).count();
-                assert!(odd != 0 && odd != 2, "{counts:?}: no row");
+                assert!(odd != 0, "{counts:?}: no row");
+                assert!(odd != 2, "{counts:?}: no row");
                 return;
             };
             for (d, &cnt) in counts.iter().enumerate() {
@@ -704,6 +755,7 @@ mod tests {
         }
     }
 
+    /// Oracle: golden, Philis 1.0's rows for equal counts; r² against the old 8:8:8 row.
     #[test]
     fn equal_counts_reproduce_the_old_orders() {
         assert_eq!(letters(&diffusion_cc_row(&[2, 2], Outer::Drain).unwrap()), "ABBA");
@@ -719,28 +771,33 @@ mod tests {
         assert!(r2_new <= r2_old + 1e-9, "r2(new)={r2_new} should not exceed r2(old)={r2_old}");
     }
 
+    /// Oracle: spec example, worked by hand.
     #[test]
     fn two_to_four_is_a_bbbb_a() {
         assert_eq!(diffusion_cc_row(&[2, 4], Outer::Drain).unwrap(), vec![0, 1, 1, 1, 1, 0]);
     }
 
+    /// Oracle: spec example, worked by hand.
     #[test]
     fn two_to_four_source_is_bb_aa_bb() {
         assert_eq!(diffusion_cc_row(&[2, 4], Outer::Source).unwrap(), vec![1, 1, 0, 0, 1, 1]);
     }
 
+    /// Oracle: theory, a source-ended row needs an even number of boundaries.
     #[test]
     fn source_needs_even_pair_parity() {
         assert!(diffusion_cc_row(&[2, 2], Outer::Source).is_none());
         assert_eq!(letters(&diffusion_cc_row(&[4, 4], Outer::Source).unwrap()), "AABBBBAA");
     }
 
+    /// Oracle: theory, an odd count has no palindrome of shared regions.
     #[test]
     fn one_to_two_has_no_row() {
         assert!(diffusion_cc_row(&[1, 2], Outer::Drain).is_none());
         assert!(diffusion_cc_row(&[1, 2], Outer::Source).is_none());
     }
 
+    /// Oracle: spec example, the ALIGN 2:2:4:8:8 row; centring re-summed independently.
     #[test]
     fn align_example_is_exact() {
         let s = diffusion_cc_row(&[2, 2, 4, 8, 8], Outer::Drain).unwrap();
@@ -764,6 +821,7 @@ mod tests {
         m
     }
 
+    /// Oracle: `cancelled_order` (moments.rs), independent of how the rows are built.
     #[test]
     fn nth_order_rows_cancel_their_order() {
         for order in 1..=4u8 {
@@ -780,11 +838,13 @@ mod tests {
         assert!(nth_order_rows(0, &[0, 1, 1, 0]).is_empty());
     }
 
+    /// Oracle: spec example, the Nth-order paper's fig. 3b.
     #[test]
     fn order_three_is_nth_fig_3b() {
         assert_eq!(nth_order_rows(3, &[0, 1, 1, 0]), vec![vec![0, 1, 1, 0], vec![1, 0, 0, 1], vec![1, 0, 0, 1], vec![0, 1, 1, 0]]);
     }
 
+    /// Oracle: `diffusion_legal`, an independent region check.
     #[test]
     fn nth_rows_are_diffusion_legal() {
         for order in 1..=4 {
@@ -799,6 +859,7 @@ mod tests {
         assert!(!diffusion_legal(&[0, 0, 1], Outer::Drain));
     }
 
+    /// Oracle: spec example, Hastings fig. 8.19.
     #[test]
     fn segmentation_reproduces_fig_8_19() {
         let mut s = segmentation(146e3, 200e3, 15);
@@ -811,10 +872,12 @@ mod tests {
         }
     }
 
+    /// Oracle: spec example, Hastings' worked decomposition (19 and 14 segments).
     #[test]
     fn partial_segments_reproduces_the_book_decomposition() {
         let (m, n, j, k, _) = partial_segments(146e3, 200e3, 10.34e3);
         assert_eq!((m, n), (19, 14));
-        assert!((j - 0.342).abs() < 2e-3 && (k - 0.120).abs() < 2e-3, "{j} {k}");
+        assert!((j - 0.342).abs() < 2e-3, "{j} {k}");
+        assert!((k - 0.120).abs() < 2e-3, "{j} {k}");
     }
 }

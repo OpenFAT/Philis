@@ -7,6 +7,19 @@
 //! centre, electrical weight and signed S→D direction. [`UnitLib`] flattens
 //! them for every (cell, variant) so a rule can read the chosen variant's units
 //! in world coordinates from the [`Layout`] alone.
+//!
+//! In → out: per-cell unit rows and a [`Layout`] → [`PlacedUnit`]s in world
+//! coordinates. Cites: BSIM4 `SA`/`SB` (the LOD stress term); Philis 1.0
+//! `pnr_core` (Q36).
+//!
+//! Contents:
+//! - `pub struct Unit`
+//! - `pub struct UnitLib`
+//! - `pub struct PlacedUnit`
+//! - `UnitLib::build<'a>(cell_of: Vec<u16>, members: &[Vec<DeviceId>], variants: impl Iterator<Item = &'a [(Rect, &'a [Unit])]>) -> Self`
+//! - `UnitLib::is_empty(&self) -> bool`
+//! - `UnitLib::placed(&self, l: &Layout, cell: usize) -> impl Iterator<Item = PlacedUnit> + '_`
+//! - `UnitLib::of_device(&self, l: &Layout, device: DeviceId) -> impl Iterator<Item = PlacedUnit> + '_`
 
 use crate::base::geom::{Orient, Rect};
 use crate::base::ids::DeviceId;
@@ -17,8 +30,9 @@ use crate::base::layout::Layout;
 pub struct Unit {
     /// Member index within the cell's group (the `d{owner}:` pin prefix).
     pub owner: u8,
-    /// Active-area centre, nm.
+    /// Active-area centre x, nm, in the macro's local frame.
     pub x: i32,
+    /// Active-area centre y, nm, in the macro's local frame.
     pub y: i32,
     /// Electrical weight (MOS: gate area W·L, nm²). Moments weight by this,
     /// never by drawn outline.
@@ -29,6 +43,7 @@ pub struct Unit {
     /// (BSIM4's `SA + L/2`, `SB + L/2`: the LOD stress distances). `0` = not a
     /// MOS finger.
     pub sa: i32,
+    /// The other end's distance, as `sa`.
     pub sb: i32,
 }
 
@@ -54,10 +69,15 @@ pub struct UnitLib {
 /// A unit placed in the world: owner is the schematic device.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct PlacedUnit {
+    /// The schematic device this unit belongs to.
     pub owner: DeviceId,
+    /// Active-area centre x, nm, world frame.
     pub x: i32,
+    /// Active-area centre y, nm, world frame.
     pub y: i32,
+    /// [`Unit::weight`], unchanged by placement.
     pub weight: i64,
+    /// [`Unit::phi`] turned with the cell.
     pub phi: (i8, i8),
     /// LOD stress term `1/(SA+L/2) + 1/(SB+L/2)`, 1/µm; `NaN` = unknown.
     pub lod: f32,
@@ -122,6 +142,8 @@ impl UnitLib {
     }
 }
 
+// ---- private ----
+
 /// A direction turns with the cell (a point about the origin, no shift).
 fn turn_dir(o: Orient, (x, y): (i8, i8)) -> (i8, i8) {
     let (x, y) = o.apply(i32::from(x), i32::from(y));
@@ -160,6 +182,8 @@ mod tests {
         UnitLib::build(vec![0; 10], &[vec![DeviceId(7), DeviceId(9)]], std::iter::once(&alts[..]))
     }
 
+    /// Oracle: spec example, the world positions worked by hand from the
+    /// bbox, the placed centre and the Mx180 reflection.
     #[test]
     fn units_follow_the_cell_and_its_mirror() {
         let lib = lib();
@@ -172,6 +196,8 @@ mod tests {
         assert_eq!((a[0].x, a[0].phi), (10_400, (-1, 0)));
     }
 
+    /// Oracle: the documented contract (an unknown cell or variant is empty)
+    /// and the absence of a panic.
     #[test]
     fn a_missing_variant_yields_nothing_not_a_panic() {
         let lib = lib();

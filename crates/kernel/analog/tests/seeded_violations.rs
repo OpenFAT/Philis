@@ -14,6 +14,8 @@ use analog::placement::symmetry::SymmetryGroup;
 use analog::placement::{EnvGeo, LiveEnvironment, MatchedSet, OrientCheck, OrientationSet, SymMode, Symmetry};
 use analog::RuleBatch;
 
+// ---- private ----
+
 /// Cells at `xs` (y 0), each `2·half` square, drawing `cells[c]`'s units for
 /// devices `members[c]`.
 fn layout(xs: &[i32], half: i32, members: &[Vec<DeviceId>], cells: &[Vec<Unit>]) -> Layout {
@@ -55,6 +57,7 @@ fn merged(order: &[[u8; 4]]) -> Layout {
     layout(&[4_000], 4_000, &[vec![DeviceId(0), DeviceId(1)]], &[units.collect()])
 }
 
+/// Oracle: the construction, ABBA is common-centroid and AABB is 400 tolerances off.
 #[test]
 fn matched_set_coincidence() {
     let set = MatchedSet::for_family(
@@ -76,6 +79,7 @@ fn matched_set_coincidence() {
     assert_eq!(set.violations(&merged(&[[0, 0, 1, 1]])), 1);
 }
 
+/// Oracle: the construction, ±2000 mirrors about 0 and 2040 does not.
 #[test]
 fn symmetry_mirror_about_the_axis() {
     let rules =
@@ -87,6 +91,7 @@ fn symmetry_mirror_about_the_axis() {
     assert_eq!(rules.violations(&layout(&[-2_000, 2_040], 500, &members, &empty())), 1);
 }
 
+/// Oracle: the construction, ABBA cancels order 1 and AABB none.
 #[test]
 fn centroid_group_moments_through_order_two() {
     let pts = |l: &Layout, d: u16| l.units.of_device(l, DeviceId(d)).map(Pt::from).collect::<Vec<_>>();
@@ -97,6 +102,7 @@ fn centroid_group_moments_through_order_two() {
     assert_eq!(order(&merged(&[[0, 0, 1, 1]])), 0);
 }
 
+/// Oracle: the construction, a well 1 µm from one member only.
 #[test]
 fn environment_equal_wpe() {
     // Devices 0 and 1 alone in 1 µm cells at x = 500 and 3500; cell 2 a
@@ -128,6 +134,7 @@ fn environment_equal_wpe() {
     assert_eq!(env.violations(&at(5_500)), 1, "a well 1 µm from one member only");
 }
 
+/// Oracle: the construction, a partner turned or reflected by hand.
 #[test]
 fn orientation_set_axis_and_phi() {
     let pair = |phi1: (i8, i8)| {

@@ -1,5 +1,16 @@
 //! Performance-driven placement term (PLC-16): a routing performance row's
 //! ground-C estimate, priced on placement before any wire exists.
+//!
+//! In → out: a [`PerformanceBudget`] row and a [`Layout`] → per-net
+//! rectilinear MST length and the headroom it spends. Cites: Lampaert §4.4
+//! (LAMP-34, the routing reserve); PLC-16.
+//!
+//! Contents:
+//! - `pub const RESERVE: f32`
+//! - `pub type PinBox`
+//! - `pub struct PlacePerf`
+//! - `PlacePerf::new(row: &PerformanceBudget, variants: &[&[Macro]], reserve: f32) -> Self`
+//! - `PlacePerf::mst_len(&self, n: usize, l: &Layout) -> i64`
 
 use crate::base::layout::Layout;
 use crate::base::{Macro, NetId};
@@ -12,20 +23,29 @@ use crate::rule::RuleBatch;
 /// §4.4 reserves a margin of the performance budget for routing (LAMP-34).
 pub const RESERVE: f32 = 0.2;
 
+/// A cell's pin box on one net: `(dx, dy, hx, hy)`, centre offset from the
+/// bbox centre and half extents, nm, at R0.
+pub type PinBox = (i32, i32, i32, i32);
+
 /// A [`PerformanceBudget`]'s ground-C term, with each net's wire length
 /// estimated as the rectilinear MST over its cells' pin boxes (edge to edge).
 /// R, differential and coupling terms are RTE-21's and are ignored here.
 #[derive(Clone)]
 pub struct PlacePerf {
+    /// The routing row's metric name, for the report.
     pub metric: String,
+    /// Nets touching ≥ 2 cells, parallel to `weights` and `items`.
     pub nets: Vec<NetId>,
+    /// The routing row's per-net weight.
     pub weights: Vec<f32>,
+    /// Ground capacitance per nm of wire, aF; converts MST length into the row's unit.
     pub af_per_nm: f32,
     /// The routing row's `limit` (1 = headroom, 0 = do-not-worsen).
     pub limit: f32,
+    /// Share of the headroom left to the router, in `[0, 1)`.
     pub reserve: f32,
     /// Per net: `(cell, per-variant pin box (dx, dy, hx, hy) about the bbox centre, R0)`.
-    pub items: Vec<Vec<(u16, Vec<(i32, i32, i32, i32)>)>>,
+    pub items: Vec<Vec<(u16, Vec<PinBox>)>>,
 }
 
 impl PlacePerf {
@@ -64,7 +84,7 @@ impl PlacePerf {
     }
 
     /// Placed pin-box centre and half extents of cell `c`.
-    fn item(l: &Layout, c: u16, boxes: &[(i32, i32, i32, i32)]) -> (i64, i64, i64, i64) {
+    fn item(l: &Layout, c: u16, boxes: &[PinBox]) -> (i64, i64, i64, i64) {
         let c = usize::from(c);
         let (bx, by, hx, hy) = boxes.get(usize::from(l.variant[c])).or(boxes.first()).copied().unwrap_or_default();
         let o = l.orient[c];
@@ -75,6 +95,9 @@ impl PlacePerf {
 
     /// Rectilinear MST length of net `n`, nm, edge to edge between pin boxes.
     /// ponytail: dense Prim, O(k²); k ≤ ~10 cells per sensitive net.
+    ///
+    /// # Panics
+    /// When `n` is not a net index of `items`, or a cell of it is not in `l`.
     #[must_use]
     pub fn mst_len(&self, n: usize, l: &Layout) -> i64 {
         let pts: Vec<_> = self.items[n].iter().map(|(c, b)| Self::item(l, *c, b)).collect();
@@ -174,12 +197,14 @@ mod tests {
         }
     }
 
+    /// Oracle: theory, a two-point MST is their Manhattan distance.
     #[test]
     fn mst_equals_hpwl_for_two_points() {
         let p = perf(&[(0, 0, 0, 0); 2], 1.0);
         assert_eq!(p.mst_len(0, &cells(&[(0, 0), (3_000, 4_000)])), 7_000);
     }
 
+    /// Oracle: spec example, edge-to-edge distance by hand.
     #[test]
     fn abutting_pins_have_zero_mst() {
         let p = perf(&[(0, 0, 500, 500); 2], 1.0);
@@ -188,6 +213,7 @@ mod tests {
         assert_eq!(p.mst_len(0, &cells(&[(0, 0), (1_001, 0)])), 1);
     }
 
+    /// Oracle: spec example, the R0 and R90 distances worked by hand.
     #[test]
     fn rotated_pin_box_follows_orient() {
         let p = perf(&[(400, 0, 100, 50), (0, 0, 0, 0)], 1.0);
@@ -200,6 +226,7 @@ mod tests {
         assert_eq!(p.mst_len(0, &l), 500);
     }
 
+    /// Oracle: spec example, used/(1 − reserve) − limit by hand.
     #[test]
     fn residual_charges_only_past_the_reserve() {
         let p = perf(&[(0, 0, 0, 0); 2], 1.0);

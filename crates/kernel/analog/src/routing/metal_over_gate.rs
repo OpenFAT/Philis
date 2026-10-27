@@ -1,4 +1,11 @@
 //! Metal over a matched gate (routing tier, hard).
+//! In → out: [`Routes`] → the routed-metal area over one matched gate rect.
+//! Cites: Hastings §13.3 rule 17, §13.3.2.
+//!
+//! Contents:
+//! - `pub const MAX_METALS: usize`
+//! - `pub struct MetalOverGate`
+//! - `MetalOverGate::overlap_um2(self, r: &Routes) -> f32`
 
 use crate::base::geom::Rect;
 use crate::base::routes::Routes;
@@ -15,7 +22,9 @@ pub const MAX_METALS: usize = 8;
 /// Built per routed layout (the rect is placed geometry); `dr` evaluates it.
 #[derive(Clone, Copy, Debug)]
 pub struct MetalOverGate {
+    /// The gate's active area, absolute nm.
     pub rect: Rect,
+    /// The placed cell drawing the gate (for repair ids).
     pub cell: u32,
     /// The routed metals' `LayerId`s, `u16::MAX`-padded: a cut or the pin-access
     /// conductor over the gate is not a lead.
@@ -66,6 +75,7 @@ mod tests {
     use super::*;
     use crate::base::geom::{LayerId, Shape};
 
+    /// Oracle: spec example, 500 × 500 nm = 0.25 µm² by hand; a cut layer is no lead.
     #[test]
     fn overlap_is_area_in_um2() {
         let mut metals = [u16::MAX; MAX_METALS];

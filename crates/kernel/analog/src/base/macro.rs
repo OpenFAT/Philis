@@ -1,5 +1,25 @@
 //! [`Macro`] and the one placement stamp that turns local drawings into placed
 //! shapes.
+//!
+//! In → out: a [`Macro`] in its local frame and a [`Layout`] row → the placed
+//! [`Macro`]; a macro's units and pins → each pin's share of its terminal
+//! current. Cites: CELL-19 (per-variant figures); BSIM4 AS/AD, PS/PD.
+//!
+//! Contents:
+//! - `pub struct Macro`
+//! - `pub struct NamedCell`
+//! - `pub struct Drawn`
+//! - `pub enum DrawnKind`
+//! - `pub enum Node`
+//! - `pub struct Keepout`
+//! - `pub enum KeepWhy`
+//! - `pub struct Figures`
+//! - `pub struct Dummy`
+//! - `Macro::align_bbox(&mut self, lattice: i32)`
+//! - `pub fn place_macro(m: &Macro, l: &Layout, i: usize) -> Macro`
+//! - `pub fn place_rect(bbox: Rect, r: Rect, l: &Layout, i: usize) -> Rect`
+//! - `pub fn place_macros(macros: &[Macro], l: &Layout) -> Vec<Macro>`
+//! - `pub fn pin_shares(m: &Macro) -> Vec<f32>`
 
 use crate::base::geom::{Pin, Rect, Shape};
 use crate::base::layout::Layout;
@@ -8,6 +28,7 @@ use crate::base::layout::Layout;
 /// injects; downstream cannot tell them apart.
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct Macro {
+    /// Drawn geometry, local frame until [`place_macro`] stamps it.
     pub shapes: Vec<Shape>,
     /// Routing entry points.
     pub pins: Vec<Pin>,
@@ -37,30 +58,20 @@ pub struct Macro {
 /// named cell, and every range naming one cell is the same cell.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct NamedCell {
+    /// The foundry cell name a deck's `in_cells` selects on.
     pub name: String,
+    /// Index range into [`Macro::shapes`].
     pub shapes: std::ops::Range<u32>,
-}
-
-impl Macro {
-    /// Grow `bbox` so its lower-left corner is on `lattice` and both extents are
-    /// multiples of `2·lattice`: then `hw`, `hh` and every placed corner are
-    /// lattice multiples (`place_macro` stamps the corner at `x − hw`). Shapes and
-    /// pins are unchanged; idempotent.
-    pub fn align_bbox(&mut self, lattice: i32) {
-        let l = lattice.max(1);
-        let (x0, y0) = (self.bbox.x.div_euclid(l) * l, self.bbox.y.div_euclid(l) * l);
-        let (x1, y1) = (self.bbox.x + self.bbox.w, self.bbox.y + self.bbox.h);
-        let up = |d: i32| (d + 2 * l - 1).div_euclid(2 * l) * 2 * l;
-        self.bbox = Rect { x: x0, y: y0, w: up(x1 - x0), h: up(y1 - y0) };
-    }
 }
 
 /// One extracted device member `owner` drew, as LVS will see it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Drawn {
+    /// Member index within the macro's group (the `d{owner}:` pin prefix).
     pub owner: u8,
     /// Filled by the caller when it binds pins (`cellgen::bind_pins`).
     pub device: Option<crate::base::ids::DeviceId>,
+    /// The LVS device class it extracts as.
     pub kind: DrawnKind,
     /// Terminal nodes in the LVS reference's pin order: R/C/D `[P, N]`; BJT
     /// `cellgen::BJT_PINS`, `[C, B, E]` (the order `cellgen::reference` uses, one const so
@@ -69,9 +80,12 @@ pub struct Drawn {
     /// Drawn body, nm: resistor segment W×L, MIM plate W×L, diode junction
     /// W×L, emitter W×L.
     pub w: i32,
+    /// Drawn body length, nm, as `w`.
     pub l: i32,
 }
 
+/// The device class a [`Drawn`] extracts as; BJTs split by polarity because
+/// their LVS device classes differ.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DrawnKind {
     Resistor,
@@ -84,23 +98,41 @@ pub enum DrawnKind {
 /// A member pin by terminal name, or a node internal to the macro.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Node {
+    /// The slot is not a terminal of this device kind (R/C/D use two of three).
     Unused,
+    /// The member's terminal of this name (`"P"`, `"N"`, `"C"`, …).
     Pin(&'static str),
+    /// A node inside the macro (between series segments), numbered per macro.
     Internal(u16),
 }
 
 /// A region foreign metal must respect, and why.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Keepout {
+    /// The region, local frame until stamped.
     pub rect: Rect,
+    /// What lies under it; the routing policy keys off this.
     pub why: KeepWhy,
 }
 
+/// What a [`Keepout`] protects, and which member owns it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum KeepWhy {
-    Gate { owner: u8 },
-    ResistorBody { owner: u8 },
-    CapPlate { owner: u8 },
+    /// A MOS gate: metal over it shifts the threshold (metal-over-gate rule).
+    Gate {
+        /// Member index, as [`Drawn::owner`].
+        owner: u8,
+    },
+    /// A resistor body: metal over it couples into the resistor.
+    ResistorBody {
+        /// Member index, as [`Drawn::owner`].
+        owner: u8,
+    },
+    /// A capacitor plate: metal over it adds fringe capacitance.
+    CapPlate {
+        /// Member index, as [`Drawn::owner`].
+        owner: u8,
+    },
 }
 
 /// Per-variant figures (CELL-19); empty for generators that draw none.
@@ -121,12 +153,30 @@ pub struct Figures {
 /// per dummy with those nets.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Dummy {
+    /// Member index whose diffusion it sits on.
     pub owner: u8,
+    /// PMOS dummy (on an n-well member); `false` is NMOS.
     pub pmos: bool,
+    /// The member terminal on its near side: `"S"` or `"D"`.
     pub edge: &'static str,
-    /// Channel width and length, nm.
+    /// Channel width, nm.
     pub w: i32,
+    /// Channel length, nm.
     pub l: i32,
+}
+
+impl Macro {
+    /// Grow `bbox` so its lower-left corner is on `lattice` and both extents are
+    /// multiples of `2·lattice`: then `hw`, `hh` and every placed corner are
+    /// lattice multiples (`place_macro` stamps the corner at `x − hw`). Shapes and
+    /// pins are unchanged; idempotent.
+    pub fn align_bbox(&mut self, lattice: i32) {
+        let l = lattice.max(1);
+        let (x0, y0) = (self.bbox.x.div_euclid(l) * l, self.bbox.y.div_euclid(l) * l);
+        let (x1, y1) = (self.bbox.x + self.bbox.w, self.bbox.y + self.bbox.h);
+        let up = |d: i32| (d + 2 * l - 1).div_euclid(2 * l) * 2 * l;
+        self.bbox = Rect { x: x0, y: y0, w: up(x1 - x0), h: up(y1 - y0) };
+    }
 }
 
 /// Stamp macro `m` at device `i`'s placed position: turn by `l.orient[i]`, then
@@ -237,6 +287,7 @@ mod tests {
         }
     }
 
+    /// Oracle: spec example, finger adjacency counted by hand.
     /// Four fingers S D S D S, alternating S→D: each D region feeds two
     /// fingers, the end S regions one each and the middle S two.
     #[test]
@@ -250,12 +301,14 @@ mod tests {
         assert_eq!([s[0], s[2], s[4]], [0.25, 0.5, 0.25], "S");
     }
 
+    /// Oracle: the documented bound `min(1, 2/n)` with no unit data.
     #[test]
     fn pin_shares_without_units_bound_by_two_over_n() {
         let m = cell(&[("d0:S", 0), ("d0:S", 4_000), ("d0:S", 8_000)], &[]);
         assert_eq!(pin_shares(&m), vec![2.0 / 3.0; 3]);
     }
 
+    /// Oracle: spec example, the R0 position worked by hand; R90 swaps the extents.
     #[test]
     fn place_macro_moves_keepouts_and_keeps_drawn() {
         let drawn = vec![Drawn {
@@ -296,6 +349,8 @@ mod tests {
 
     /// `place_rect` is the stamp `place_macro` applies under every orient,
     /// and that stamp centres the turned bbox on `(x, y)` with the shape inside.
+    /// Oracle: geometric property (centred bbox, shape inside it); the equality
+    /// half shares `place_rect` with the code and pins only that it is the one stamp.
     #[test]
     fn place_rect_is_place_macros_stamp() {
         use Orient::{Mx, Mx180, Mx270, Mx90, R0, R180, R270, R90};
@@ -324,10 +379,14 @@ mod tests {
             let r = place_rect(m.bbox, m.shapes[0].rect, &l, 0);
             assert_eq!(p.shapes[0].rect, r, "{o:?}");
             assert_eq!((p.bbox.x + p.bbox.w / 2, p.bbox.y + p.bbox.h / 2), (5000, 700), "{o:?}");
-            assert!(r.x >= p.bbox.x && r.y >= p.bbox.y && r.x + r.w <= p.bbox.x + p.bbox.w && r.y + r.h <= p.bbox.y + p.bbox.h, "{o:?}");
+            assert!(r.x >= p.bbox.x, "{o:?}");
+            assert!(r.y >= p.bbox.y, "{o:?}");
+            assert!(r.x + r.w <= p.bbox.x + p.bbox.w, "{o:?}");
+            assert!(r.y + r.h <= p.bbox.y + p.bbox.h, "{o:?}");
         }
     }
 
+    /// Oracle: spec example, lattice rounding worked by hand.
     #[test]
     fn align_bbox_puts_corner_on_lattice_and_even_extents() {
         let mut m = Macro { bbox: Rect { x: 5, y: 3, w: 95, h: 41 }, ..Default::default() };
@@ -339,6 +398,7 @@ mod tests {
         assert_eq!(m.bbox, Rect { x: 10, y: 20, w: 40, h: 40 });
     }
 
+    /// Oracle: metamorphic, aligning twice equals aligning once.
     #[test]
     fn align_bbox_is_idempotent() {
         let mut m = Macro { bbox: Rect { x: 5, y: 3, w: 95, h: 41 }, ..Default::default() };

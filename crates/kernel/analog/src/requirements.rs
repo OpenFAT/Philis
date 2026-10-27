@@ -1,4 +1,9 @@
 //! The applied rule-set an algorithm consumes.
+//! In → out: none; the annotator assembles [`Requirements`], the placer and
+//! router read it. Cites: the `lex-min(V, Θ, PEX)` tiers of `base::report`.
+//!
+//! Contents:
+//! - `pub struct Requirements<On>`
 
 use crate::rule::RuleBatch;
 
@@ -19,8 +24,11 @@ use crate::rule::RuleBatch;
 /// same kind)` and reordering silently moves prices. In-loop DRC batches are
 /// appended to `hard` and truncated off, keeping the prefix.
 pub struct Requirements<On> {
+    /// Tier V: legality and exact equalities.
     pub hard: Vec<Box<dyn RuleBatch<On>>>,
+    /// Tier Θ: priced budgets.
     pub budget: Vec<Box<dyn RuleBatch<On>>>,
+    /// Tier PEX: the objective's cost terms.
     pub cost: Vec<Box<dyn RuleBatch<On>>>,
 }
 

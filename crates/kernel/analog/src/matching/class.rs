@@ -1,6 +1,22 @@
 //! The matching class's one home (GAP-01): the device family a matched set
 //! belongs to, the environment each class asks of the layout (read from the
 //! sidecar's `[MIN, MOD, EXC]` tier arrays) and Hastings' class limit table.
+//!
+//! In → out: a [`MatchClass`] (and device family, match kind) → the
+//! environment and the 6σ limit it asks for. Cites: Hastings §8, §9, §13.2.2,
+//! §13.3 rules 12, 19, 21, 22 (line refs beside each table).
+//!
+//! Contents:
+//! - `pub enum Family`
+//! - `pub enum GateStrap`
+//! - `pub struct MosEnv`
+//! - `pub struct PassiveEnv`
+//! - `pub enum ClassLimit`
+//! - `Family::of(k: DeviceKind) -> Option<Family>`
+//! - `pub fn mos_env(c: MatchClass) -> MosEnv`
+//! - `pub fn resistor_env(c: MatchClass) -> PassiveEnv`
+//! - `pub fn phi_arm(c: MatchClass) -> Option<bool>`
+//! - `pub fn limit(f: Family, k: MatchKind, c: MatchClass) -> Option<ClassLimit>`
 
 pub use crate::base::MatchClass;
 pub use crate::matching::mismatch::MatchKind;
@@ -17,29 +33,17 @@ pub enum Family {
     Capacitor,
 }
 
-impl Family {
-    /// `None` for an inductor: no class table, never matched.
-    #[must_use]
-    pub fn of(k: DeviceKind) -> Option<Family> {
-        match k {
-            DeviceKind::Nmos | DeviceKind::Pmos => Some(Family::Mos),
-            DeviceKind::Npn | DeviceKind::Pnp => Some(Family::Bipolar),
-            DeviceKind::Diode => Some(Family::Diode),
-            DeviceKind::Resistor => Some(Family::Resistor),
-            DeviceKind::Capacitor => Some(Family::Capacitor),
-            DeviceKind::Inductor => None,
-        }
-    }
-}
-
 /// How matched gates are strapped: MIN a poly bar, MOD a poly bar ≥ 1 µm
 /// from the gates (CELL-11 step 4), EXC each gate contacted in metal with
 /// no shared poly (Hastings §13.3 rule 22, hastings.txt L42638–42647).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum GateStrap {
+    /// MIN: a shared poly bar.
     #[default]
     PolyBar,
+    /// MOD: a shared poly bar ≥ 1 µm from the gates.
     PolyBarFar,
+    /// EXC: each gate contacted in metal, no shared poly.
     MetalIsolated,
 }
 
@@ -54,7 +58,32 @@ pub struct MosEnv {
     pub wpe_nm: i32,
     /// Gate poly extension beyond the deck rule (rule 21).
     pub gate_ext_extra_nm: i32,
+    /// How the gates are strapped (rule 22).
     pub gate_strap: GateStrap,
+}
+
+/// What a matched resistor array of one class asks (Hastings §8, H08-13,
+/// H08-41).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PassiveEnv {
+    /// Dummies per array end: one on every class; EXC also spans
+    /// `dummy_span_nm`, so its count is `ceil(span / pitch)` (the caller's).
+    pub min_dummies: u8,
+    /// Span the end dummies must cover, nm; `0` = no span floor.
+    pub dummy_span_nm: i32,
+    /// Segment width floor, ‰ of the deck's minimum width.
+    pub width_floor_permille: i32,
+    /// Segment length floor, multiples of the deck's minimum length.
+    pub length_floor_x: i32,
+}
+
+/// A class limit: an offset in mV or a mismatch in %, both 6σ.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ClassLimit {
+    /// 6σ input-referred offset, mV.
+    Mv(f32),
+    /// 6σ mismatch, % of the nominal value.
+    Pct(f32),
 }
 
 /// Hastings' MOS tiers, `[MIN, MOD, EXC]`, nm; class policy, the same on
@@ -79,6 +108,21 @@ const RES_DUMMY_SPAN_NM: [i32; 3] = [0, 0, 10000];
 const RES_WIDTH_FLOOR_PERMILLE: [i32; 3] = [1500, 2000, 4000];
 const RES_LENGTH_FLOOR_X: [i32; 3] = [3, 5, 10];
 
+impl Family {
+    /// `None` for an inductor: no class table, never matched.
+    #[must_use]
+    pub fn of(k: DeviceKind) -> Option<Family> {
+        match k {
+            DeviceKind::Nmos | DeviceKind::Pmos => Some(Family::Mos),
+            DeviceKind::Npn | DeviceKind::Pnp => Some(Family::Bipolar),
+            DeviceKind::Diode => Some(Family::Diode),
+            DeviceKind::Resistor => Some(Family::Resistor),
+            DeviceKind::Capacitor => Some(Family::Capacitor),
+            DeviceKind::Inductor => None,
+        }
+    }
+}
+
 /// `c`'s MOS environment.
 #[must_use]
 pub fn mos_env(c: MatchClass) -> MosEnv {
@@ -94,20 +138,6 @@ pub fn mos_env(c: MatchClass) -> MosEnv {
             MatchClass::Exceptional => GateStrap::MetalIsolated,
         },
     }
-}
-
-/// What a matched resistor array of one class asks (Hastings §8, H08-13,
-/// H08-41).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct PassiveEnv {
-    /// Dummies per array end: one on every class; EXC also spans
-    /// `dummy_span_nm`, so its count is `ceil(span / pitch)` (the caller's).
-    pub min_dummies: u8,
-    pub dummy_span_nm: i32,
-    /// Segment width floor, ‰ of the deck's minimum width.
-    pub width_floor_permille: i32,
-    /// Segment length floor, multiples of the deck's minimum length.
-    pub length_floor_x: i32,
 }
 
 /// `c`'s resistor environment.
@@ -134,13 +164,6 @@ pub fn phi_arm(c: MatchClass) -> Option<bool> {
     }
 }
 
-/// A class limit: an offset in mV or a mismatch in %, both 6σ.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ClassLimit {
-    Mv(f32),
-    Pct(f32),
-}
-
 /// Hastings' class limit for `(f, k)` at `c` (C2): MOS §13.3 (hastings.txt
 /// L42327–42350), bipolar §9 (L31244–31275), R/C ratio §8 (L25121–25133,
 /// the tight end of each range). `None` where the book gives none (a diode
@@ -165,6 +188,7 @@ mod tests {
     use ClassLimit::{Mv, Pct};
     use MatchClass::{Exceptional as Exc, Minimal as Min, Moderate as Mod};
 
+    /// Oracle: spec example, Hastings §8 and §13.3's tier numbers.
     #[test]
     fn tiers_are_hastings() {
         assert_eq!(
@@ -175,6 +199,7 @@ mod tests {
         assert_eq!(mos_env(Min).dummy_reach_nm, 0);
     }
 
+    /// Oracle: spec example, Hastings §8, §9 and §13.3's class limits.
     #[test]
     fn limits_match_hastings() {
         let cases = [
@@ -196,6 +221,7 @@ mod tests {
         }
     }
 
+    /// Oracle: spec example, Hastings §13.3 (orientation at the millivolt level).
     #[test]
     fn phi_arm_follows_hastings() {
         assert_eq!(phi_arm(Exc), Some(true));
@@ -203,6 +229,7 @@ mod tests {
         assert_eq!(phi_arm(Min), None);
     }
 
+    /// Oracle: spec example, the device-family partition.
     #[test]
     fn family_of_kind() {
         assert_eq!(Family::of(DeviceKind::Nmos), Some(Family::Mos));

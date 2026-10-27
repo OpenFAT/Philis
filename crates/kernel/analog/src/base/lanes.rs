@@ -9,10 +9,49 @@
 //!
 //! Lane bodies passed to [`fold_i32`] must be `#[inline(always)]` closures, or
 //! they compile outside the `target_feature` region and every op becomes a call.
+//!
+//! In → out: `i32` box columns → overlap area, min/max, changed rows. Cites:
+//! `fearless_simd` 1.1 (`dispatch!`, `Level`); the `rust` skill's `simd-first.md`.
+//!
+//! Contents:
+//! - `pub struct Boxes<'a>`
+//! - `pub struct Box4`
+//! - `pub fn level() -> Level`
+//! - `pub fn fold_i32<S: Simd, const K: usize, A>(simd: S, cols: [&[i32]; K], mut acc: A, mut body: impl FnMut(A, usize, [S::i32s; K], S::mask32s) -> A) -> A`
+//! - `pub fn overlap_area(boxes: Boxes, q: Box4, clearance: i32) -> i64`
+//! - `pub fn min_max(xs: &[i32]) -> Option<(i32, i32)>`
+//! - `pub fn changed(now: Boxes, was: Boxes, out: &mut Vec<u32>)`
 
 use std::sync::OnceLock;
 
 pub use fearless_simd::{dispatch, prelude::*, Level};
+
+/// Borrowed box columns: centre `(x, y)`, half-extents `(hw, hh)`, nm. The
+/// shape [`crate::base::Layout`] already stores, so borrowing it is free.
+#[derive(Clone, Copy)]
+pub struct Boxes<'a> {
+    /// Centre x, nm.
+    pub x: &'a [i32],
+    /// Centre y, nm.
+    pub y: &'a [i32],
+    /// Half-width, nm, ≥ 0.
+    pub hw: &'a [i32],
+    /// Half-height, nm, ≥ 0.
+    pub hh: &'a [i32],
+}
+
+/// One box, same convention as [`Boxes`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Box4 {
+    /// Centre x, nm.
+    pub x: i32,
+    /// Centre y, nm.
+    pub y: i32,
+    /// Half-width, nm, ≥ 0.
+    pub hw: i32,
+    /// Half-height, nm, ≥ 0.
+    pub hh: i32,
+}
 
 /// Widest native `i32` vector across supported levels (AVX-512: 16 lanes).
 const MAX_LANES: usize = 16;
@@ -62,25 +101,6 @@ pub fn fold_i32<S: Simd, const K: usize, A>(
     acc
 }
 
-/// Borrowed box columns: centre `(x, y)`, half-extents `(hw, hh)`, nm. The
-/// shape [`crate::base::Layout`] already stores, so borrowing it is free.
-#[derive(Clone, Copy)]
-pub struct Boxes<'a> {
-    pub x: &'a [i32],
-    pub y: &'a [i32],
-    pub hw: &'a [i32],
-    pub hh: &'a [i32],
-}
-
-/// One box, same convention as [`Boxes`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Box4 {
-    pub x: i32,
-    pub y: i32,
-    pub hw: i32,
-    pub hh: i32,
-}
-
 /// `Σ_b ox·oy` over every box `b` whose clearance-inflated overlap with `q` is
 /// positive on both axes, nm². Exact (i64 products). Includes `q` itself if it
 /// is one of `boxes`; the caller subtracts that term.
@@ -88,6 +108,26 @@ pub struct Box4 {
 pub fn overlap_area(boxes: Boxes, q: Box4, clearance: i32) -> i64 {
     dispatch!(level(), simd => overlap_area_simd(simd, boxes, q, clearance))
 }
+
+/// `(min, max)` of `xs`; `None` when empty.
+#[must_use]
+pub fn min_max(xs: &[i32]) -> Option<(i32, i32)> {
+    if xs.is_empty() {
+        return None;
+    }
+    Some(dispatch!(level(), simd => min_max_simd(simd, xs)))
+}
+
+/// Append to `out` every row where `now` and `was` differ in any column,
+/// ascending.
+///
+/// # Panics
+/// If the columns differ in length.
+pub fn changed(now: Boxes, was: Boxes, out: &mut Vec<u32>) {
+    dispatch!(level(), simd => changed_simd(simd, now, was, out));
+}
+
+// ---- private ----
 
 #[inline(always)]
 fn overlap_area_simd<S: Simd>(simd: S, b: Boxes, q: Box4, clearance: i32) -> i64 {
@@ -113,15 +153,6 @@ fn overlap_area_simd<S: Simd>(simd: S, b: Boxes, q: Box4, clearance: i32) -> i64
     acc.reduce_sum()
 }
 
-/// `(min, max)` of `xs`; `None` when empty.
-#[must_use]
-pub fn min_max(xs: &[i32]) -> Option<(i32, i32)> {
-    if xs.is_empty() {
-        return None;
-    }
-    Some(dispatch!(level(), simd => min_max_simd(simd, xs)))
-}
-
 #[inline(always)]
 fn min_max_simd<S: Simd>(simd: S, xs: &[i32]) -> (i32, i32) {
     let (lo, hi) = fold_i32(
@@ -132,15 +163,6 @@ fn min_max_simd<S: Simd>(simd: S, xs: &[i32]) -> (i32, i32) {
         |(lo, hi), _, [v], valid| (lo.min(valid.select(v, lo)), hi.max(valid.select(v, hi))),
     );
     (lo.reduce_min(), hi.reduce_max())
-}
-
-/// Append to `out` every row where `now` and `was` differ in any column,
-/// ascending.
-///
-/// # Panics
-/// If the columns differ in length.
-pub fn changed(now: Boxes, was: Boxes, out: &mut Vec<u32>) {
-    dispatch!(level(), simd => changed_simd(simd, now, was, out));
 }
 
 #[inline(always)]
@@ -191,6 +213,7 @@ mod tests {
             .sum()
     }
 
+    /// Oracle: reference implementation, the scalar loops beside each kernel.
     /// Lengths 0..=3·16 cover the empty case and every tail width on every level.
     #[test]
     fn kernels_match_their_scalar_oracles_at_every_tail_length() {
@@ -218,6 +241,7 @@ mod tests {
 
     /// A 1e6-nm square overlapping itself is 4e12 nm²: past i32, and past f32's
     /// exact range. The kernel must stay exact.
+    /// Oracle: spec example, (2·10⁶)² worked by hand.
     #[test]
     fn overlap_products_do_not_overflow() {
         let v = [1_000_000];

@@ -1,6 +1,18 @@
 //! Matched sets (placement tier): one mismatch ledger and one allowance per
 //! pair, replacing the separate Pelgrom distance, thermal and centroid rules
 //! that each spent the same budget on their own (plan-02 MAT-04).
+//!
+//! In → out: a [`MatchedSet`] on a [`Layout`] → one [`Ledger`] per pair `(0, i)`
+//! and the rule terms (cost, Θ residual, unknowns, report rows) built from it.
+//! Cites: MAT-03, MAT-04, MAT-10, MAT-14, MAT-21, EXT-17, EXT-20, PERF-27,
+//! PLC-18; the ledger's own citations are in `matching::mismatch`.
+//!
+//! Contents:
+//! - `pub struct MatchedSet`
+//! - `MatchedSet::for_family(members: Vec<DeviceId>, family: Family, kind: MatchKind, class: MatchClass, coeffs: Coeffs, budget: Budget, areas_um2: Vec<f32>, tol_nm: f32) -> MatchedSet`
+//! - `MatchedSet::ledger(&self, l: &Layout, i: usize) -> Ledger`
+//! - `MatchedSet::budget_in(&self, unit: LedgerUnit) -> Budget`
+//! - `MatchedSet::pair_areas(&self, l: &Layout, i: usize) -> (f32, f32)`
 
 use crate::base::ids::DeviceId;
 use crate::base::layout::Layout;
@@ -26,13 +38,16 @@ use crate::matching::pattern::{cc_feasible, diffusion_cc_row, Outer};
 pub struct MatchedSet {
     /// Slot 0 = reference (a mirror's diode device); pairs are `(0, i)`.
     pub members: Vec<DeviceId>,
+    /// Voltage, current or ratio matching: picks the ledger's σ formulas.
     pub kind: MatchKind,
     /// MOS members: coincidence feasibility is a diffusion-legal row.
     pub family: Family,
     /// What the set's environment and limits scale with: the intent set's
     /// class (EXT-20).
     pub class: MatchClass,
+    /// The deck's process numbers for this set's polarity.
     pub coeffs: Coeffs,
+    /// How much systematic mismatch each pair may spend.
     pub budget: Budget,
     /// Netlist gate area `W·L·m` per member, µm²; read only without units.
     pub gate_um2: Vec<f32>,
@@ -44,31 +59,6 @@ pub struct MatchedSet {
     pub gm_over_id: Option<f32>,
     /// MC 1σ of the pair, in the ledger's unit (PERF-27); replaces the area-law σ_rand.
     pub sigma_rand_override: Option<f32>,
-}
-
-/// Unit moments of one member plus its weighted LOD sum (`Σw·lod`, `Σw` over
-/// units with a finite `lod`) and, when `hot`, its weighted rise `Σw·rise(u)`
-/// (mK·weight; 0 otherwise).
-///
-/// ponytail: O(units·cells) per pair; the plan's 7-point stencil bounds it at
-/// 7·cells but is 50 % low within ~L of a heater (card m2-analog-matching-3).
-fn member(l: &Layout, d: DeviceId, hot: bool) -> (crate::matching::moments::Sums, f64, f64, f64) {
-    let (mut lw, mut w, mut t) = (0.0f64, 0.0f64, 0.0f64);
-    let s = sums(
-        l.units
-            .of_device(l, d)
-            .inspect(|u| {
-                if u.lod.is_finite() {
-                    lw += u.weight as f64 * f64::from(u.lod);
-                    w += u.weight as f64;
-                }
-                if hot {
-                    t += u.weight as f64 * f64::from(l.rise_at_point_mc(u.x, u.y));
-                }
-            })
-            .map(Pt::from),
-    );
-    (s, lw, w, t)
 }
 
 impl MatchedSet {
@@ -378,6 +368,33 @@ impl crate::rule::RuleBatch<Layout> for MatchedSet {
     }
 }
 
+// ---- private ----
+
+/// Unit moments of one member plus its weighted LOD sum (`Σw·lod`, `Σw` over
+/// units with a finite `lod`) and, when `hot`, its weighted rise `Σw·rise(u)`
+/// (mK·weight; 0 otherwise).
+///
+/// ponytail: O(units·cells) per pair; the plan's 7-point stencil bounds it at
+/// 7·cells but is 50 % low within ~L of a heater (card m2-analog-matching-3).
+fn member(l: &Layout, d: DeviceId, hot: bool) -> (crate::matching::moments::Sums, f64, f64, f64) {
+    let (mut lw, mut w, mut t) = (0.0f64, 0.0f64, 0.0f64);
+    let s = sums(
+        l.units
+            .of_device(l, d)
+            .inspect(|u| {
+                if u.lod.is_finite() {
+                    lw += u.weight as f64 * f64::from(u.lod);
+                    w += u.weight as f64;
+                }
+                if hot {
+                    t += u.weight as f64 * f64::from(l.rise_at_point_mc(u.x, u.y));
+                }
+            })
+            .map(Pt::from),
+    );
+    (s, lw, w, t)
+}
+
 /// A sky130 nfet current pair `(a, b)`: 2 × 20 µm², `Eta(0.3)`, tol 5 nm.
 #[cfg(test)]
 pub(crate) fn pair(a: u16, b: u16) -> MatchedSet {
@@ -451,6 +468,7 @@ mod tests {
         merged(&units, Rect { x: 0, y: 0, w: 800, h: 100 })
     }
 
+    /// Oracle: spec example (σ_rand 2.124 mV, the ABBA and AABB orders by hand); the row-equals-ledger half shares the code and pins only the copy.
     #[test]
     fn ledger_rows_one_per_pair() {
         let l = singles(1_000);
@@ -485,6 +503,7 @@ mod tests {
         assert_eq!(rows[0].order, 0);
     }
 
+    /// Oracle: spec example, 0.3 · 1.5 = 0.45 by hand (MAT-21).
     #[test]
     fn override_replaces_the_area_law() {
         let l = singles(1_000);
@@ -505,6 +524,7 @@ mod tests {
         assert_eq!((r.sigma_source, r.sigma_rand), ("MC", 1.5));
     }
 
+    /// Oracle: metamorphic, a halo that grows `hw` leaves the unit moments unchanged; ABBA and AABB by hand.
     #[test]
     fn merged_pair_reads_its_units_not_its_cell() {
         let s = pair(0, 1);
@@ -529,6 +549,7 @@ mod tests {
         assert_eq!(s.violations(&l), 1);
     }
 
+    /// Oracle: spec example, S_VT · 1 mm by hand.
     #[test]
     fn separate_cells_a_millimetre_apart_spend_the_distance_term() {
         let g = pair(0, 1).ledger(&singles(1_000_000), 1);
@@ -543,6 +564,7 @@ mod tests {
         assert!((g.sigma_grad - 2.0).abs() < 1e-3, "{}", g.sigma_grad);
     }
 
+    /// Oracle: spec example, the 10 µm centroid offset over the 5 nm tolerance by hand.
     #[test]
     fn splitting_a_feasible_pair_into_two_cells_is_no_escape() {
         // ABBA-feasible counts [2, 2], drawn as two 2-unit cells 10 µm apart.
@@ -556,12 +578,7 @@ mod tests {
         assert_eq!(s.violations(&l), 1);
     }
 
-    #[test]
-    fn default_pair_is_moderate_mos() {
-        let s = pair(0, 1);
-        assert_eq!((s.family, s.class), (Family::Mos, MatchClass::Moderate));
-    }
-
+    /// Oracle: spec example, MAT-03 ([1, 2] has no diffusion-legal row).
     #[test]
     fn ratioed_mos_pair_has_no_coincidence_check() {
         // [1, 2] passes `cc_feasible` but has no diffusion-legal row (MAT-03).
@@ -574,6 +591,7 @@ mod tests {
         assert!(s.ledger(&l, 1).coincidence.is_some());
     }
 
+    /// Oracle: spec example, each pair's offset by hand.
     #[test]
     fn stage_pooling_cannot_cancel() {
         // {0,1} and {2,3} offset in opposite directions: pooled sides would
@@ -584,6 +602,7 @@ mod tests {
         assert_eq!(pair(2, 3).ledger(&l, 1).delta_m_nm, d as f32);
     }
 
+    /// Oracle: the documented rule, a pair without units is unknown and pulled by cost only.
     #[test]
     fn unknown_is_not_charged() {
         let mut s = pair(0, 1);
@@ -595,6 +614,7 @@ mod tests {
         assert_eq!((s.residual(&l), s.unknown(&l)), (0.0, 1));
     }
 
+    /// Oracle: the documented rule, no A_VT and no row is unknown.
     #[test]
     fn units_without_avt_or_a_row_are_unknown() {
         // 1:1 single units admit no row; `Eta` without A_VT has no allowance.
@@ -624,6 +644,7 @@ mod tests {
         l
     }
 
+    /// Oracle: reference implementation, brute-force sampling of `rise_at_point_mc` per unit; values by hand.
     #[test]
     fn thermal_averages_the_field_over_units() {
         // Placed unit = cell origin (centre − half) + local offset: y 0, in
@@ -642,7 +663,7 @@ mod tests {
         let mu = check([2_500, 7_500], [12_500, 17_500]);
         assert!((mu - 1.630).abs() < 2e-3, "{mu}");
         let abba = check([2_500, 17_500], [7_500, 12_500]);
-        assert!(abba > 0.5 && (abba - 1.003).abs() < 2e-3, "{abba}");
+        assert!((abba - 1.003).abs() < 2e-3, "{abba}");
         // `cost` adds (μ/allowance)² over the geometric pull.
         let mut aabb = lay([2_500, 7_500], [12_500, 17_500]);
         let s = MatchedSet { budget: Budget::Allowance(1.0), ..pair(0, 1) };
@@ -669,6 +690,7 @@ mod tests {
         heated(&a, &b, 500, 10_000, 8_000, 1_000)
     }
 
+    /// Oracle: reference implementation, brute-force sampling per unit.
     #[test]
     fn thermal_matches_unit_sampling() {
         let brute = |l: &Layout| {
@@ -677,15 +699,17 @@ mod tests {
         };
         let l = near_heater([0, 0, 1, 1]);
         let (mu, b) = (pair(0, 1).ledger(&l, 1).mu_thermal, brute(&l));
-        assert!((mu - b).abs() < 1e-3 * b && (b - 0.406).abs() < 0.01, "{mu} vs {b}");
+        assert!((mu - b).abs() < 1e-3 * b, "{mu} vs {b}");
+        assert!((b - 0.406).abs() < 0.01, "{mu} vs {b}");
         let l = near_heater([0, 1, 1, 0]);
         let g = pair(0, 1).ledger(&l, 1);
         let b = brute(&l);
         assert_eq!(g.delta_m_nm, 0.0);
-        assert!((g.mu_thermal - b).abs() < 1e-3 * b && g.mu_thermal > 0.05, "{} vs {b}", g.mu_thermal);
+        assert!((g.mu_thermal - b).abs() < 1e-3 * b, "{} vs {b}", g.mu_thermal);
         assert!((b - 0.0637).abs() < 0.005, "{b}");
     }
 
+    /// Oracle: spec example, Hastings §12.1.1's −100·exp·ΔT/T over the sampled ΔT.
     #[test]
     fn mobility_adds_on_a_pct_mirror() {
         let l = near_heater([0, 0, 1, 1]);
@@ -704,6 +728,7 @@ mod tests {
         assert_eq!(mv(Some(1.7)), mv(None));
     }
 
+    /// Oracle: spec example, the weighted LOD means by hand (REV eq. 11).
     #[test]
     fn lod_is_weighted_by_unit_area() {
         let u = |owner, sa, sb, weight| Unit { owner, x: 100, y: 50, weight, phi: (1, 0), sa, sb };
@@ -714,6 +739,7 @@ mod tests {
         assert!((g.mu_lod - 1.633).abs() < 1e-3, "{}", g.mu_lod);
     }
 
+    /// Oracle: theory (ABBA/BAAB equalises second moments) and the diagonal case by hand.
     #[test]
     fn second_moment_separates_abba_from_abba_baab() {
         let mk = |rows: &[[u8; 4]]| {
@@ -738,6 +764,7 @@ mod tests {
         assert!((so - 1_000.0).abs() < 1.0, "{so}");
     }
 
+    /// Oracle: the documented contract, members stay schematic.
     #[test]
     fn retarget_keeps_schematic_members() {
         let mut s = pair(0, 1);
@@ -746,6 +773,7 @@ mod tests {
         assert_eq!(s.cell_of, vec![3, 3]);
     }
 
+    /// Oracle: spec example, 0.637 − 0.4 by hand.
     #[test]
     fn remaining_allowance_subtracts_placement_spend() {
         // Two one-unit cells 400 µm apart: S_D 1 %/mm → σ_grad 0.4 %.
@@ -775,6 +803,7 @@ mod tests {
         assert_eq!(out[0].2, 0.0);
     }
 
+    /// Oracle: none independent for the `sigma_rand` equality (it calls `sigma_current_pct` as the code does); the inequalities against 0.1·G·σ_VT are the relation that would catch a dropped A_β term.
     #[test]
     fn mirror_row_in_pct_with_abeta() {
         let l = singles(1_000);
@@ -799,6 +828,7 @@ mod tests {
         assert!(r.sigma_rand > sigma_vt, "{r:?}");
     }
 
+    /// Oracle: spec example, 1 %/mm over 1 µm by hand; the σ_rand equalities reuse `sigma_pair` and `bjt_sigma_vbe_mv`, which mismatch.rs pins.
     #[test]
     fn for_family_dispatches() {
         let l = singles(1_000);
@@ -825,6 +855,7 @@ mod tests {
 
     /// A budget of the other unit with no G is `Eta(GRADIENT_SHARE)`: a % class
     /// on an mV pair, an mV offset on an R/C ratio.
+    /// Oracle: the documented unit rule of `budget_in`.
     #[test]
     fn budget_in_never_crosses_units_without_g() {
         let mv = MatchedSet { budget: Budget::Sigma1Pct(0.5), ..pair(0, 1) };
@@ -836,6 +867,7 @@ mod tests {
         assert_eq!(MatchedSet { budget: Budget::Sigma1Pct(0.5), ..rc }.budget_in(LedgerUnit::Pct), Budget::Sigma1Pct(0.5));
     }
 
+    /// Oracle: spec example, the cell ids by hand.
     #[test]
     fn violating_ids_are_cells() {
         // Cell 0 is an unrelated device; devices 0 and 1 sit alone in cells 1

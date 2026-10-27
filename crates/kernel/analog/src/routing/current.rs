@@ -1,5 +1,13 @@
 //! DC current distribution over a routed net's drawn shapes: what the
 //! electromigration rule checks each segment and via against.
+//!
+//! In → out: a net's shapes and terminal currents → per-shape worst-case DC
+//! current and the net's largest drop. Cites: Lienig & Thiele 2018 eqs
+//! 3.5–3.7 (KCL); REL-04. Tested through `em.rs` and `ir.rs`.
+//!
+//! Contents:
+//! - `pub struct NetFlow`
+//! - `pub fn net_flow(stack: &Stack, shapes: &[Shape], terms: &[Terminal]) -> Option<NetFlow>`
 
 use super::Stack;
 use crate::base::geom::Shape;

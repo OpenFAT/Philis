@@ -1,4 +1,9 @@
 //! Deep-trench isolation banding (placement tier).
+//! In → out: a [`Layout`] and its committed branch → the distance to the
+//! committed side's gap interval. Cites: PLC-18; PLAN §4b (branch-aware cost).
+//!
+//! Contents:
+//! - `pub struct DtiBand`
 
 use crate::base::ids::{BranchId, Target};
 use crate::base::layout::Layout;
@@ -16,39 +21,19 @@ use crate::rule::Rule;
 /// from recognised structure (not current geometry), ids stable across epochs.
 #[derive(Clone, Copy)]
 pub struct DtiBand {
+    /// One device of the pair.
     pub a: Target,
+    /// The other device.
     pub b: Target,
     /// Max gap that counts as abutting, nm.
     pub s_max_nm: i32,
     /// Min gap that counts as separated, nm.
     pub d_dti_nm: i32,
+    /// Which [`Layout::branch`] slot holds this pair's committed side.
     pub branch: BranchId,
     /// Starting commitment (`true` = isolate); `dp` re-seeds `Layout::branch`
     /// from it each epoch.
     pub seed_isolate: bool,
-}
-
-impl DtiBand {
-    /// Committed side; an unsized `Layout::branch` reads as share.
-    #[inline]
-    fn isolating(self, l: &Layout) -> bool {
-        l.branch.get(self.branch.0 as usize).copied().unwrap_or(false)
-    }
-
-    /// Distance, nm, to the committed side's interval.
-    fn miss(self, l: &Layout) -> f32 {
-        let gap = l.edge_gap(self.a, self.b);
-        if self.isolating(l) {
-            (self.d_dti_nm as f32 - gap).max(0.0)
-        } else {
-            (gap - self.s_max_nm as f32).max(0.0)
-        }
-    }
-
-    /// Band width, nm, floored at 1.
-    fn band(self) -> f32 {
-        (self.d_dti_nm - self.s_max_nm).max(1) as f32
-    }
 }
 
 impl Rule for DtiBand {
@@ -89,12 +74,38 @@ impl Rule for DtiBand {
     }
 }
 
+// ---- private ----
+
+impl DtiBand {
+    /// Committed side; an unsized `Layout::branch` reads as share.
+    #[inline]
+    fn isolating(self, l: &Layout) -> bool {
+        l.branch.get(self.branch.0 as usize).copied().unwrap_or(false)
+    }
+
+    /// Distance, nm, to the committed side's interval.
+    fn miss(self, l: &Layout) -> f32 {
+        let gap = l.edge_gap(self.a, self.b);
+        if self.isolating(l) {
+            (self.d_dti_nm as f32 - gap).max(0.0)
+        } else {
+            (gap - self.s_max_nm as f32).max(0.0)
+        }
+    }
+
+    /// Band width, nm, floored at 1.
+    fn band(self) -> f32 {
+        (self.d_dti_nm - self.s_max_nm).max(1) as f32
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::base::ids::DeviceId;
 
     /// PLC-10: dp re-scores a batch only when a touched cell moves.
+    /// Oracle: spec example, the ids listed by hand.
     #[test]
     fn touched_names_both_targets() {
         use crate::rule::RuleBatch;
@@ -135,6 +146,7 @@ mod tests {
         }
     }
 
+    /// Oracle: spec example, (900/1800)² by hand, and the branch-disagreement relation.
     #[test]
     fn cost_follows_the_committed_branch_not_the_band_centre() {
         let mid = 1_100; // dead centre of the forbidden band
@@ -161,12 +173,14 @@ mod tests {
         assert!(rule().cost(&bench(3_000, false)) > 0.0, "far apart does not satisfy `share`");
     }
 
+    /// Oracle: spec example, the closed interval ends.
     #[test]
     fn a_pair_exactly_at_either_end_is_legal() {
         assert!(rule().satisfied(&bench(200, false)));
         assert!(rule().satisfied(&bench(2_000, true)));
     }
 
+    /// Oracle: the rule's definition, the disjunction of two intervals.
     #[test]
     fn satisfied_accepts_both_components_whatever_the_branch_says() {
         // The trap this rule documents: legality is the *disjunction*. A pair that has
@@ -186,6 +200,7 @@ mod tests {
         assert!((rule().residual(&bench(1_100, false)) - 0.5).abs() < 1e-3);
     }
 
+    /// Oracle: spec example, the `(id, seed)` pairs listed by hand.
     #[test]
     fn branches_collects_ids_and_seeds_and_only_from_overrides() {
         use crate::rule::RuleBatch;
@@ -211,6 +226,7 @@ mod tests {
         assert_eq!(out.len(), 2, "a branch-less kind must not invent ids");
     }
 
+    /// Oracle: the documented all-`false` start of `Layout::branch`.
     #[test]
     fn an_unassigned_branch_reads_as_share() {
         // Nothing constructs a `DtiBand` with a real `BranchId` yet (see the module note),

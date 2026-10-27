@@ -1,4 +1,9 @@
 //! Preferential proximity (placement tier).
+//! In → out: a [`Layout`] → the edge-to-edge gap of two targets against a
+//! distance cap (cost, Θ residual, usage). Cites: PLC-18 (dimensionless cost).
+//!
+//! Contents:
+//! - `pub struct Proximity`
 
 use crate::base::ids::Target;
 use crate::base::layout::Layout;
@@ -9,20 +14,12 @@ use crate::rule::Rule;
 /// Attracts only: a priced budget (Θ) and a cost pull, never a hard gate.
 #[derive(Clone, Copy)]
 pub struct Proximity {
+    /// One side; a group reads as its members' bounding box.
     pub a: Target,
+    /// The other side.
     pub b: Target,
+    /// Largest edge-to-edge gap that costs nothing, nm; > 0.
     pub max_distance_nm: i32,
-}
-
-impl Proximity {
-    /// Euclidean edge-to-edge gap, nm (`0` when touching or overlapping).
-    fn gap(self, l: &Layout) -> f32 {
-        let ((ax, ay), (aw, ah)) = (l.centre(self.a), l.extent(self.a));
-        let ((bx, by), (bw, bh)) = (l.centre(self.b), l.extent(self.b));
-        let gx = ((ax - bx).abs() - aw - bw).max(0) as f32;
-        let gy = ((ay - by).abs() - ah - bh).max(0) as f32;
-        gx.hypot(gy)
-    }
 }
 
 impl Rule for Proximity {
@@ -55,6 +52,19 @@ impl Rule for Proximity {
     }
 }
 
+// ---- private ----
+
+impl Proximity {
+    /// Euclidean edge-to-edge gap, nm (`0` when touching or overlapping).
+    fn gap(self, l: &Layout) -> f32 {
+        let ((ax, ay), (aw, ah)) = (l.centre(self.a), l.extent(self.a));
+        let ((bx, by), (bw, bh)) = (l.centre(self.b), l.extent(self.b));
+        let gx = ((ax - bx).abs() - aw - bw).max(0) as f32;
+        let gy = ((ay - by).abs() - ah - bh).max(0) as f32;
+        gx.hypot(gy)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -62,6 +72,7 @@ mod tests {
     use crate::rule::RuleBatch;
 
     /// Device ids in `(a, b)` order; a `Group` side contributes nothing.
+    /// Oracle: spec example, the ids listed by hand.
     #[test]
     fn touched_yields_device_ids_only() {
         let (d, g) = (|i| Target::Device(DeviceId(i)), Target::Group(GroupId(0)));

@@ -1,4 +1,9 @@
 //! DC IR drop along a current-carrying net (routing tier, budget).
+//! In → out: a net's [`Routes`] and the stack's sheet resistances → its DC
+//! drop against a budget. Cites: Lampaert 1999 eq. 2.33; PWR-02, REL-04.
+//!
+//! Contents:
+//! - `pub struct IrDrop`
 
 use super::Stack;
 use crate::base::ids::NetId;
@@ -20,6 +25,7 @@ use crate::rule::Rule;
 /// (as the bound); a nodal solve would replace both arms.
 #[derive(Clone, Copy)]
 pub struct IrDrop {
+    /// The current-carrying net.
     pub net: NetId,
     /// DC current the net carries, µA; negative = unknown.
     pub current_ua: i32,
@@ -27,19 +33,8 @@ pub struct IrDrop {
     pub max_drop_uv: i64,
     /// Safety margin on the budget, percent.
     pub margin_pct: u8,
+    /// Sheet and cut resistances; `None` = unknown.
     pub stack: Option<&'static Stack>,
-}
-
-impl IrDrop {
-    /// Drop along the routing, µV; `None` when unknown.
-    fn drop_uv(self, r: &Routes) -> Option<f32> {
-        let st = self.stack?;
-        let shapes = r.shapes(self.net);
-        let all = [shapes, r.cell_metal(self.net)].concat();
-        super::current::net_flow(st, &all, r.terminals(self.net))
-            .map(|f| f.drop_uv)
-            .or_else(|| (self.current_ua >= 0 && !shapes.is_empty()).then(|| self.current_ua as f32 * st.path_resistance_ohm(shapes)))
-    }
 }
 
 impl Rule for IrDrop {
@@ -73,6 +68,20 @@ impl Rule for IrDrop {
     }
 }
 
+// ---- private ----
+
+impl IrDrop {
+    /// Drop along the routing, µV; `None` when unknown.
+    fn drop_uv(self, r: &Routes) -> Option<f32> {
+        let st = self.stack?;
+        let shapes = r.shapes(self.net);
+        let all = [shapes, r.cell_metal(self.net)].concat();
+        super::current::net_flow(st, &all, r.terminals(self.net))
+            .map(|f| f.drop_uv)
+            .or_else(|| (self.current_ua >= 0 && !shapes.is_empty()).then(|| self.current_ua as f32 * st.path_resistance_ohm(shapes)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -81,6 +90,7 @@ mod tests {
     use crate::routing::stack::Layer;
 
     /// 1 mA through 20 □ of 0.125 Ω/□ (2.5 Ω) plus a 4.5 Ω cut drops 7 mV.
+    /// Oracle: spec example, Ohm's law by hand.
     #[test]
     fn drop_is_current_times_route_resistance() {
         let stack: &'static Stack = Box::leak(Box::new(Stack {
@@ -96,7 +106,8 @@ mod tests {
             ..Default::default()
         };
         let ir = |max_drop_uv| IrDrop { net: NetId(0), current_ua: 1_000, max_drop_uv, margin_pct: 20, stack: Some(stack) };
-        assert!(ir(7_000).satisfied(&r) && !ir(6_000).satisfied(&r));
+        assert!(ir(7_000).satisfied(&r));
+        assert!(!ir(6_000).satisfied(&r));
         assert!((ir(3_500).residual(&r) - 1.0).abs() < 1e-4, "twice the budget = one budget over");
         assert!(!IrDrop { stack: None, ..ir(1) }.known(&r), "no stack: unknown");
     }
@@ -107,6 +118,8 @@ mod tests {
     /// the two runs through the branch's 0-Ω overlap, 250 nm short of the
     /// centreline (4.89 mV), hence 1.5 %. The worst-path bound charges 1 mA
     /// to A→C (≈ 20 + 100 □, ≥ 13 mV).
+    /// Oracle: spec example, Ohm's law along the live path by hand (KCL: the
+    /// dead branch carries 0).
     #[test]
     fn a_dead_branch_adds_no_drop() {
         let stack: &'static Stack = Box::leak(Box::new(Stack {

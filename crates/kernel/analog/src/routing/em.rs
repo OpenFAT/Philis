@@ -1,5 +1,24 @@
 //! DC electromigration (routing tier, hard), plus the per-layer limit model
 //! the detailed router sizes segments and via arrays with.
+//!
+//! In → out: a net's [`Routes`], terminal currents and the deck's per-layer
+//! limits → each segment's and via group's shortfall; an HBM rating → the ESD
+//! cross-section floor. Cites: Lienig & Thiele 2018 eqs 3.8, 3.11, 3.21, 3.25,
+//! 4.1, §4.3.1; Hastings eqs 14.6, 15.24–15.25, Table 14.3, §5.1.3, §15.4.4;
+//! REL-03, REL-05.
+//!
+//! Contents:
+//! - `pub struct Limit`
+//! - `pub const MAX_LAYERS: usize`
+//! - `pub struct Electromigration`
+//! - `pub struct EsdWidth`
+//! - `pub fn derate(t_k: f32, t_ref_k: f32, ea_ev: f32, n: f32) -> f32`
+//! - `Limit::derated(self, f: f32) -> Self`
+//! - `Limit::width_nm(self, i_ua: f32, domain_nm: f32) -> f32`
+//! - `Limit::cuts(self, i_ua: f32) -> u32`
+//! - `Electromigration::failing(self, r: &Routes) -> Option<Vec<usize>>`
+//! - `pub fn esd_area_um2(hbm_v: f32, rho_uohm_cm: f32, cv_j_per_k_cm3: f32) -> f32`
+//! - `pub fn metal_family(key: Option<&str>) -> (f32, f32)`
 
 use super::current::net_flow;
 use super::Stack;
@@ -7,6 +26,75 @@ use crate::base::geom::{Rect, Shape};
 use crate::base::ids::NetId;
 use crate::base::routes::Routes;
 use crate::rule::Rule;
+
+/// One layer's deck EM limits, already derated to the conductor temperature.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Limit {
+    /// DC current per µm of width, µA/µm (the PDK's unit carries thickness);
+    /// `0` = unknown.
+    pub ua_per_um: f32,
+    /// DC current per cut, µA; `0` = unknown.
+    pub ua_per_cut: f32,
+    /// Blech product `(jL)_B` in (µA/µm)·µm; `0` = the deck has none.
+    pub blech: f32,
+}
+
+/// Most layers (metals and cuts) a rule carries limits for.
+pub const MAX_LAYERS: usize = 16;
+
+/// Every routed segment and via of `net` carries its DC current at its
+/// layer's limit: Lienig & Thiele 2018 eq. 3.21 (`w ≥ I/J`) per metal shape
+/// and eq. 3.25 (`n ≥ ⌈I/I_cut⌉`) per via group; "a lead must meet
+/// electromigration rules at every point along its length" (Hastings
+/// §15.4.4), so a narrow access jog fails even beside a wide trunk. Currents
+/// come from [`net_flow`] over the routed shapes, the cells' metal (a
+/// terminal joined only through its cell's strap stays reached) and the
+/// routed terminals ([`Routes::terminals`]); only the routed shapes are
+/// checked (cell straps are the cell's).
+///
+/// The Blech domain is a shape's own long side.
+/// [UNVERIFIED: this bounds the Lienig segment (§4.3.1: a segment ends only
+/// at vias or branches) only if no two same-net, same-layer shapes abut
+/// collinearly; such a pair is one longer segment. Dormant: no shipped deck
+/// supplies `blech_limit`.]
+///
+/// Unknown (not passed) without the stack, with a terminal current unknown,
+/// an open terminal, or nothing routed on a limited layer. A known **zero**
+/// current is a real pass.
+///
+/// ponytail: DC average only; RMS/peak need waveforms.
+#[derive(Clone, Copy)]
+pub struct Electromigration {
+    /// The checked net.
+    pub net: NetId,
+    /// `(layer, limit)` per metal **and cut** the deck limits (pin-access
+    /// layer and cut included); unused slots `u16::MAX`.
+    pub limits: [(u16, Limit); MAX_LAYERS],
+    /// The port graph the currents flow on; `None` = unknown.
+    pub stack: Option<&'static Stack>,
+    /// Count a via group by its front row (sidecar `em_front_row_cuts`, default
+    /// `true`): current crowds into the cuts first met along a landing metal, so
+    /// a deep array carries only the row across the flow (Hastings §5.1.3).
+    /// `have` = min over the metals touching every cut of the group of the most
+    /// cuts sharing one centre coordinate along that metal's long axis (a square
+    /// metal: the whole group); no such metal, the group size. `false` keeps
+    /// REL-03's whole-group count.
+    pub front_row: bool,
+}
+
+/// Every routed metal shape of an ESD pad net has a cross-section ≥ `area_um2`:
+/// short side ≥ area·1e6/thickness_nm. A layer of thickness 0 is unknown for it.
+/// Separate from [`Electromigration`]: the floor needs no DC current, which a
+/// pad net rarely has.
+#[derive(Clone, Copy)]
+pub struct EsdWidth {
+    /// The pad net.
+    pub net: NetId,
+    /// Cross-section floor, µm² ([`esd_area_um2`]).
+    pub area_um2: f32,
+    /// Per-layer thickness.
+    pub stack: &'static Stack,
+}
 
 /// Boltzmann's constant, eV/K.
 const K_EV: f32 = 8.617e-5;
@@ -21,18 +109,6 @@ pub fn derate(t_k: f32, t_ref_k: f32, ea_ev: f32, n: f32) -> f32 {
         return 1.0;
     }
     ((ea_ev / (n * K_EV)) * (1.0 / t_k - 1.0 / t_ref_k)).exp()
-}
-
-/// One layer's deck EM limits, already derated to the conductor temperature.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Limit {
-    /// DC current per µm of width, µA/µm (the PDK's unit carries thickness);
-    /// `0` = unknown.
-    pub ua_per_um: f32,
-    /// DC current per cut, µA; `0` = unknown.
-    pub ua_per_cut: f32,
-    /// Blech product `(jL)_B` in (µA/µm)·µm; `0` = the deck has none.
-    pub blech: f32,
 }
 
 impl Limit {
@@ -72,59 +148,6 @@ impl Limit {
         }
         ((i_ua.abs() / self.ua_per_cut).ceil() as u32).max(1)
     }
-}
-
-/// Most layers (metals and cuts) a rule carries limits for.
-pub const MAX_LAYERS: usize = 16;
-
-/// Every routed segment and via of `net` carries its DC current at its
-/// layer's limit: Lienig & Thiele 2018 eq. 3.21 (`w ≥ I/J`) per metal shape
-/// and eq. 3.25 (`n ≥ ⌈I/I_cut⌉`) per via group; "a lead must meet
-/// electromigration rules at every point along its length" (Hastings
-/// §15.4.4), so a narrow access jog fails even beside a wide trunk. Currents
-/// come from [`net_flow`] over the routed shapes, the cells' metal (a
-/// terminal joined only through its cell's strap stays reached) and the
-/// routed terminals ([`Routes::terminals`]); only the routed shapes are
-/// checked (cell straps are the cell's).
-///
-/// The Blech domain is a shape's own long side.
-/// [UNVERIFIED: this bounds the Lienig segment (§4.3.1: a segment ends only
-/// at vias or branches) only if no two same-net, same-layer shapes abut
-/// collinearly; such a pair is one longer segment. Dormant: no shipped deck
-/// supplies `blech_limit`.]
-///
-/// Unknown (not passed) without the stack, with a terminal current unknown,
-/// an open terminal, or nothing routed on a limited layer. A known **zero**
-/// current is a real pass.
-///
-/// ponytail: DC average only; RMS/peak need waveforms.
-#[derive(Clone, Copy)]
-pub struct Electromigration {
-    pub net: NetId,
-    /// `(layer, limit)` per metal **and cut** the deck limits (pin-access
-    /// layer and cut included); unused slots `u16::MAX`.
-    pub limits: [(u16, Limit); MAX_LAYERS],
-    pub stack: Option<&'static Stack>,
-    /// Count a via group by its front row (sidecar `em_front_row_cuts`, default
-    /// `true`): current crowds into the cuts first met along a landing metal, so
-    /// a deep array carries only the row across the flow (Hastings §5.1.3).
-    /// `have` = min over the metals touching every cut of the group of the most
-    /// cuts sharing one centre coordinate along that metal's long axis (a square
-    /// metal: the whole group); no such metal, the group size. `false` keeps
-    /// REL-03's whole-group count.
-    pub front_row: bool,
-}
-
-/// The most of `cuts` sharing one centre coordinate along `m`'s long axis (x
-/// when `m` is wider than tall, else y): the cuts across the current. A square
-/// `m` has no long axis: all of them.
-fn front_row(cuts: &[&Rect], m: &Rect) -> u32 {
-    if m.w == m.h {
-        return cuts.len() as u32;
-    }
-    let mut c: Vec<i64> = cuts.iter().map(|r| if m.w > m.h { 2 * r.x as i64 + r.w as i64 } else { 2 * r.y as i64 + r.h as i64 }).collect();
-    c.sort_unstable();
-    c.chunk_by(|a, b| a == b).map(|g| g.len() as u32).max().unwrap_or(0)
 }
 
 impl Electromigration {
@@ -262,33 +285,6 @@ pub fn metal_family(key: Option<&str>) -> (f32, f32) {
     }
 }
 
-/// Every routed metal shape of an ESD pad net has a cross-section ≥ `area_um2`:
-/// short side ≥ area·1e6/thickness_nm. A layer of thickness 0 is unknown for it.
-/// Separate from [`Electromigration`]: the floor needs no DC current, which a
-/// pad net rarely has.
-#[derive(Clone, Copy)]
-pub struct EsdWidth {
-    pub net: NetId,
-    pub area_um2: f32,
-    pub stack: &'static Stack,
-}
-
-impl EsdWidth {
-    /// `(worst residual, worst need/have)` over the net's routed metal shapes
-    /// of known thickness; `None` when there is none.
-    fn check(self, r: &Routes) -> Option<(f32, f32)> {
-        let mut worst: Option<(f32, f32)> = None;
-        for s in r.shapes(self.net) {
-            let Some(l) = self.stack.layers.iter().find(|l| l.id == s.layer.0 && !l.cut && l.thickness_nm > 0.0) else { continue };
-            let need = (f64::from(self.area_um2) * 1e6 / f64::from(l.thickness_nm)) as f32;
-            let have = s.rect.w.min(s.rect.h).max(1) as f32;
-            let (res, q) = worst.unwrap_or((f32::MIN, 0.0));
-            worst = Some((res.max(crate::rule::over(need - have, need)), q.max(need / have)));
-        }
-        worst
-    }
-}
-
 impl Rule for EsdWidth {
     type On = Routes;
     const REPAIR: crate::RepairKind = crate::RepairKind::Em;
@@ -343,6 +339,36 @@ impl Rule for Electromigration {
     }
 }
 
+// ---- private ----
+
+/// The most of `cuts` sharing one centre coordinate along `m`'s long axis (x
+/// when `m` is wider than tall, else y): the cuts across the current. A square
+/// `m` has no long axis: all of them.
+fn front_row(cuts: &[&Rect], m: &Rect) -> u32 {
+    if m.w == m.h {
+        return cuts.len() as u32;
+    }
+    let mut c: Vec<i64> = cuts.iter().map(|r| if m.w > m.h { 2 * r.x as i64 + r.w as i64 } else { 2 * r.y as i64 + r.h as i64 }).collect();
+    c.sort_unstable();
+    c.chunk_by(|a, b| a == b).map(|g| g.len() as u32).max().unwrap_or(0)
+}
+
+impl EsdWidth {
+    /// `(worst residual, worst need/have)` over the net's routed metal shapes
+    /// of known thickness; `None` when there is none.
+    fn check(self, r: &Routes) -> Option<(f32, f32)> {
+        let mut worst: Option<(f32, f32)> = None;
+        for s in r.shapes(self.net) {
+            let Some(l) = self.stack.layers.iter().find(|l| l.id == s.layer.0 && !l.cut && l.thickness_nm > 0.0) else { continue };
+            let need = (f64::from(self.area_um2) * 1e6 / f64::from(l.thickness_nm)) as f32;
+            let have = s.rect.w.min(s.rect.h).max(1) as f32;
+            let (res, q) = worst.unwrap_or((f32::MIN, 0.0));
+            worst = Some((res.max(crate::rule::over(need - have, need)), q.max(need / have)));
+        }
+        worst
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -353,6 +379,7 @@ mod tests {
 
     /// REL-05: sky130's 90 °C rating with the Cu fallback (0.9 eV, n 1.1)
     /// allows ≈ 10 % of the current at 125 °C.
+    /// Oracle: spec example, REL-05's derating worked by hand.
     #[test]
     fn fallback_derating_at_125c() {
         let f = derate(398.15, 363.15, 0.9, 1.1);
@@ -403,17 +430,21 @@ mod tests {
         )
     }
 
+    /// Oracle: spec example, w = I/J by hand (Lienig eq. 3.21).
     #[test]
     fn a_narrow_access_jog_fails_even_if_the_trunk_is_wide() {
         let r = jog(Some(-500.0));
         // need = 500·1000/2800 = 178.6 nm: the trunk has it, the jog does not.
-        assert!((need(500.0) - 178.6).abs() < 0.05 && need(500.0) <= 1_000.0, "the old best-segment rule passes on the trunk");
+        assert!((need(500.0) - 178.6).abs() < 0.05, "the old best-segment rule passes on the trunk");
+        assert!(need(500.0) <= 1_000.0, "the old best-segment rule passes on the trunk");
         let e = em();
-        assert!(e.known(&r) && !e.satisfied(&r));
+        assert!(e.known(&r));
+        assert!(!e.satisfied(&r));
         assert!((e.residual(&r) - (178.57 - 140.0) / 178.57).abs() < 1e-3, "{}", e.residual(&r));
         assert!((e.residual(&r) - 0.216).abs() < 1e-3);
     }
 
+    /// Oracle: spec example, 1000 µA needs 357.1 nm by hand.
     #[test]
     fn failing_names_the_violating_shapes() {
         // 1 000 µA end to end needs 357.1 nm: the 200 nm shape fails, the 400 nm one passes.
@@ -423,6 +454,7 @@ mod tests {
         assert_eq!(em().failing(&r(None)), None);
     }
 
+    /// Oracle: spec example, KCL by hand (300 + 200 on the trunk).
     #[test]
     fn a_trunk_carries_the_sum_of_its_branches() {
         // Root sink at the trunk's left end; branches up at x = 4 µm (+300)
@@ -432,10 +464,13 @@ mod tests {
         let flow = net_flow(stack(), &wires, &terms).unwrap();
         let needs: Vec<f32> = flow.shape_ua.iter().map(|&i| need(i)).collect();
         assert!((needs[0] - 178.6).abs() < 0.05, "trunk carries 300 + 200: {needs:?}");
-        assert!((needs[1] - 107.1).abs() < 0.05 && (needs[2] - 71.4).abs() < 0.05, "{needs:?}");
-        assert!(em().known(&routes(wires.clone(), terms.clone())) && em().satisfied(&routes(wires, terms)));
+        assert!((needs[1] - 107.1).abs() < 0.05, "{needs:?}");
+        assert!((needs[2] - 71.4).abs() < 0.05, "{needs:?}");
+        assert!(em().known(&routes(wires.clone(), terms.clone())));
+        assert!(em().satisfied(&routes(wires, terms)));
     }
 
+    /// Oracle: spec example, ⌈700/290⌉ = 3 by hand (Lienig eq. 3.25).
     #[test]
     fn a_via_group_needs_ceil_i_over_i_cut() {
         // met1 → two via cuts → met2, 700 µA end to end.
@@ -446,29 +481,34 @@ mod tests {
         // Front row: the cuts lie along both metals' long axis x, one per column.
         assert!((em().residual(&r) - 2.0 / 3.0).abs() < 1e-4, "(3 − 1)/3: {}", em().residual(&r));
         let e = Electromigration { front_row: false, ..em() };
-        assert!(e.known(&r) && !e.satisfied(&r));
+        assert!(e.known(&r));
+        assert!(!e.satisfied(&r));
         assert!((e.residual(&r) - 1.0 / 3.0).abs() < 1e-4, "(3 − 2)/3: {}", e.residual(&r));
         // A third cut in the group meets it.
         let mut wide = r.wires[0].clone();
         wide.push(shape(2, 4_200, 600, 200, 200));
         let r3 = routes(wide, r.terms[0].clone());
-        assert!(e.known(&r3) && e.satisfied(&r3), "{}", e.residual(&r3));
+        assert!(e.known(&r3), "{}", e.residual(&r3));
+        assert!(e.satisfied(&r3), "{}", e.residual(&r3));
     }
 
     /// A metal limit carries its deck rule's per-cut figure too ([`em`]): a
     /// met1 wire is no via group. 500 µA (> 360 µA/cut) needs 178.6 nm of the
     /// 1 µm drawn.
+    /// Oracle: spec example, 500 µA at 2800 µA/µm by hand.
     #[test]
     fn a_metal_with_a_per_cut_limit_is_not_a_via() {
         let e = em();
         let r = routes(vec![shape(1, 0, 0, 10_000, 1_000)], vec![term(0, 0, 200, 1_000, Some(500.0)), term(9_800, 0, 200, 1_000, Some(-500.0))]);
-        assert!(e.known(&r) && e.satisfied(&r), "{}", e.residual(&r));
+        assert!(e.known(&r), "{}", e.residual(&r));
+        assert!(e.satisfied(&r), "{}", e.residual(&r));
         assert!((e.usage(&r).unwrap() - need(500.0) / 1_000.0).abs() < 1e-4, "{:?}", e.usage(&r));
     }
 
     /// `dr`'s via array: each cut lands on its own met2 pad, and every pad
     /// overlaps the one met2 trunk the cuts also touch. The landing sets
     /// differ ({pad k, trunk}), yet the three cuts are one group in parallel.
+    /// Oracle: spec example, the via group counted by hand.
     #[test]
     fn array_cuts_on_separate_pads_over_one_trunk_are_one_group() {
         let mut wires = vec![shape(1, 0, 0, 5_000, 1_000), shape(3, 4_000, 0, 6_000, 1_000)];
@@ -482,7 +522,8 @@ mod tests {
         // x, the cuts' row, so one cut faces the current.
         assert!((em().residual(&r) - 2.0 / 3.0).abs() < 1e-4, "{}", em().residual(&r));
         let e = Electromigration { front_row: false, ..em() };
-        assert!(e.known(&r) && e.satisfied(&r), "⌈700/290⌉ = 3 cuts in one group: {}", e.residual(&r));
+        assert!(e.known(&r), "⌈700/290⌉ = 3 cuts in one group: {}", e.residual(&r));
+        assert!(e.satisfied(&r), "⌈700/290⌉ = 3 cuts in one group: {}", e.residual(&r));
         // usage = I/(I_cut·n) pins n = 3 (a pad may carry all 700 µA: 250/350 nm).
         assert!((e.usage(&r).unwrap() - 700.0 / (290.0 * 3.0)).abs() < 1e-4, "{:?}", e.usage(&r));
         // Two cuts left: still one group, now short.
@@ -492,6 +533,7 @@ mod tests {
 
     /// A 3 × 2 array on a long met1 (along x) under a square met2 pad: two
     /// cuts per column face the current, so 700 µA (3 cuts) is short by one.
+    /// Oracle: spec example, Hastings §5.1.3's front row counted by hand.
     #[test]
     fn a_deep_array_counts_its_front_row() {
         let mut wires = vec![shape(1, 0, 0, 10_000, 800), shape(3, -100, -100, 1_500, 1_500)];
@@ -502,11 +544,13 @@ mod tests {
         }
         let r = routes(wires, vec![term(9_800, 0, 200, 800, Some(700.0)), term(500, 1_200, 200, 200, Some(-700.0))]);
         let e = em();
-        assert!(e.known(&r) && !e.satisfied(&r));
+        assert!(e.known(&r));
+        assert!(!e.satisfied(&r));
         assert!((e.usage(&r).unwrap() - 700.0 / (290.0 * 2.0)).abs() < 1e-4, "{:?}", e.usage(&r));
         assert!((e.residual(&r) - 1.0 / 3.0).abs() < 1e-4, "(3 − 2)/3: {}", e.residual(&r));
         let all = Electromigration { front_row: false, ..em() };
-        assert!(all.known(&r) && all.satisfied(&r), "6 ≥ 3: {}", all.residual(&r));
+        assert!(all.known(&r), "6 ≥ 3: {}", all.residual(&r));
+        assert!(all.satisfied(&r), "6 ≥ 3: {}", all.residual(&r));
     }
 
     /// Three cuts in one column (same centre x) on a met1 trunk along x, each
@@ -514,6 +558,7 @@ mod tests {
     /// group by chained pads, no upper metal touching all three. Only the trunk
     /// is common, and across it all 3 face the current: 700 µA ≤ 3 × 290. A
     /// pad touching cut 0 alone (long axis y, centres apart) would say 1.
+    /// Oracle: spec example, the front row counted by hand.
     #[test]
     fn only_a_metal_touching_every_cut_sets_the_front_row() {
         let mut wires = vec![shape(1, 0, -100, 10_000, 1_200)];
@@ -523,10 +568,12 @@ mod tests {
         }
         let r = routes(wires, vec![term(9_800, 0, 200, 800, Some(700.0)), term(4_200, 1_150, 200, 100, Some(-700.0))]);
         let e = em();
-        assert!(e.known(&r) && e.satisfied(&r), "{}", e.residual(&r));
+        assert!(e.known(&r), "{}", e.residual(&r));
+        assert!(e.satisfied(&r), "{}", e.residual(&r));
         assert!((e.usage(&r).unwrap() - 700.0 / (290.0 * 3.0)).abs() < 1e-4, "{:?}", e.usage(&r));
     }
 
+    /// Oracle: spec example, Hastings eq. 14.6 and Table 14.3 by hand.
     #[test]
     fn hbm_2kv_on_sky130_met1_needs_18_6um() {
         assert!((esd_area_um2(2000., 2.7, 2.42) - 6.68).abs() < 0.01, "{}", esd_area_um2(2000., 2.7, 2.42));
@@ -537,6 +584,7 @@ mod tests {
         assert!((need - 18_557.0).abs() < 30.0, "{need}");
     }
 
+    /// Oracle: spec example, the 18 557 nm floor by hand.
     #[test]
     fn an_esd_net_narrower_than_its_floor_fails() {
         let at = |t: f32| -> &'static Stack {
@@ -547,11 +595,13 @@ mod tests {
         let e = rule(360.0);
         // Short side ≥ 18 557 nm passes; 10 000 does not, whatever the length.
         for r in [one(20_000, 20_000), one(40_000, 18_600)] {
-            assert!(e.known(&r) && e.satisfied(&r), "{}", e.residual(&r));
+            assert!(e.known(&r), "{}", e.residual(&r));
+            assert!(e.satisfied(&r), "{}", e.residual(&r));
         }
         assert!(!e.satisfied(&one(10_000, 18_000)));
         let r = one(10_000, 9_000);
-        assert!(e.known(&r) && !e.satisfied(&r));
+        assert!(e.known(&r));
+        assert!(!e.satisfied(&r));
         let need = esd_area_um2(2000., 2.7, 2.42) * 1e6 / 360.0;
         assert!((e.residual(&r) - (need - 9_000.0) / need).abs() < 1e-3, "{}", e.residual(&r));
         assert!((e.residual(&r) - (18_557.0 - 9_000.0) / 18_557.0).abs() < 1e-3);
@@ -561,6 +611,7 @@ mod tests {
     /// A terminal joined only through its cell's strap is reached (the cell
     /// metal is in the flow), and the strap itself is the cell's, not checked:
     /// at 30 nm it would need 179 nm.
+    /// Oracle: the documented contract (cell straps join, are not checked).
     #[test]
     fn a_cell_strap_joins_its_terminal_and_is_not_checked() {
         let r = jog(Some(-500.0));
@@ -570,31 +621,37 @@ mod tests {
         let open = routes(wires.clone(), terms.clone());
         assert!(!em().known(&open), "the strap is what joins the second terminal");
         let r = Routes { cell: vec![strap], ..routes(wires, terms) };
-        assert!(em().known(&r) && em().satisfied(&r), "{}", em().residual(&r));
+        assert!(em().known(&r), "{}", em().residual(&r));
+        assert!(em().satisfied(&r), "{}", em().residual(&r));
     }
 
     /// A pin on met1 under the met2 it is routed to: the terminal joins its
     /// own (lowest) layer, so its current reaches met2 only through the pin
     /// cut — never a 0-Ω shortcut to the met2 over it.
+    /// Oracle: spec example, ⌈700/290⌉ cuts against the one drawn.
     #[test]
     fn a_pin_cut_carries_its_terminal_current() {
         let mut wires = vec![shape(1, 0, 0, 400, 400), shape(3, 0, 0, 10_000, 400), shape(2, 100, 100, 200, 200)];
         let terms = vec![term(0, 0, 400, 400, Some(700.0)), term(9_800, 0, 200, 400, Some(-700.0))];
         let r = routes(wires.clone(), terms.clone());
-        assert!(em().known(&r) && !em().satisfied(&r));
+        assert!(em().known(&r));
+        assert!(!em().satisfied(&r));
         assert!((em().residual(&r) - 2.0 / 3.0).abs() < 1e-4, "⌈700/290⌉ = 3 cuts, 1 drawn: {}", em().residual(&r));
         // Without the cut the pin is open, not joined through the met2 over it.
         wires.pop();
         assert!(!em().known(&routes(wires, terms)));
     }
 
+    /// Oracle: the documented rule, unknown is never pass.
     #[test]
     fn an_unknown_terminal_current_is_unknown() {
         let r = jog(None);
-        assert!(!em().known(&r) && em().satisfied(&r), "search cannot act on an unknown");
+        assert!(!em().known(&r), "search cannot act on an unknown");
+        assert!(em().satisfied(&r), "search cannot act on an unknown");
         assert_eq!(em().residual(&r), 0.0);
     }
 
+    /// Oracle: spec example, max(200, 500 − 200) and Ohm's law by hand.
     #[test]
     fn an_unbalanced_net_charges_the_larger_side() {
         // +300 and +200 on one wire, no sink: the edge carries max(200, 500 − 200).
@@ -605,16 +662,19 @@ mod tests {
         assert!((flow.drop_uv - 735.0).abs() < 0.1, "{}", flow.drop_uv);
     }
 
+    /// Oracle: the documented chord bound, worked by hand.
     #[test]
     fn parallel_paths_are_bounded_by_the_tree_path() {
         // Two equal met1 wires between end bars: A(+1000) left, B(−1000) right.
         let wires = vec![shape(1, 0, 0, 200, 2_200), shape(1, 9_800, 0, 200, 2_200), shape(1, 0, 2_000, 10_000, 200), shape(1, 0, 0, 10_000, 200)];
         let flow = net_flow(stack(), &wires, &[term(0, 1_000, 200, 200, Some(1_000.0)), term(9_800, 1_000, 200, 200, Some(-1_000.0))]).unwrap();
-        assert!((flow.shape_ua[2] - 1_000.0).abs() < 1e-3 && (flow.shape_ua[3] - 1_000.0).abs() < 1e-3, "{:?}", flow.shape_ua);
+        assert!((flow.shape_ua[2] - 1_000.0).abs() < 1e-3, "{:?}", flow.shape_ua);
+        assert!((flow.shape_ua[3] - 1_000.0).abs() < 1e-3, "{:?}", flow.shape_ua);
     }
 
     /// Unknown without the stack, without a limit on any routed layer, or
     /// without routed terminals; a known **zero** current is a real pass.
+    /// Oracle: the documented rule, unknown is never pass and zero is known.
     #[test]
     fn missing_stack_limit_or_terminals_is_unknown_and_zero_is_known() {
         let r = jog(Some(-500.0));
@@ -627,12 +687,14 @@ mod tests {
         let open = routes(r.wires[0].clone(), vec![r.terms[0][0], term(50_000, 0, 10, 10, Some(-500.0))]);
         assert!(!em().known(&open), "an unreached terminal");
         let zero = routes(r.wires[0].clone(), vec![term(0, 400, 200, 200, Some(0.0)), term(9_000, 1_300, 140, 100, Some(0.0))]);
-        assert!(em().known(&zero) && em().satisfied(&zero));
+        assert!(em().known(&zero));
+        assert!(em().satisfied(&zero));
     }
 
     /// Hastings' worked derating: 398 K on a 378 K rating with Ea 0.7 eV, n 2
     /// gives F ≈ 0.58 ("25 mA safe at ref → 15 mA"). Hotter never needs fewer
     /// cuts or less width; cooler is never credited.
+    /// Oracle: spec example, Hastings' worked derating (F ≈ 0.58), and monotonicity in T.
     #[test]
     fn hotter_never_needs_fewer_cuts_or_less_width() {
         let f = derate(398.0, 378.0, 0.7, 2.0);
@@ -643,7 +705,8 @@ mod tests {
         for t in [378.0, 398.0, 423.0, 448.0] {
             let hot = base.derated(derate(t, 378.0, 0.9, 2.0));
             let now = (hot.cuts(250.0), hot.width_nm(250.0, 0.0));
-            assert!(now.0 >= prev.0 && now.1 >= prev.1, "T {t}: {now:?} after {prev:?}");
+            assert!(now.0 >= prev.0, "T {t}: {now:?} after {prev:?}");
+            assert!(now.1 >= prev.1, "T {t}: {now:?} after {prev:?}");
             prev = now;
         }
         assert_eq!(base.cuts(250.0), 3, "⌈250/100⌉ at the rating");
@@ -652,6 +715,7 @@ mod tests {
 
     /// A short enough run is Blech-immortal and needs less than `I/J`; without
     /// a deck Blech product the density limit always applies.
+    /// Oracle: spec example, Lienig eq. 4.1 by hand.
     #[test]
     fn a_short_run_below_the_blech_product_needs_less_width() {
         let l = Limit { ua_per_um: 1_000.0, ua_per_cut: 0.0, blech: 54_000.0 };

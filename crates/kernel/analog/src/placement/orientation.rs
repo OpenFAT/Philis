@@ -4,6 +4,13 @@
 //! L42490–42498, PDF p.714) and equal mean S→D current Φ (eq. 13.61). Read
 //! from the members' placed units, so a partner drawn in its own cell and
 //! turned by dp is checked like a merged one.
+//!
+//! In → out: a [`Layout`]'s placed units of a matched set → its axis or Φ
+//! residual (`None` = unknown). Cites: Hastings §13.3 rule 7, eq. 13.61; MAT-05.
+//!
+//! Contents:
+//! - `pub enum OrientCheck`
+//! - `pub struct OrientationSet`
 
 use crate::base::ids::DeviceId;
 use crate::base::layout::Layout;
@@ -28,38 +35,12 @@ pub enum OrientCheck {
 /// member without placed units is **unknown** (no drawing, no direction).
 #[derive(Clone)]
 pub struct OrientationSet {
+    /// Schematic devices, member 0 the reference.
     pub members: Vec<DeviceId>,
+    /// Which condition the set must meet.
     pub check: OrientCheck,
     /// `device → cell`, set by `retarget`; empty = the ids name cells.
     pub cell_of: Vec<u16>,
-}
-
-impl OrientationSet {
-    fn cell(&self, d: DeviceId) -> u32 {
-        u32::from(self.cell_of.get(d.0 as usize).copied().unwrap_or(d.0))
-    }
-
-    /// `0.0` = satisfied, `> 0` = violated, `None` = unknown.
-    fn residual_of(&self, l: &Layout) -> Option<f32> {
-        let s: Vec<_> = self.members.iter().map(|&d| sums(l.units.of_device(l, d).map(Pt::from))).collect();
-        if s.iter().any(|m| m.n == 0) {
-            return None;
-        }
-        Some(match self.check {
-            OrientCheck::Axis => {
-                let has = |a| s.iter().any(|m| m.axis == a);
-                f32::from(u8::from(has(Axis::Mixed) || (has(Axis::H) && has(Axis::V))))
-            }
-            OrientCheck::Phi => {
-                if s[1..].iter().all(|m| phi_equal(&s[0], m)) {
-                    0.0
-                } else {
-                    let p0 = s[0].phi();
-                    s[1..].iter().map(|m| m.phi()).map(|p| (p0.0 - p.0).abs() + (p0.1 - p.1).abs()).fold(0.0, f64::max) as f32
-                }
-            }
-        })
-    }
 }
 
 impl crate::rule::RuleBatch<Layout> for OrientationSet {
@@ -101,6 +82,36 @@ impl crate::rule::RuleBatch<Layout> for OrientationSet {
     }
 }
 
+// ---- private ----
+
+impl OrientationSet {
+    fn cell(&self, d: DeviceId) -> u32 {
+        u32::from(self.cell_of.get(d.0 as usize).copied().unwrap_or(d.0))
+    }
+
+    /// `0.0` = satisfied, `> 0` = violated, `None` = unknown.
+    fn residual_of(&self, l: &Layout) -> Option<f32> {
+        let s: Vec<_> = self.members.iter().map(|&d| sums(l.units.of_device(l, d).map(Pt::from))).collect();
+        if s.iter().any(|m| m.n == 0) {
+            return None;
+        }
+        Some(match self.check {
+            OrientCheck::Axis => {
+                let has = |a| s.iter().any(|m| m.axis == a);
+                f32::from(u8::from(has(Axis::Mixed) || (has(Axis::H) && has(Axis::V))))
+            }
+            OrientCheck::Phi => {
+                if s[1..].iter().all(|m| phi_equal(&s[0], m)) {
+                    0.0
+                } else {
+                    let p0 = s[0].phi();
+                    s[1..].iter().map(|m| m.phi()).map(|p| (p0.0 - p.0).abs() + (p0.1 - p.1).abs()).fold(0.0, f64::max) as f32
+                }
+            }
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,6 +146,7 @@ mod tests {
         OrientationSet { members: vec![DeviceId(0), DeviceId(1)], check, cell_of: Vec::new() }
     }
 
+    /// Oracle: spec example, Hastings rule 7 (a 90° partner is not parallel).
     #[test]
     fn a_quarter_turned_partner_is_illegal() {
         let s = set(OrientCheck::Axis);
@@ -142,6 +154,7 @@ mod tests {
         assert_eq!(s.violations(&two_cells(&[(1, 0)], Orient::R0)), 0);
     }
 
+    /// Oracle: spec example, the mirrored Φ worked by hand (|1/3 − (−1/3)| = 2/3).
     #[test]
     fn a_mirrored_odd_finger_partner_breaks_phi() {
         let s = set(OrientCheck::Phi);
@@ -160,6 +173,7 @@ mod tests {
         assert!(!mirror_allowed(&m), "net φx survives no mirror");
     }
 
+    /// Oracle: spec example, Φy reversed by hand.
     #[test]
     fn a_flipped_vertical_partner_breaks_phi() {
         let s = set(OrientCheck::Phi);
@@ -169,6 +183,7 @@ mod tests {
         }
     }
 
+    /// Oracle: the documented rule, zero-φ units say nothing.
     #[test]
     fn capacitor_units_never_violate() {
         let l = two_cells(&[(0, 0)], Orient::R90);
@@ -177,6 +192,7 @@ mod tests {
         }
     }
 
+    /// Oracle: the documented rule, a member without units is unknown.
     #[test]
     fn no_units_is_unknown() {
         let mut l = two_cells(&[(1, 0)], Orient::R90);

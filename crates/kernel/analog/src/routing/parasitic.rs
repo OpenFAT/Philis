@@ -1,4 +1,9 @@
 //! Per-net parasitic budget (routing tier).
+//! In → out: a net's [`Routes`] → its ground C (or drawn length) against the
+//! budget. Cites: Lampaert 1999 eqs 2.29–2.33; NET-01, NET-02.
+//!
+//! Contents:
+//! - `pub struct ParasiticBudget`
 
 use super::Stack;
 use crate::base::ids::NetId;
@@ -15,6 +20,7 @@ use crate::rule::Rule;
 /// R_via)·W/R□`) needs an R budget the annotator does not derive.
 #[derive(Clone, Copy)]
 pub struct ParasiticBudget {
+    /// The budgeted net.
     pub net: NetId,
     /// Drawn length at which the budget is spent, nm — the fallback check.
     pub max_len_nm: i64,
@@ -24,16 +30,6 @@ pub struct ParasiticBudget {
     pub margin_pct: u8,
     /// The routing stack's per-layer parasitics; `None` = check length.
     pub stack: Option<&'static Stack>,
-}
-
-impl ParasiticBudget {
-    /// `(spent, budget)`: extracted C in aF when both are known, else length.
-    fn spent(self, r: &Routes) -> (f32, f32) {
-        match self.stack {
-            Some(s) if self.max_c_af > 0 => (s.ground_af(r.shapes(self.net)), self.max_c_af as f32),
-            _ => (r.length(self.net) as f32, self.max_len_nm as f32),
-        }
-    }
 }
 
 impl Rule for ParasiticBudget {
@@ -88,6 +84,18 @@ impl Rule for ParasiticBudget {
     }
 }
 
+// ---- private ----
+
+impl ParasiticBudget {
+    /// `(spent, budget)`: extracted C in aF when both are known, else length.
+    fn spent(self, r: &Routes) -> (f32, f32) {
+        match self.stack {
+            Some(s) if self.max_c_af > 0 => (s.ground_af(r.shapes(self.net)), self.max_c_af as f32),
+            _ => (r.length(self.net) as f32, self.max_len_nm as f32),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,6 +105,7 @@ mod tests {
     /// The budget is capacitance from the deck's per-layer pex: the same 10 µm
     /// run passes on a low-C upper metal and fails on a high-C lower one; with
     /// no stack it is the length cap.
+    /// Oracle: spec example, area + fringe C per layer worked by hand.
     #[test]
     fn the_budget_is_extracted_c_per_layer() {
         let stack: &'static Stack = Box::leak(Box::new(Stack {
@@ -111,12 +120,14 @@ mod tests {
             |layer| Routes { wires: vec![vec![Shape { layer: LayerId(layer), rect: Rect { x: 0, y: 0, w: 10_000, h: 500 } }]], ..Default::default() };
         // m0: 40·5 + 40·21 = 1040 aF; m1: 10·5 + 20·21 = 470 aF (full perimeter).
         let b = ParasiticBudget { net: NetId(0), max_len_nm: 1_000_000, max_c_af: 600, margin_pct: 20, stack: Some(stack) };
-        assert!(!b.satisfied(&run(0)) && b.satisfied(&run(1)));
+        assert!(!b.satisfied(&run(0)));
+        assert!(b.satisfied(&run(1)));
         assert!((b.usage(&run(1)).unwrap() - 470.0 / 600.0).abs() < 1e-4);
         let length_only = ParasiticBudget { stack: None, max_len_nm: 5_000, ..b };
         assert!(!length_only.satisfied(&run(1)), "falls back to the length cap");
     }
 
+    /// Oracle: spec example, (0.5 mm / 1 mm)² by hand.
     #[test]
     fn cost_is_the_squared_budget_fraction() {
         let routes = Routes { wires: vec![vec![Shape { layer: LayerId(0), rect: Rect { x: 0, y: 0, w: 500_000, h: 500 } }]], ..Default::default() };

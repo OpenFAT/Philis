@@ -7,6 +7,20 @@
 //! moments are REV eqs 8–10.
 //! Split DAC (MAT-18): C_A is DACP eq. 1, non-unit plate sizing §III-D, slot
 //! order §IV-C.
+//!
+//! In → out: placed unit rows `(slot, x_um, y_um)` and a gradient → per-slot
+//! capacitance, INL/DNL, M_sys, second moments; bank sizes and a grid → the
+//! split-DAC slot assignment. Cites: DACP eqs 1, 11, 12, 17–18, §III-D, §IV-C;
+//! REV eqs 8–10.
+//!
+//! Contents:
+//! - `pub fn gradient_caps(units: &[(u8, f64, f64)], slots: usize, g_per_um: f64, theta: f64) -> Vec<f64>`
+//! - `pub fn inl_dnl(units: &[(u8, f64, f64)], n_bits: u8, g_per_um: f64, steps: usize) -> (f64, f64)`
+//! - `pub fn msys(units: &[(u8, f64, f64)], counts: &[u16], g_per_um: f64, steps: usize) -> f64`
+//! - `pub fn second_um2(units: &[(u8, f64, f64)], slots: usize) -> f64`
+//! - `pub fn attenuation_cap(ct_lsb_units: u32, ct_msb_units: u32) -> f64`
+//! - `pub fn nonunit_dims(area_um2: f64, unit_h_um: f64, unit_l_um: f64) -> Option<(f64, f64)>`
+//! - `pub fn split_dac_assign(l_bits: u8, m_bits: u8, rows: usize, cols: usize) -> Vec<Option<u8>>`
 
 /// Per-slot capacitance, unit-normalised: `Σ 1/(1 + g·(x cosθ + y sinθ))`.
 #[must_use]
@@ -158,6 +172,8 @@ mod tests {
         slots.iter().enumerate().filter_map(|(i, s)| s.map(|s| (s, ((i % cols) as f64 - cx) * p, ((i / cols) as f64 - cy) * p))).collect()
     }
 
+    /// Oracle: metamorphic, DACP's claim that a dispersed fill is no worse than
+    /// a compact one under the same gradient.
     #[test]
     fn chessboard_inl_not_worse_on_uniform_pitch() {
         let counts = [1, 1, 2, 4, 8, 16];
@@ -168,12 +184,15 @@ mod tests {
         }
     }
 
+    /// Oracle: spec example, the Frobenius distance worked by hand (√8).
     #[test]
     fn radial_metric_no_longer_hides_anisotropy() {
         let u = [(0, 2.0, 0.0), (0, -2.0, 0.0), (1, 0.0, 2.0), (1, 0.0, -2.0)];
         assert!((second_um2(&u, 2) - 8f64.sqrt()).abs() < 1e-9);
     }
 
+    /// Oracle: theory, a common centroid (ABBA) cancels a linear gradient to
+    /// first order and AABB does not.
     #[test]
     fn msys_second_order_for_exact_cc() {
         let row = |o: [u8; 4]| o.iter().zip([-3.0, -1.0, 1.0, 3.0]).map(|(&s, x)| (s, x, 0.0)).collect::<Vec<_>>();
@@ -183,16 +202,20 @@ mod tests {
         assert!(aabb > 1e-5, "{aabb}");
     }
 
+    /// Oracle: spec example, DACP eq. 1 for L = 3, M = 3 and L = 2, M = 2.
     #[test]
     fn attenuation_cap_formula() {
         assert!((attenuation_cap(8, 7) - 8.0 / 7.0).abs() < 1e-12);
         assert!((attenuation_cap(4, 3) - 4.0 / 3.0).abs() < 1e-12);
     }
 
+    /// Oracle: certificate, the roots multiply back to the area and keep the
+    /// unit's perimeter-to-area ratio.
     #[test]
     fn nonunit_dims_keep_the_unit_edge_sensitivity() {
         let (h, l) = nonunit_dims(12.0, 3.0, 3.0).unwrap();
-        assert!((h - 6.0).abs() < 1e-9 && (l - 2.0).abs() < 1e-9, "{h} {l}");
+        assert!((h - 6.0).abs() < 1e-9, "{h} {l}");
+        assert!((l - 2.0).abs() < 1e-9, "{h} {l}");
         for (a, hu, lu) in [(12.0, 3.0, 3.0), (10.0, 2.0, 3.0), (37.5, 4.0, 2.5)] {
             let (h, l) = nonunit_dims(a, hu, lu).unwrap();
             assert!(h >= l);
@@ -202,6 +225,8 @@ mod tests {
         assert_eq!(nonunit_dims(4.0, 3.0, 3.0), None);
     }
 
+    /// Oracle: certificate (each cap's cell count, centro symmetry, C_A on the
+    /// most central pair) and spec example (DACP §IV-C's pair order).
     #[test]
     fn split_assign_is_exact_for_even_count_caps() {
         for (lb, mb, rows, cols) in [(2u8, 2u8, 3usize, 3usize), (3, 3, 3, 6), (3, 3, 4, 5), (4, 3, 5, 5)] {

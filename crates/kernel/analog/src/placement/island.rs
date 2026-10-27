@@ -1,6 +1,13 @@
 //! Symmetry-island connectivity (PLC-12; Balasa Def. 2.1): the members of one
 //! symmetry group should form one connected island, each touching another
 //! across a shared edge, not merely sit near the same axis.
+//!
+//! In → out: a [`Layout`] and an island's members → its connected components
+//! (islands past the first are the violation). Cites: Balasa Def. 2.1; PLC-12.
+//!
+//! Contents:
+//! - `pub struct SymmetryIsland`
+//! - `pub fn components(l: &Layout, members: &[Target], touch_nm: i32) -> u32`
 
 use crate::base::ids::Target;
 use crate::base::layout::Layout;
@@ -12,21 +19,14 @@ use crate::rule::RuleBatch;
 /// still counts as touching, nm.
 #[derive(Clone, Debug)]
 pub struct SymmetryIsland {
+    /// The symmetry group's cells.
     pub members: Vec<Target>,
+    /// Largest edge distance that still counts as touching, nm; ≥ 0.
     pub touch_nm: i32,
 }
 
-/// `a` and `b` share an edge: strictly overlapping projections on one axis and
-/// an edge distance ≤ `touch_nm` on the other (a corner contact is not
-/// adjacency, so this is not `Layout::edge_gap`, which is 0 there).
-fn adjacent(l: &Layout, a: Target, b: Target, touch_nm: i32) -> bool {
-    let (ax, ay, aw, ah) = l.bbox(a);
-    let (bx, by, bw, bh) = l.bbox(b);
-    let (dx, dy) = ((ax - bx).abs(), (ay - by).abs());
-    (dx < aw + bw && dy - (ah + bh) <= touch_nm) || (dy < ah + bh && dx - (aw + bw) <= touch_nm)
-}
-
 /// Connected components of `members` under [`adjacent`]; `0` with no members.
+/// O(n²) in the member count.
 #[must_use]
 pub fn components(l: &Layout, members: &[Target], touch_nm: i32) -> u32 {
     let n = members.len();
@@ -42,12 +42,6 @@ pub fn components(l: &Layout, members: &[Target], touch_nm: i32) -> u32 {
     roots.sort_unstable();
     roots.dedup();
     roots.len() as u32
-}
-
-impl SymmetryIsland {
-    fn extra(&self, l: &Layout) -> u32 {
-        components(l, &self.members, self.touch_nm).saturating_sub(1)
-    }
 }
 
 impl RuleBatch<Layout> for SymmetryIsland {
@@ -81,6 +75,24 @@ impl RuleBatch<Layout> for SymmetryIsland {
     }
 }
 
+// ---- private ----
+
+/// `a` and `b` share an edge: strictly overlapping projections on one axis and
+/// an edge distance ≤ `touch_nm` on the other (a corner contact is not
+/// adjacency, so this is not `Layout::edge_gap`, which is 0 there).
+fn adjacent(l: &Layout, a: Target, b: Target, touch_nm: i32) -> bool {
+    let (ax, ay, aw, ah) = l.bbox(a);
+    let (bx, by, bw, bh) = l.bbox(b);
+    let (dx, dy) = ((ax - bx).abs(), (ay - by).abs());
+    (dx < aw + bw && dy - (ah + bh) <= touch_nm) || (dy < ah + bh && dx - (aw + bw) <= touch_nm)
+}
+
+impl SymmetryIsland {
+    fn extra(&self, l: &Layout) -> u32 {
+        components(l, &self.members, self.touch_nm).saturating_sub(1)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -109,12 +121,14 @@ mod tests {
         SymmetryIsland { members: (0..n).map(|i| Target::Device(DeviceId(i))).collect(), touch_nm }
     }
 
+    /// Oracle: spec example, two abutting squares by hand.
     #[test]
     fn abutting_pair_is_one_island() {
         let l = squares(&[(0, 0), (1_000, 0)]);
         assert_eq!((island(2, 280).residual(&l), island(2, 280).violations(&l)), (0.0, 0));
     }
 
+    /// Oracle: spec example, the touch threshold by hand (280 nm joins, 290 nm splits).
     #[test]
     fn a_gap_splits_the_island() {
         let ok = squares(&[(0, 0), (1_280, 0)]);
@@ -123,12 +137,14 @@ mod tests {
         assert_eq!((island(2, 280).residual(&split), island(2, 280).violations(&split)), (1.0, 1));
     }
 
+    /// Oracle: spec example, Balasa Def. 2.1 (a corner is not an edge).
     #[test]
     fn diagonal_corner_touch_is_not_adjacent() {
         let l = squares(&[(0, 0), (1_000, 1_000)]);
         assert_eq!(island(2, 280).residual(&l), 1.0);
     }
 
+    /// Oracle: spec example, the ids listed by hand.
     #[test]
     fn touched_names_every_member() {
         let mut ids = Vec::new();

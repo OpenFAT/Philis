@@ -1,4 +1,13 @@
 //! Mirror symmetry about a shared axis (placement tier).
+//! In → out: a [`Layout`] → each pair's mirror error; `project` rewrites the
+//! pairs' positions onto one on-grid axis. Cites: C14, PLC-03, PLC-18, PLC-21;
+//! PLAN §4a (the collapsed self-pair).
+//!
+//! Contents:
+//! - `pub enum AxisDir`
+//! - `pub enum SymMode`
+//! - `pub struct Symmetry`
+//! - `pub struct SymmetryGroup(pub Vec<Symmetry>)`
 
 use crate::base::ids::{AxisId, Target};
 use crate::base::layout::Layout;
@@ -7,8 +16,10 @@ use crate::rule::{Rule, RuleBatch};
 /// Direction of a symmetry axis (C14): `V` mirrors in x about a vertical line.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum AxisDir {
+    /// A vertical line: partners mirror in x.
     #[default]
     V,
+    /// A horizontal line: partners mirror in y.
     H,
 }
 
@@ -17,8 +28,10 @@ pub enum AxisDir {
 /// legal only when every unit's φ has no x component ([`crate::matching::moments::mirror_allowed`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum SymMode {
+    /// Partners drawn with the same orient.
     #[default]
     Perfect,
+    /// `b` is `a` reflected about the axis (`Mx180`).
     Mirror,
 }
 
@@ -28,11 +41,20 @@ pub enum SymMode {
 /// [`Rule::project`], not by weight; `residual` is the mirror error in µm.
 #[derive(Clone, Copy)]
 pub struct Symmetry {
+    /// Left partner (a group target is scored but never projected).
     pub a: Target,
+    /// Right partner; `a == b` is a collapsed pair: centre on the axis.
     pub b: Target,
+    /// The axis the pair shares, a slot of [`Layout::axis`].
     pub axis: AxisId,
+    /// How the partners' orients relate.
     pub mode: SymMode,
 }
+
+/// Mirror pairs of one differential stage, sharing **one** axis. Per-pair
+/// projection would let each pair drift onto its own line; choosing the shared
+/// axis needs every pair at once.
+pub struct SymmetryGroup(pub Vec<Symmetry>);
 
 impl Rule for Symmetry {
     type On = Layout;
@@ -92,65 +114,6 @@ impl Rule for Symmetry {
         }
     }
 }
-
-impl Symmetry {
-    /// Mirror-equation error `(xa + xb − 2·axis, ya − yb)`.
-    fn error(self, l: &Layout) -> (i32, i32) {
-        let (ax, ay) = l.centre(self.a);
-        let (bx, by) = l.centre(self.b);
-        (ax + bx - 2 * l.axis_x(self.axis), ay - by)
-    }
-
-    /// Distinct partners drawn alike (PLC-03), the orient related by `mode`
-    /// (PLC-21). A column too short to hold either index reads as equal.
-    fn same_shape(self, l: &Layout) -> bool {
-        let Some((ia, ib)) = self.indices(l) else { return true };
-        fn eq<T: PartialEq>(v: &[T], a: usize, b: usize) -> bool {
-            v.get(a).zip(v.get(b)).is_none_or(|(a, b)| a == b)
-        }
-        let orient_ok = l.orient.get(ia).zip(l.orient.get(ib)).is_none_or(|(&oa, &ob)| {
-            ob == match self.mode {
-                SymMode::Perfect => oa,
-                SymMode::Mirror => oa.then(crate::base::Orient::Mx180),
-            }
-        });
-        ia == ib || (l.hw[ia] == l.hw[ib] && l.hh[ia] == l.hh[ib] && eq(&l.variant, ia, ib) && orient_ok)
-    }
-
-    /// Device indices when both targets are in-range devices. `ia == ib` is
-    /// allowed: a pair collapsed into one macro degenerates to "centre on axis".
-    fn indices(self, l: &Layout) -> Option<(usize, usize)> {
-        let (Target::Device(da), Target::Device(db)) = (self.a, self.b) else {
-            return None;
-        };
-        let (ia, ib) = (da.0 as usize, db.0 as usize);
-        (ia < l.x.len() && ib < l.x.len()).then_some((ia, ib))
-    }
-
-    /// Place the pair at `axis ∓ half` on one row. Snapping `axis` and `half`
-    /// independently keeps both partners on-grid and their sum exactly `2·axis`.
-    fn mirror_about(self, l: &mut Layout, axis: i32, g: i32) {
-        let Some((ia, ib)) = self.indices(l) else { return };
-        let d = snap_to(l.x[ib], g) - snap_to(l.x[ia], g);
-        // Ceiling of |d|/2 on the grid, sign kept: a projected pair never moves closer.
-        let half = d.signum() * ((d.abs() + 2 * g - 1) / (2 * g)) * g;
-        l.x[ia] = axis - half;
-        l.x[ib] = axis + half;
-        let my = snap_to((l.y[ia] + l.y[ib]) / 2, g);
-        l.y[ia] = my;
-        l.y[ib] = my;
-    }
-
-    fn midpoint_x(self, l: &Layout, g: i32) -> Option<i32> {
-        let (ia, ib) = self.indices(l)?;
-        Some((snap_to(l.x[ia], g) + snap_to(l.x[ib], g)) / 2)
-    }
-}
-
-/// Mirror pairs of one differential stage, sharing **one** axis. Per-pair
-/// projection would let each pair drift onto its own line; choosing the shared
-/// axis needs every pair at once.
-pub struct SymmetryGroup(pub Vec<Symmetry>);
 
 impl RuleBatch<Layout> for SymmetryGroup {
     fn cost(&self, l: &Layout) -> f32 {
@@ -221,6 +184,62 @@ impl RuleBatch<Layout> for SymmetryGroup {
     }
 }
 
+// ---- private ----
+
+impl Symmetry {
+    /// Mirror-equation error `(xa + xb − 2·axis, ya − yb)`.
+    fn error(self, l: &Layout) -> (i32, i32) {
+        let (ax, ay) = l.centre(self.a);
+        let (bx, by) = l.centre(self.b);
+        (ax + bx - 2 * l.axis_x(self.axis), ay - by)
+    }
+
+    /// Distinct partners drawn alike (PLC-03), the orient related by `mode`
+    /// (PLC-21). A column too short to hold either index reads as equal.
+    fn same_shape(self, l: &Layout) -> bool {
+        let Some((ia, ib)) = self.indices(l) else { return true };
+        fn eq<T: PartialEq>(v: &[T], a: usize, b: usize) -> bool {
+            v.get(a).zip(v.get(b)).is_none_or(|(a, b)| a == b)
+        }
+        let orient_ok = l.orient.get(ia).zip(l.orient.get(ib)).is_none_or(|(&oa, &ob)| {
+            ob == match self.mode {
+                SymMode::Perfect => oa,
+                SymMode::Mirror => oa.then(crate::base::Orient::Mx180),
+            }
+        });
+        ia == ib || (l.hw[ia] == l.hw[ib] && l.hh[ia] == l.hh[ib] && eq(&l.variant, ia, ib) && orient_ok)
+    }
+
+    /// Device indices when both targets are in-range devices. `ia == ib` is
+    /// allowed: a pair collapsed into one macro degenerates to "centre on axis".
+    fn indices(self, l: &Layout) -> Option<(usize, usize)> {
+        let (Target::Device(da), Target::Device(db)) = (self.a, self.b) else {
+            return None;
+        };
+        let (ia, ib) = (da.0 as usize, db.0 as usize);
+        (ia < l.x.len() && ib < l.x.len()).then_some((ia, ib))
+    }
+
+    /// Place the pair at `axis ∓ half` on one row. Snapping `axis` and `half`
+    /// independently keeps both partners on-grid and their sum exactly `2·axis`.
+    fn mirror_about(self, l: &mut Layout, axis: i32, g: i32) {
+        let Some((ia, ib)) = self.indices(l) else { return };
+        let d = snap_to(l.x[ib], g) - snap_to(l.x[ia], g);
+        // Ceiling of |d|/2 on the grid, sign kept: a projected pair never moves closer.
+        let half = d.signum() * ((d.abs() + 2 * g - 1) / (2 * g)) * g;
+        l.x[ia] = axis - half;
+        l.x[ib] = axis + half;
+        let my = snap_to((l.y[ia] + l.y[ib]) / 2, g);
+        l.y[ia] = my;
+        l.y[ib] = my;
+    }
+
+    fn midpoint_x(self, l: &Layout, g: i32) -> Option<i32> {
+        let (ia, ib) = self.indices(l)?;
+        Some((snap_to(l.x[ia], g) + snap_to(l.x[ib], g)) / 2)
+    }
+}
+
 /// Nearest multiple of `g`, half away from zero (matches the placer's `snap`).
 #[inline]
 fn snap_to(v: i32, g: i32) -> i32 {
@@ -259,12 +278,14 @@ mod tests {
         Symmetry { a: Target::Device(DeviceId(0)), b: Target::Device(DeviceId(1)), axis: AxisId(0), mode: SymMode::Perfect }
     }
 
+    /// Oracle: spec example, |−1000 + 1500| = 0.5 µm by hand.
     #[test]
     fn symmetry_residual_is_the_mirror_error_in_um() {
         let l = layout(-1_000, 0, 1_500, 0);
         assert_eq!(SymmetryGroup(vec![rule()]).residual(&l), 0.5);
     }
 
+    /// Oracle: certificate, `satisfied` (the mirror equation) and the separation by hand.
     #[test]
     fn odd_parity_projection_never_shrinks_the_pair() {
         let mut l = layout(0, 0, 25, 0);
@@ -273,6 +294,7 @@ mod tests {
         assert!(rule().satisfied(&l));
     }
 
+    /// Oracle: certificate, `satisfied` checks the exact mirror equation.
     #[test]
     fn projection_satisfies_a_rule_no_penalty_could_close() {
         // Asymmetric and off-row — exactly what annealing leaves behind.
@@ -283,6 +305,7 @@ mod tests {
         assert_eq!(rule().cost(&l), 0.0);
     }
 
+    /// Oracle: certificate, every coordinate modulo the grid.
     #[test]
     fn projection_leaves_everything_on_grid() {
         // The parity case: an odd number of grid steps between the partners.
@@ -295,6 +318,7 @@ mod tests {
         }
     }
 
+    /// Oracle: metamorphic, snapping after projection changes nothing.
     #[test]
     fn projection_survives_a_later_grid_snap() {
         // The invariant the old code assumed but never established.
@@ -307,6 +331,7 @@ mod tests {
         assert!(rule().satisfied(&l), "snap must not undo the projection");
     }
 
+    /// Oracle: certificate, the mirror sums re-checked, and the mean of the midpoints by hand.
     #[test]
     fn a_stage_shares_one_axis() {
         use crate::rule::RuleBatch;
@@ -343,6 +368,7 @@ mod tests {
         assert_eq!(axis, 14_000);
     }
 
+    /// Oracle: spec example, the separations by hand.
     #[test]
     fn shared_axis_preserves_each_pair_separation() {
         use crate::rule::RuleBatch;
@@ -373,6 +399,7 @@ mod tests {
         assert_eq!(grp.violations(&l), 0);
     }
 
+    /// Oracle: spec example, PLC-03 (partners drawn alike).
     #[test]
     fn unequal_variants_are_not_symmetric() {
         let mut l = layout(-500, 0, 500, 0);
@@ -381,6 +408,7 @@ mod tests {
         assert!(!rule().satisfied(&l));
     }
 
+    /// Oracle: spec example, PLC-21's orient relation per mode.
     #[test]
     fn mirror_pair_satisfies_only_with_mx180_partner() {
         use crate::base::Orient::{Mx180, R0, R90};
@@ -397,6 +425,7 @@ mod tests {
         assert!(!rule().satisfied(&l), "Perfect still wants equal orients");
     }
 
+    /// Oracle: spec example, the kept pair by hand.
     #[test]
     fn demote_mirrors_keeps_only_allowed_pairs() {
         let pair =
@@ -408,6 +437,7 @@ mod tests {
         assert_eq!(out, [(2, 3)]);
     }
 
+    /// Oracle: metamorphic, the identity map changes nothing.
     #[test]
     fn retarget_identity_map_is_a_no_op() {
         // The regression anchor for a netlist with no matched groups: cell i is
@@ -421,6 +451,7 @@ mod tests {
         assert_eq!(p.cell_of, identity.to_vec());
     }
 
+    /// Oracle: spec example, the collapse map by hand.
     #[test]
     fn retarget_maps_both_partners_through_cell_of() {
         // Devices 0 and 1 collapsed into cell 0, device 2 became cell 1.
@@ -439,6 +470,7 @@ mod tests {
         assert_eq!(set.cell_of, cell_of.to_vec());
     }
 
+    /// Oracle: certificate, the degenerate mirror equation `x = axis` and the grid.
     #[test]
     fn collapsed_self_pair_projects_to_the_axis_on_grid() {
         // After group collapse both partners live inside one merged macro: the
@@ -455,6 +487,7 @@ mod tests {
         assert_eq!(l.x[1], 9_999, "the unrelated device must not move");
     }
 
+    /// Oracle: metamorphic, projecting twice equals projecting once.
     #[test]
     fn projection_is_idempotent_and_minimal() {
         let mut l = layout(1_000, 0, 5_000, 0);
