@@ -101,6 +101,7 @@ fn one_finger_each(spice: &str) -> String {
     spice.replace(" nf=2", "").replace(" nf=4", "").replace(" nf=8", "")
 }
 
+/// Oracle: `RECIPES.md` §1, a Minimal Current set's ladder is Adjacent alone.
 #[test]
 fn mirror_ratio_at_its_role_default_stays_adjacent() {
     let pdk = verify::Pdk::builtin("sky130").expect("a built-in deck");
@@ -110,21 +111,29 @@ fn mirror_ratio_at_its_role_default_stays_adjacent() {
     assert_eq!(calls.kind, [engine::RecipeKind::MosAdjacent], "{calls:?}");
 }
 
+/// Oracle: GPurify signoff on the real deck and kernel/analog's claim rules
+/// over the drawn units, neither of which reads the recipe.
 #[test]
 fn mirror_ratio_moderate_is_ratioed_on_sky130() {
     ratioed_signs_off("sky130", MIRROR_RATIO);
 }
 
+/// Oracle: GPurify signoff on the real deck and kernel/analog's claim rules
+/// over the drawn units, neither of which reads the recipe.
 #[test]
 fn mirror_ratio_moderate_is_ratioed_on_asap7() {
     ratioed_signs_off("asap7", &on_asap7(MIRROR_RATIO));
 }
 
+/// Oracle: GPurify signoff on the real deck and kernel/analog's claim rules
+/// over the drawn units, neither of which reads the recipe.
 #[test]
 fn unequal_fingers_draw_from_one_unit_on_sky130() {
     ratioed_signs_off("sky130", &one_finger_each(MIRROR_RATIO));
 }
 
+/// Oracle: GPurify signoff on the real deck and kernel/analog's claim rules
+/// over the drawn units, neither of which reads the recipe.
 #[test]
 fn unequal_fingers_draw_from_one_unit_on_asap7() {
     ratioed_signs_off("asap7", &on_asap7(&one_finger_each(MIRROR_RATIO)));
@@ -133,6 +142,7 @@ fn unequal_fingers_draw_from_one_unit_on_asap7() {
 /// One member off the unit: no call is Ratioed. sky130: M2's 1025 nm fingers
 /// leave a 25 nm gcd, under the 420 nm finger minimum. asap7: M2 at 7 fins
 /// against 5 leaves one fin, with M2 an odd count of it (no half fin).
+/// Oracle: the gcd worked by hand above against each deck's finger minimum.
 #[test]
 fn a_member_off_the_unit_is_not_ratioed() {
     for (deck, spice) in [

@@ -61,9 +61,9 @@ and typed fields for the `pdk_data` tables.
   by the user (at its BiasMirror default it is Minimal: Adjacent) and its
   one-finger-per-member form are Ratioed and clean on sky130 and asap7.
   Open: the conformance ratio axis fails on sky130 at L = 0.15 µm, three
-  members (tiles DRC clean, routes not: m1.2/m1.7 and LVS opens; Cc1d fails
-  the same row); "no diffusion break" has no scorer; the bounded candidate
-  pick against a width target (Q3/Q22).
+  members (a routing defect, Known gaps below; Ratioed is not available on
+  sky130 until it is fixed); "no diffusion break" has no scorer; the bounded
+  candidate pick against a width target (Q3/Q22).
 - **M2, started.** Floorplan library (targets, symmetric row stack, glue row
   with gaps from facing shapes and the fin-deck gate lattice); the engine
   takes the row stack from the annotator's mirror pairs on planar decks, else
@@ -124,6 +124,14 @@ and typed fields for the `pdk_data` tables.
   The annotator's `twelve_thousand_devices` budget is asserted in release
   only (`4896cb5`, 349 ms); `cap_array::extracted_bit_ratios_follow_the_weights`
   passes since `59a9fe8`.
+
+- MosRatioed's conformance ratio axis on sky130, W = 1 µm L = 0.15 µm, three
+  members (1:2:4), nfet and pfet, nf 1 and 2: four points fail, each a named
+  marker in `engine/tests/conformance.rs` (`KNOWN_FAILURES`). The tiles alone
+  are DRC clean; routed, LVS leaves devices and nets unpaired on all four
+  and the nfet routes also break m1.2. Owner: routing (branch `m2-route`). `availability.toml` reads
+  MosRatioed sky130 = false until the markers go; a marker whose point signs
+  off fails the test until it is removed.
 
 - M6 compaction verdict: deferred (docs/ref/research/compaction-verdict.md).
   The clean fixtures are single rigid tiles (100 % utilisation); on multi-tile
