@@ -736,7 +736,8 @@ mod tests {
         let check = |counts: &[u16]| {
             let Some((s, outer)) = diffusion_interdig_row(counts) else {
                 let odd = counts.iter().filter(|&&c| c % 2 == 1).count();
-                assert!(odd != 0 && odd != 2, "{counts:?}: no row");
+                assert!(odd != 0, "{counts:?}: no row");
+                assert!(odd != 2, "{counts:?}: no row");
                 return;
             };
             for (d, &cnt) in counts.iter().enumerate() {

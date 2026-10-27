@@ -379,7 +379,10 @@ mod tests {
             let r = place_rect(m.bbox, m.shapes[0].rect, &l, 0);
             assert_eq!(p.shapes[0].rect, r, "{o:?}");
             assert_eq!((p.bbox.x + p.bbox.w / 2, p.bbox.y + p.bbox.h / 2), (5000, 700), "{o:?}");
-            assert!(r.x >= p.bbox.x && r.y >= p.bbox.y && r.x + r.w <= p.bbox.x + p.bbox.w && r.y + r.h <= p.bbox.y + p.bbox.h, "{o:?}");
+            assert!(r.x >= p.bbox.x, "{o:?}");
+            assert!(r.y >= p.bbox.y, "{o:?}");
+            assert!(r.x + r.w <= p.bbox.x + p.bbox.w, "{o:?}");
+            assert!(r.y + r.h <= p.bbox.y + p.bbox.h, "{o:?}");
         }
     }
 
