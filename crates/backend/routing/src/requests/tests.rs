@@ -116,7 +116,13 @@ fn asymmetric_pins_report_the_pair_violated() {
 /// Negative control: a tolerance no drawn route meets reads violated.
 ///
 /// ponytail: `star: true` (branches meet only at the root) routes as a star
-/// but `dr`'s balance repair does not run on it (ΔR 4.3 Ω here): v2.
+/// but stays 4.3–4.5 Ω apart here: its branches are pseudo-nets `dr`'s
+/// balance repair never reroutes (that reroutes the parent along the
+/// bisector), and the gap is drawn access, not search — one branch meets the
+/// feed's jog on its own metal, the other crosses one more cut (4.5 Ω) to
+/// reach it. Picking roots per group (nearest its pins, one layer) moved it
+/// 0.2 Ω. Balancing a star needs a repair over the drawn branches (match
+/// their cut counts, or detour the shorter): v2.
 #[test]
 fn a_common_node_routes_equal_branch_r() {
     let (feed, a, b) = (at(4_000, 8_000), at(12_000, 2_000), at(12_000, 14_000));

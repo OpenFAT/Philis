@@ -877,7 +877,7 @@ impl DetailedRoute {
                                 && climb_clear(&reserved, m, jog_l)
                         })
                 };
-                let cands = grid.candidates(ca.0, ca.1, &claimed, ok_n, 8, 12);
+                let cands = grid.candidates((ca.0, ca.1, pin_base(layers, la)), &claimed, ok_n, 8, 12);
                 let spaced = (stitch, (cfg.pitch - cfg.wire_width).max(1));
                 let pick = [spaced, (full, 1)].into_iter().find_map(|(zone, gap)| {
                     cands.iter().copied().find_map(|n| {
@@ -937,6 +937,8 @@ impl DetailedRoute {
                 let (cx, cy) = (r.x + r.w / 2, r.y + r.h / 2);
                 // Never land inside another net's stitch reservation.
                 let jog_l = jog_layer(cfg, layers, cuts, grid.n_layers, r_layer);
+                // Landing searches from the pin's own lattice layer.
+                let base = pin_base(layers, r_layer);
                 let mine = |n: u32| {
                     [NONE, CONTESTED, ci as u32].contains(&reserved[n as usize])
                         && blocked_for[ci].binary_search(&n).is_err()
@@ -970,7 +972,14 @@ impl DetailedRoute {
                 let narrow = full.min(r.w).min(r.h).max(floor).max(need);
                 // A point terminal (1×1 rect) is its own node: nothing to jog to.
                 let point = r.w <= 1 && r.h <= 1;
-                let cands = if point { Vec::new() } else { grid.candidates(cx, cy, &claimed, clean, 8, 12) };
+                let mut cands = if point { Vec::new() } else { grid.candidates((cx, cy, base), &claimed, clean, 8, 12) };
+                // Nearest first within each layer's ring: the ring scan's own
+                // order (row by row) is not distance.
+                cands.sort_by_key(|&n| {
+                    let ((px, py, l), (ix, iy, _)) = (grid.pos(n), grid.ixy(n));
+                    let ring = (ix as i32 - grid.bin_x(cx) as i32).abs().max((iy as i32 - grid.bin_y(cy) as i32).abs());
+                    (l, ring, (px - cx).abs() + (py - cy).abs())
+                });
                 // Spaced from every foreign pin's future pad first, then merely
                 // not touching it.
                 let spaced = (stitch, (cfg.pitch - cfg.wire_width).max(1));
@@ -999,10 +1008,10 @@ impl DetailedRoute {
                         Some((n, Some(choice)))
                     }
                     None => grid
-                        .candidates(cx, cy, &claimed, clean, 2, 1)
+                        .candidates((cx, cy, base), &claimed, clean, 2, 1)
                         .first()
-                        .or(grid.candidates(cx, cy, &claimed, short_ok, 3, 1).first())
-                        .or(grid.candidates(cx, cy, &claimed, mine, 4, 1).first())
+                        .or(grid.candidates((cx, cy, base), &claimed, short_ok, 3, 1).first())
+                        .or(grid.candidates((cx, cy, base), &claimed, mine, 4, 1).first())
                         .map(|&n| (n, None)),
                 };
                 let Some((n, choice)) = landed else {
@@ -1531,9 +1540,10 @@ impl DetailedRoute {
                 };
                 // The non-route metal each net keeps off: other nets' pins, cell metal
                 // not its own lead, and the hard blockages binding it.
+                let own_cell: Vec<Vec<Shape>> = (0..n_nets).map(cell_of).collect();
                 let statics: Vec<Vec<Shape>> = (0..n_nets)
                     .map(|ni| {
-                        let mine = cell_of(ni);
+                        let mine = &own_cell[ni];
                         (0..n_nets)
                             .filter(|&n| n != ni)
                             .flat_map(|n| term_rects[n].iter().map(|&(r, l, _)| Shape { layer: l, rect: r }))
@@ -1550,7 +1560,8 @@ impl DetailedRoute {
                 // Metal added after search (redundant cuts, corner stubs and
                 // squares) goes where it clears: a cut every cut but itself by cut
                 // spacing (same-net too), metal the other nets' wires and its
-                // statics by the fill's spacing, its own net's metal by that spacing
+                // statics by the fill's spacing, its own net's metal (wires and
+                // the cell metal it reaches, [`cell_metal`]) by that spacing
                 // unless it touches (no new notch or sliver).
                 //
                 // ponytail: linear scan per candidate shape (O(sites × shapes)).
@@ -1574,7 +1585,12 @@ impl DetailedRoute {
                         |g: &Shape| g.layer != s.layer || rect_gap(g.rect, s.rect) >= cfg.space(s.layer, md(s.rect), md(g.rect), fill_space(s.layer));
                     statics[n].iter().all(ok)
                         && wires.iter().enumerate().filter(|&(m, _)| m != n).flat_map(|(_, w)| w).all(ok)
-                        && wires.get(n).is_none_or(|w| w.iter().all(|g| g.layer != s.layer || rect_gap(g.rect, s.rect) == 0 || ok(g)))
+                        && wires
+                            .get(n)
+                            .into_iter()
+                            .flatten()
+                            .chain(&own_cell[n])
+                            .all(|g| g.layer != s.layer || rect_gap(g.rect, s.rect) == 0 || ok(g))
                 };
                 let mut image: Vec<Option<(usize, crate::gr::LatticeMap)>> = vec![None; n_nets];
                 for (a, m) in cold.mirror.iter().enumerate() {
@@ -1859,7 +1875,7 @@ impl DetailedRoute {
                 order.sort_by_key(|&ni| lead[ni].is_some());
                 let mut fillers: Vec<Vec<Shape>> = vec![Vec::new(); n_nets];
                 for ni in order {
-                    let mine = cell_of(ni);
+                    let mine = own_cell[ni].clone();
                     let foreign: Vec<Shape> = flat.iter().filter(|&&(i, _)| i != ni).map(|&(_, s)| s).chain(statics[ni].iter().copied()).collect();
                     if let Some((a, map)) = lead[ni] {
                         for f in std::mem::take(&mut fillers[a]) {
@@ -2584,7 +2600,7 @@ fn jog_legs(nx: i32, ny: i32, px: i32, py: i32, w: i32) -> [[Rect; 2]; 2] {
 
 /// Lattice layer an access jog off `pin_layer` runs on.
 fn jog_layer(cfg: &DetailedCfg, layers: &[LayerId], cuts: &[Cut], n_layers: u32, pin_layer: LayerId) -> u32 {
-    let base = layers.iter().position(|&l| l == pin_layer).unwrap_or(0) as u32;
+    let base = pin_base(layers, pin_layer);
     let l = match cfg.pin_access {
         Some((pl, _)) if pl == pin_layer => 0,
         _ if base + 1 < n_layers && (base as usize) < cuts.len() => base + 1,
@@ -2593,10 +2609,15 @@ fn jog_layer(cfg: &DetailedCfg, layers: &[LayerId], cuts: &[Cut], n_layers: u32,
     l.min(n_layers.saturating_sub(1))
 }
 
+/// `pin_layer`'s lattice layer; 0 for a layer below the lattice (pin access).
+fn pin_base(layers: &[LayerId], pin_layer: LayerId) -> u32 {
+    layers.iter().position(|&l| l == pin_layer).unwrap_or(0) as u32
+}
+
 /// Jog legs clear of every foreign stitch zone (`zone` wide) and every foreign
 /// leg already laid.
-/// No leg touches another net's pin zone (a `zone`-sided square at the pin,
-/// kept `gap` away: a pin landed later still draws its pad there) or a jog
+/// No leg comes within `gap` of another net's pin zone (a `zone`-sided square
+/// at the pin: a pin landed later still draws its pad there) or of its jog
 /// already laid, or overlaps a hard blockage in `blocks` (those binding the
 /// net on the jog's layer).
 #[allow(clippy::too_many_arguments)]
@@ -2604,7 +2625,7 @@ fn jog_clean(legs: &[Rect; 2], ci: usize, zone: i32, gap: i32, zones: &[(u32, i3
     zones.iter().all(|&(zci, zx, zy)| {
         let zr = Rect { x: zx - zone / 2, y: zy - zone / 2, w: zone, h: zone };
         zci as usize == ci || legs.iter().all(|&l| rect_gap(l, zr) >= gap.max(1))
-    }) && laid.iter().all(|&(lci, lr)| lci == ci || legs.iter().all(|&l| rect_gap(l, lr) > 0))
+    }) && laid.iter().all(|&(lci, lr)| lci == ci || legs.iter().all(|&l| rect_gap(l, lr) >= gap.max(1)))
         && blocks.iter().all(|&b| legs.iter().all(|&l| !overlaps(l, b)))
 }
 
@@ -4252,6 +4273,32 @@ mod tests {
 
     fn rules(r: &Report) -> Vec<&String> {
         r.hard_violations.iter().map(|v| &v.rule).collect()
+    }
+
+    /// Two pins on lattice layer 2 of four, with layers 0 and 1 filled by
+    /// fixed metal: they land from their own layer and the net closes.
+    /// Before: landing searched layers 0 and 1 only, so neither pin landed
+    /// (with a smaller fill, both jogged blind past its edge).
+    /// Oracle: dr's open-net and unlanded rows, and the drawn metal on layer
+    /// 2 or 3 over each pin.
+    #[test]
+    fn a_pin_above_the_lowest_layers_lands_from_its_own() {
+        let layers = [LayerId(0), LayerId(1), LayerId(3), LayerId(5)];
+        let cuts: [Cut; 3] = [(LayerId(2), 100, 140, 140), (LayerId(4), 100, 140, 140), (LayerId(6), 100, 140, 140)];
+        let at = |x, y| Rect { x, y, w: 170, h: 170 };
+        let pins = [(NetId(0), at(1_000, 1_000), layers[2]), (NetId(0), at(9_000, 6_000), layers[2])];
+        // Past the landing search's eight rings around either pin.
+        let fill = Rect { x: -5_000, y: -5_000, w: 20_000, h: 16_000 };
+        let fixed =
+            Macro { shapes: vec![Shape { layer: layers[0], rect: fill }, Shape { layer: layers[1], rect: fill }], bbox: fill, ..Macro::default() };
+        let reqs = Requirements::<Routes>::default();
+        let neg = &mut crate::gr::Negotiation::new();
+        let (routes, report, _) = DetailedRoute { cfg: test_cfg() }.route(&pins, &[], &[fixed], &reqs, &layers, &cuts, neg);
+        let bad: Vec<&String> = rules(&report).into_iter().filter(|r| r.starts_with("open net") || r.contains("unlanded")).collect();
+        assert!(bad.is_empty(), "{:?}", rules(&report));
+        for p in &pins {
+            assert!(routes.wires[0].iter().any(|s| [layers[2], layers[3]].contains(&s.layer) && s.rect.touches(&p.1)), "pin {:?} unreached", p.1);
+        }
     }
 
     #[test]

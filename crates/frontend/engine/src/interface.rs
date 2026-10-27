@@ -1,9 +1,9 @@
 //! The block harness (`docs/API.md` §1 `Inputs::interface`, 1.0
 //! `library::Interface`): a fixed die the floorplan sits centred in, and the
 //! boundary pins a parent connects to. Each pin is a macro at the die edge,
-//! on its metal, bound to its port net, with a via stack down to the lowest
-//! routed metal where `dr` lands it; signoff labels those pins, so LVS ports
-//! are the harness's.
+//! on its metal, bound to its port net, where `dr` lands it (a metal above
+//! the routed stack carries a via stack down to its top); signoff labels
+//! those pins, so LVS ports are the harness's.
 
 use analog::base::netlist::Netlist as Flat;
 use analog::base::{LayerId, Macro, NetId, Pin, Rect, Shape};
@@ -138,9 +138,9 @@ pub(crate) fn reach(bound: &[Bound], pdk: &Pdk) -> i32 {
 
 /// The boundary pin macros, in world coordinates (past the layout's rows, so
 /// `place_macros` leaves them as drawn): the die centred on the placed
-/// block's bbox, each pin at its side and fraction, with the deck's via
-/// stack at its centre down to the lowest routed metal's pad — the one pin
-/// `dr` sees and climbs from.
+/// block's bbox, each pin at its side and fraction — the one pin `dr` sees
+/// and lands from its own metal; a metal above the routed stack carries the
+/// deck's via stack at its centre down to the top routed metal's pad.
 ///
 /// # Errors
 /// `interface`: the block does not fit in the die [`reach`] from its edges.
@@ -151,6 +151,7 @@ pub(crate) fn boundary(i: &Interface, bound: &[Bound], placed: &[Macro], pdk: &P
     let vias = pdk.routing_vias();
     let stack = crate::route::routing_stack(pdk, None).map_err(|e| refuse("interface", e))?;
     let floor = metals.iter().position(|&m| m == stack.layers[0]).expect("the routing stack is the deck's metals");
+    let top = floor + stack.layers.len() - 1;
     let block = placed.iter().map(|m| m.bbox).reduce(crate::union).unwrap_or_default();
     let margin = reach(bound, pdk);
     let (w, h) = i.die_nm.unwrap_or((block.w + 2 * margin, block.h + 2 * margin));
@@ -203,19 +204,18 @@ pub(crate) fn boundary(i: &Interface, bound: &[Bound], placed: &[Macro], pdk: &P
             };
             let square = |l: LayerId, s: i32| Shape { layer: l, rect: Rect { x: cx - s / 2, y: cy - s / 2, w: s, h: s } };
             let mut shapes = vec![Shape { layer: metals[b.metal], rect }];
-            // The lowest cut is pin access's: `dr` draws it where its own
-            // vias leave room, so a second one here would overlap theirs.
-            for k in floor..b.metal {
+            let at = b.metal.min(top);
+            for k in at..b.metal {
                 let (cut, s, below, above) = vias[k];
-                shapes.extend([square(metals[k], below), square(metals[k + 1], above)]);
-                if k > floor {
-                    shapes.push(square(cut, s));
-                }
+                shapes.extend([square(metals[k], below), square(metals[k + 1], above), square(cut, s)]);
             }
-            // The stack's bottom pad, on the lowest routed metal.
-            let low = if b.metal <= floor { rect } else { shapes[1].rect };
+            // On a routed metal `dr` lands the pin's core on the node (not
+            // the whole rect, whose centre is off it); else the stack's
+            // bottom pad on the top routed metal.
+            let (w, h) = if matches!(p.side, Side::North | Side::South) { (along, inward) } else { (inward, along) };
+            let low = if b.metal == at { Rect { x: cx - w / 2, y: cy - h / 2, w, h } } else { shapes[1].rect };
             Macro {
-                pins: vec![Pin { name: format!("io:{}", p.net), net: b.net, at: low, layer: metals[b.metal.min(floor)] }],
+                pins: vec![Pin { name: format!("io:{}", p.net), net: b.net, at: low, layer: metals[at] }],
                 bbox: shapes.iter().map(|s| s.rect).reduce(crate::union).expect("the pin rect"),
                 shapes,
                 ..Macro::default()

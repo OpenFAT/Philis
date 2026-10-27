@@ -889,7 +889,7 @@ fn run_calls_in(
         None => Vec::new(),
     };
     tiles.extend(io.iter().cloned());
-    let (placed, routes, route_report) = route::route(&tiles, &layout, problem, cfg, netlist.flat.nets.len(), pdk);
+    let (placed, routes, route_report) = route::route(&tiles, &layout, &calls, problem, cfg, netlist.flat.nets.len(), pdk);
     let signoff = match interface {
         Some(_) => {
             let names: Vec<String> = netlist.flat.nets.iter().map(|n| n.name.clone()).collect();
