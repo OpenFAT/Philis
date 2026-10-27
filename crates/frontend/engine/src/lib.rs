@@ -7,6 +7,7 @@
 //! spine names but M0 does not need yet (`gate_confidence`, `compact`,
 //! `score_claims`, `print`) land with the milestone that needs them.
 
+pub mod claims;
 pub mod route;
 
 use std::collections::{HashMap, HashSet};
@@ -624,6 +625,7 @@ pub fn arrange(tiles: &[Macro], pdk: &Pdk) -> Result<Layout, Refusal> {
 /// Everything signoff reads, and its verdict.
 pub struct Outcome {
     pub calls: RecipeCalls,
+    pub claims: claims::Claims,
     pub placed: Vec<Macro>,
     pub routes: Routes,
     pub route_report: Report,
@@ -703,11 +705,12 @@ fn dummy_cards(placed: &[Macro], nets: &[String], schematic: &[RefDeviceIn]) -> 
 
 /// The report: one line per call, then the signoff verdict.
 #[must_use]
-pub fn report(calls: &RecipeCalls, flat: &Flat, signoff: &verify::Signoff) -> String {
+pub fn report(calls: &RecipeCalls, claims: &claims::Claims, flat: &Flat, signoff: &verify::Signoff) -> String {
     let mut s = String::new();
     for i in 0..calls.len() {
         s.push_str(&format!("call {i}: {:?} [{}] ladder step {}\n", calls.kind[i], names(flat, calls.members_of(i)), calls.ladder_step[i]));
     }
+    s.push_str(&claims.to_string());
     let hard = &signoff.report.hard_violations;
     s.push_str(&format!("signoff: {} hard violations\n", hard.len()));
     for v in hard {
@@ -743,8 +746,9 @@ pub fn run_calls(
 ) -> Result<Outcome, Refusal> {
     let tiles = build_tiles(&calls, problem, &netlist.flat, pdk)?;
     let layout = arrange(&tiles, pdk)?;
+    let claims = claims::score_claims(&calls, &tiles, &layout, problem, pdk);
     let (placed, routes, route_report) = route::route(&tiles, &layout, problem, cfg, netlist.flat.nets.len(), pdk);
     let signoff = signoff(netlist, &placed, &routes, pdk, engine)?;
-    let report = report(&calls, &netlist.flat, &signoff);
-    Ok(Outcome { calls, placed, routes, route_report, signoff, report })
+    let report = report(&calls, &claims, &netlist.flat, &signoff);
+    Ok(Outcome { calls, claims, placed, routes, route_report, signoff, report })
 }
