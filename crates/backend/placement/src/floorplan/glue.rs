@@ -1,18 +1,20 @@
 //! FLOOR-GlueRow (Q20): tiles left to right in the caller's order. On a
-//! planar deck they sit `gap` apart on the cut lattice, as the engine's
-//! one-row floorplan did. On a fin deck every tile's gates join one gate
+//! planar deck each sits as close as the shapes facing its neighbours allow,
+//! on the cut lattice. On a fin deck every tile's gates join one gate
 //! lattice and the breaks between tiles carry field gates, so the deck's
 //! exact pitches hold across tile boundaries (ASAP7 GATE.S.1, FIN.S.1).
 
 use analog::base::{LayerId, Macro, Orient, Process, Rect, Shape};
 
+use super::spacing::{clearance, oriented, shifted, Spacing};
 use super::{up, Floorplan, Refusal};
 
 /// Place `tiles` in one row (row 0, no axis) and return the floorplan with
 /// the fill it needs, world frame (empty off a fin deck).
 ///
-/// Planar (`process` has no `fin` layer): tile `k` starts `gap` past tile
-/// `k − 1`'s right edge, rounded up onto `lattice`.
+/// Planar (`process` has no `fin` layer): tile `k` starts where its shapes
+/// clear every placed tile's facing shapes by their layer pair's `spacing`
+/// (wells included), rounded up onto `lattice`.
 ///
 /// Fin deck: each tile's actives start the deck's horizontal active spacing
 /// (`horizontal_space("diff")`, ASAP7 ACTIVE.S.2A 92 nm) past the previous
@@ -23,18 +25,19 @@ use super::{up, Floorplan, Refusal};
 /// the tiles' end gates (PODE) keep it the deck's gate-to-field spacing off
 /// their actives (GATE.ACTIVE.S.4), as within a cell. Neighbours that both
 /// draw a well are bridged by one (the break is narrower than the well
-/// spacing, ASAP7 WELL.S.2). `gap` and `lattice`
-/// are unused there: the active spacing and the gate pitch replace them.
+/// spacing, ASAP7 WELL.S.2). The facing shapes' `spacing` (the well's own
+/// aside) can only push a tile further, a whole gate pitch at a time;
+/// `lattice` is unused: the gate pitch replaces it.
 ///
 /// # Errors
 /// [`Refusal::GateSpan`]: on a fin deck, a tile whose gates span other
 /// heights than tile 0's once aligned. ponytail: refuses rather than
 /// stretching gates; Q22's height target hands every cell in a row one gate
 /// span when the engine wires targets in.
-pub fn glue(tiles: &[Macro], process: &dyn Process, gap: i32, lattice: i32) -> Result<(Floorplan, Macro), Refusal> {
+pub fn glue(tiles: &[Macro], process: &dyn Process, spacing: &Spacing, lattice: i32) -> Result<(Floorplan, Macro), Refusal> {
     let n = tiles.len();
     assert!(n <= usize::from(u16::MAX), "tiles are u16-indexed");
-    assert!(lattice > 0 && gap >= 0);
+    assert!(lattice > 0);
     let mut f = Floorplan {
         x: vec![0; n],
         y: vec![0; n],
@@ -45,11 +48,13 @@ pub fn glue(tiles: &[Macro], process: &dyn Process, gap: i32, lattice: i32) -> R
         axis: Vec::new(),
     };
     let mut fill = Macro::default();
+    // Every placed tile's shapes, world frame.
+    let mut placed: Vec<Shape> = Vec::new();
     let (Some(fin), Some(gate), Some(act)) = (process.layer("fin"), process.layer("poly"), process.layer("diff")) else {
-        let mut cursor = 0;
         for (k, m) in tiles.iter().enumerate() {
-            f.x[k] = cursor;
-            cursor = up(cursor + m.bbox.w + gap, lattice);
+            let shapes = oriented(&m.shapes, m.bbox, Orient::R0);
+            f.x[k] = if k == 0 { 0 } else { up(clearance(&placed, &shapes, spacing, false, None), lattice) };
+            placed.extend(shifted(&shapes, f.x[k], 0));
         }
         return Ok((f, fill));
     };
@@ -74,13 +79,15 @@ pub fn glue(tiles: &[Macro], process: &dyn Process, gap: i32, lattice: i32) -> R
             span = (gates.y + dy[0], gates.y + gates.h + dy[0]);
         } else {
             let (last_gate, act_end) = prev.expect("tile 0 set it");
-            // Clear the active spacing, then land the first gate on the lattice.
-            let x = act_end + act_s - acts.x;
-            dx[k] = x + (last_gate - (gates.x + x)).rem_euclid(gate_p);
             // Bottom on tile 0's active bottom, then up onto its fin lattice.
             let y = extent(&tiles[0], act).y + dy[0] - acts.y;
             let fin0 = extent(&tiles[0], fin).y + dy[0];
             dy[k] = y + (fin0 - (fins.y + y)).rem_euclid(fin_p);
+            // Clear the active spacing and the facing shapes, then land the
+            // first gate on the lattice.
+            let lifted: Vec<Shape> = shifted(&m.shapes, 0, dy[k]).collect();
+            let x = (act_end + act_s - acts.x).max(clearance(&placed, &lifted, spacing, false, well));
+            dx[k] = x + (last_gate - (gates.x + x)).rem_euclid(gate_p);
             if (gates.y + dy[k], gates.y + gates.h + dy[k]) != span {
                 return Err(Refusal::GateSpan { tile: k as u16 });
             }
@@ -103,6 +110,7 @@ pub fn glue(tiles: &[Macro], process: &dyn Process, gap: i32, lattice: i32) -> R
         }
         let last = m.shapes.iter().filter(|s| s.layer == gate).map(|s| s.rect.x).max().expect("a gate");
         prev = Some((last + dx[k], acts.x + acts.w + dx[k]));
+        placed.extend(shifted(&m.shapes, dx[k], dy[k]));
         f.x[k] = m.bbox.x + dx[k];
         f.y[k] = m.bbox.y + dy[k];
     }
