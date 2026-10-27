@@ -837,10 +837,11 @@ a coded refusal, or a named known failure:
 
 GPurify gaps reported to the GPurify session, each a named known failure
 until it lands: the JSON stage summary and `layer_name`; intent `ports` for
-`unconnected_pin` and `floating_gate`; label names on a short; and three
-2.0 regressions 1.0 had fixed, carried as `# PHILIS:` deck edits meanwhile
+`unconnected_pin` and `floating_gate`; label names on a short; two 2.0
+regressions 1.0 had fixed, carried as `# PHILIS:` deck edits meanwhile
 (sky130 `lvtn.10` selecting its wells, `soft_connection` keeping `psub`
-soft) or as a known failure (asap7 PEX: `LIG` has no sourced resistance).
+soft). asap7 PEX stays a known failure: `LIG` has no public sourced
+resistance (OmarSiwy/GPurify#26).
 
 Change drill: re-pinning GPurify is `flake.lock`'s `gpurify` input, the
 four decks re-vendored onto the new rev (`decks::every_deck_edit_is_marked_philis`
