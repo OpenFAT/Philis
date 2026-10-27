@@ -11,6 +11,7 @@ use super::*;
 /// AA-01 (EXT-13, closed by EXT-15's shared-bias groups): `mirror6` is one 6-device
 /// `Matching` node with MR the set's reference; three_stage's tail sits in the
 /// compound's Symmetry node and in the bias set with M7, M9.
+/// Oracle: AA-01 by hand: mirror6 is one six-device Matching node.
 #[test]
 fn overlapping_requirements_share_one_group() {
     let nl = net(src("mirror6"));
@@ -30,6 +31,7 @@ fn overlapping_requirements_share_one_group() {
 
 /// `benchmarks/fixtures/mirror_ratio.spice` (M1 Status): the 1:2:4 mirror is one
 /// matched set and one Unitization, not split per size class.
+/// Oracle: the fixture's 1:2:4 mirror is one matched set, by construction.
 #[test]
 fn mirror_ratio_is_one_set() {
     let nl = net("XM1 d1 d1 VSS VSS nfet_01v8 W=2u L=1u nf=2 | XM2 d2 d1 VSS VSS nfet_01v8 W=4u L=1u nf=4
@@ -45,6 +47,8 @@ fn mirror_ratio_is_one_set() {
 
 /// T10 (EXT-16): with no spec every class is a Role default; a 1σ offset spec makes
 /// the Voltage sets Spec-sourced (6·0.5 = 3 mV → Moderate) and leaves Current sets on Role (card D-i).
+/// Oracle: metamorphic: with no spec every class is Role; a 0.5 mV spec makes Voltage sets Spec (6·0.5 = 3
+/// mV).
 #[test]
 fn class_sources() {
     for (name, src) in all() {
@@ -62,6 +66,7 @@ fn class_sources() {
 
 /// EXT-14 step 9 (card D-d): σ = 0.3 mV puts 6σ = 1.8 mV under 3 mV, so the
 /// DiffPair set is Exceptional Voltage and its compound Perfect; 0.5 mV keeps Mirror.
+/// Oracle: hand arithmetic: 6·0.3 = 1.8 mV < 3 mV is Exceptional, 3 mV is not.
 #[test]
 fn exceptional_voltage_compound_is_perfect() {
     use analog::intent::{MatchClass, MatchKind, SymKind};
@@ -78,6 +83,7 @@ fn exceptional_voltage_compound_is_perfect() {
 /// EXT-15/16 per-set Unitization flags: folded's Minimal bias set {M7, M8} (one
 /// finger W/L) needs no dummies and is Adjacent; dac4's Ratio set, downgraded
 /// below Moderate by hand, drops dummies and route matching (Ratio < Moderate).
+/// Oracle: the class table: Minimal needs no dummies and is Adjacent.
 #[test]
 fn per_set_unitization_follows_class() {
     use analog::intent::{ArrayStyle, MatchClass};
@@ -105,6 +111,7 @@ fn per_set_unitization_follows_class() {
 /// EXT-19: the split DAC's bridge is checked against `(C_T^LSB/C_T^MSB)·C_u`
 /// (4/3 of the 9 µm² unit = 3×4 µm): exact gives no diagnostic, `l=5u` gives one.
 /// The set is one Unitization although the bridge is off the unit (CELL-21).
+/// Oracle: hand arithmetic: (C_T^LSB/C_T^MSB)·C_u = 4/3 of 9 µm²; `l=5u` misses it.
 #[test]
 fn split_dac_bridge_value() {
     let bridge = |p: &annotator::Problem| p.intent.diagnostics.iter().any(|d| d.kind == "bridge_cap_value");
@@ -124,6 +131,7 @@ fn split_dac_bridge_value() {
 /// EXT-19 step 4 gate: every device cellgen's deleted `dac_banks`, `bjt_groups`
 /// and `parallel_groups` grouped on the bench fixtures is in one annotator
 /// Unitization with cellgen's counts and flags.
+/// Oracle: differential: cellgen's deleted grouping (counts and flags) on the same fixtures.
 #[test]
 fn annotator_covers_cellgen_groups() {
     let cases: [(&str, &[&str], &[u16], bool, bool); 4] = [
@@ -155,6 +163,7 @@ fn touched_of(arm: &[Box<dyn analog::RuleBatch<analog::base::Layout>>], kind: &s
 }
 
 /// T5 (EXT-20): one `MatchedSet` batch per intent set, in set order, on exactly its devices.
+/// Oracle: the intent's sets: one MatchedSet batch each, on exactly its devices.
 #[test]
 fn one_rule_per_set() {
     for (name, src) in all() {
@@ -186,6 +195,7 @@ fn one_rule_per_set() {
 
 /// AA-24 (EXT-20): `mirror6` is one ratioed set, MR in slot 0, matched and
 /// pulled to MR (Minimal) but not mirrored; made Moderate it loses the pull.
+/// Oracle: AA-24: a ratioed set is matched, not mirrored; metamorphic with the class raised.
 #[test]
 fn ratioed_mirror_not_mirrored() {
     let count = |arm: &[Box<dyn analog::RuleBatch<analog::base::Layout>>], k: &str| {
@@ -213,6 +223,7 @@ fn ratioed_mirror_not_mirrored() {
 /// T5/AA-24 (EXT-20): only an equal couple mirrors. Unequal units (unit
 /// `Some`) or, without a unit, unequal drawn geometry drop the couple from the
 /// hard Symmetry; its MatchedSet and DtiBand stay.
+/// Oracle: T5/AA-24: an unequal couple drops from Symmetry; its MatchedSet and DtiBand stay.
 #[test]
 fn unequal_couple_matched_not_mirrored() {
     let nl = net(src("ota5t"));
@@ -252,6 +263,7 @@ fn unequal_couple_matched_not_mirrored() {
 /// EXT-20: a bipolar set's MatchedSet carries the deck's `bjt_ka_pct_um`;
 /// without it the random term is unknown. `bgr_core`'s PNPs are fixed-geometry
 /// (no W/L, area 0 to `emit`), so the test writes a 3.4×3.4 µm emitter.
+/// Oracle: the deck key: with `bjt_ka_pct_um` the random term is known; without it, unknown.
 #[test]
 fn bipolar_set_reads_bjt_ka() {
     let nl = net(src("bgr_core"));
@@ -293,6 +305,7 @@ fn bipolar_set_reads_bjt_ka() {
 }
 
 /// EXT-17: without evidence every device has facts, and no region is guessed.
+/// Oracle: the input: no evidence, so every region is Unknown.
 #[test]
 fn no_evidence_no_regions() {
     for (name, src) in all() {
@@ -304,6 +317,7 @@ fn no_evidence_no_regions() {
 }
 
 /// EXT-18: refined net classes on the corpus.
+/// Oracle: hand-labelled classes per corpus net (EXT-18), written from each circuit's function.
 #[test]
 fn net_classes() {
     use analog::metadata::NetClass::{self, *};
@@ -339,6 +353,7 @@ fn names(nl: &analog::base::Netlist, ds: impl Iterator<Item = analog::base::ids:
 
 /// EXT-23: the clocked tail and precharge devices aggress; the Moderate sets
 /// are victims minus aggressors; the Minimal output inverter is not.
+/// Oracle: the StrongARM's clocked devices (mn0, mp7..mp10) by name, from the circuit's own clocking.
 #[test]
 fn strongarm_tags() {
     let nl = net(STRONGARM);
@@ -349,6 +364,7 @@ fn strongarm_tags() {
 }
 
 /// EXT-23, C19/T8: the 5T OTA has no aggressor, so no guard ring.
+/// Oracle: the textbook 5T OTA has no clocked device, so no aggressor.
 #[test]
 fn ota5t_tags() {
     let nl = net(src("ota5t"));
@@ -370,6 +386,7 @@ fn ota5t_tags() {
 }
 
 /// EXT-23: DAC4's switch logic is digital, so no inverter device is a victim.
+/// Oracle: the input: DAC4's switch inverters are digital.
 #[test]
 fn dac4_logic_is_no_victim() {
     let nl = net(src("dac4"));
@@ -383,6 +400,7 @@ fn net_id(nl: &analog::base::Netlist, n: &str) -> analog::base::ids::NetId {
 }
 
 /// EXT-24: folded's Differential pairs are its compound's mirrored nets.
+/// Oracle: the folded cascode's mirrored nets, by name.
 #[test]
 fn folded_differential_pairs() {
     let nl = net(src("folded"));
@@ -395,6 +413,7 @@ fn folded_differential_pairs() {
 /// EXT-24: strongarm shields its four analog nets to `vss`, whose return the
 /// clocked tail shares (SUB-30 diagnostic). With no aggressor net (the clock
 /// renamed and unconfigured: `clk` is a clock by name alone), no shield.
+/// Oracle: metamorphic: with the clock renamed and unconfigured, no shield.
 #[test]
 fn strongarm_shields() {
     let nl = net(STRONGARM);
@@ -422,6 +441,7 @@ fn names_of(nl: &analog::base::Netlist, ds: &[analog::base::ids::DeviceId]) -> V
 
 /// EXT-24: ota5t's input pair shares `vtail`, its load `VDD`; the tail is the
 /// single feed, so no star.
+/// Oracle: the textbook 5T OTA: the pair shares `vtail`, the load `VDD`; one feed, so no star.
 #[test]
 fn ota5t_common_nodes() {
     let nl = net(src("ota5t"));
@@ -436,6 +456,7 @@ fn ota5t_common_nodes() {
 
 /// EXT-24: mirror6's reference MR against each output on `VSS`; an unrelated
 /// device returning through `VSS` makes it a star of the six members.
+/// Oracle: the input: MR against each of five outputs on `VSS`.
 #[test]
 fn mirror6_common_nodes_and_star() {
     let nl = net(src("mirror6"));
@@ -451,6 +472,7 @@ fn mirror6_common_nodes_and_star() {
 
 /// EXT-24 step 4 with an op point: `MX` on mirror6's `VSS` is a star only when
 /// its current exceeds 1% of the six members' (60 µA here); a port is the feed.
+/// Oracle: hand arithmetic: 1 % of the six members' 60 µA is the threshold.
 #[test]
 fn star_needs_nonmember_current_with_an_op_point() {
     use annotator::evidence::DeviceOp;
@@ -488,6 +510,7 @@ fn star_needs_nonmember_current_with_an_op_point() {
 
 /// EXT-26 step 4: a sidecar `NetClass` beats the 'CurrentSource gate is Bias'
 /// pass. mirror6's outputs are CurrentSources (shared bias) gated by `ref`.
+/// Oracle: EXT-26 step 4: a sidecar class has User evidence and wins.
 #[test]
 fn user_net_class_survives_the_current_source_gate_pass() {
     use annotator::evidence::DeviceOp;
@@ -519,6 +542,7 @@ fn user_net_class_survives_the_current_source_gate_pass() {
 
 /// EXT-24: a sense resistor across the input pair's gates is Kelvin-sensed at
 /// each end by the gate on that net (one request per terminal).
+/// Oracle: the input: RS across the pair's gates, so one Kelvin request per terminal.
 #[test]
 fn kelvin_from_sense_resistor() {
     let nl = net(&format!("{} | RS vinp vinm rpoly w=2u l=10u", src("ota5t")));
@@ -536,6 +560,7 @@ fn kelvin_from_sense_resistor() {
 }
 
 /// EXT-24: the DAC's shared top plate is capacitive, its driven plates resistive.
+/// Oracle: the DAC's structure: the shared top plate is capacitive, the driven plates resistive.
 #[test]
 fn dac4_plate_rc() {
     let nl = net(src("dac4"));
@@ -550,6 +575,7 @@ fn dac4_plate_rc() {
 /// EXT-29: the audit runs on every circuit with an op point (Id 10 µA everywhere). gm 100 µS gives
 /// 2·Id/gm = 200 mV of overdrive: three_stage has no `vgst_low`; gm 400 µS (50 mV) flags its
 /// Current Moderate load set {M4, M5}.
+/// Oracle: hand arithmetic: 2·Id/gm = 200 mV at 100 µS, 50 mV at 400 µS.
 #[test]
 fn audit_on_corpus() {
     use annotator::evidence::DeviceOp;

@@ -170,6 +170,7 @@ mod tests {
         DeviceOp { id_ua, headroom_mv, gm_us, power_uw: 0.0, vgs_mv: None, vbs_mv: None, vth_mv: None, gmb_us: None, gds_us: None }
     }
 
+    /// Oracle: the region rules worked by hand per op point.
     #[test]
     fn regions_from_headroom_and_gm() {
         assert_eq!(region(&op(0.05, 1.0, 100.0), 100.0), Region::Off);
@@ -194,6 +195,7 @@ mod tests {
         }
     }
 
+    /// Oracle: EXT-18: triode devices gated by configured clocks are switches.
     #[test]
     fn switch_needs_digital_gate() {
         let nl = sc_switches();
@@ -230,6 +232,7 @@ mod tests {
 
     /// EXT-17/18: a Bias-gated FET with its source off the rails is a cascode,
     /// not a current source.
+    /// Oracle: EXT-17/18: a Bias-gated FET with its source off the rails is a cascode.
     #[test]
     fn cascode_before_current_source() {
         let nl = folded();

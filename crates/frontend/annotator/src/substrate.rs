@@ -170,6 +170,7 @@ mod tests {
     }
 
     /// C1 couples `clk` onto `x`: M1 (D on x) and M2 (G on x) are Capacitive.
+    /// Oracle: the input: C1 couples `clk` onto `x`, so M1 and M2 are Capacitive.
     #[test]
     fn capacitor_couples_an_aggressor() {
         use crate::tests::{fet, nets};
@@ -224,12 +225,14 @@ mod tests {
         (tags.iter().map(|a| (nl.devices[a.device.0 as usize].name.clone(), a.inject, a.reason)).collect(), missing)
     }
 
+    /// Oracle: the input: NMOS diffusions on a port below 100 MΩ are electron injectors.
     #[test]
     fn pin_diffusions_are_injectors() {
         let (tags, _) = minority(&drv(Some(100_000_000)));
         assert_eq!(tags, [("M1".into(), Inject::MinorityElectron, "pin diffusion"), ("M2".into(), Inject::MinorityElectron, "pin diffusion")]);
     }
 
+    /// Oracle: the input: a PMOS diffusion on a port injects holes.
     #[test]
     fn a_pmos_on_a_pin_injects_holes() {
         let mut nl = drv(Some(100_000_000));
@@ -238,12 +241,14 @@ mod tests {
         assert!(tags.contains(&("M4".into(), Inject::MinorityHole, "pin diffusion")), "{tags:?}");
     }
 
+    /// Oracle: the input: no stated resistance, so the conservative tag.
     #[test]
     fn unknown_resistance_is_conservative() {
         let (tags, _) = minority(&drv(None));
         assert!(tags.contains(&("M3".into(), Inject::MinorityElectron, "resistance unknown")), "{tags:?}");
     }
 
+    /// Oracle: the input: no port list, so no injector and one missing note.
     #[test]
     fn no_ports_no_minority_tags() {
         let mut nl = drv(Some(100_000_000));
@@ -253,6 +258,7 @@ mod tests {
         assert!(missing.contains(&("GuardRing", "no port list: injectors unknown")));
     }
 
+    /// Oracle: the input op point: a positive V_BS forward-biases the bulk junction.
     #[test]
     fn forward_biased_bulk() {
         let mut nl = drv(Some(100_000_000));
@@ -277,6 +283,7 @@ mod tests {
     }
 
     /// REL T7: every minority-tagged device gets an Injector ring.
+    /// Oracle: REL T7: every minority-tagged device gets an Injector ring, counted from the tags.
     #[test]
     fn drv_injectors_get_rings() {
         let nl = drv(Some(100_000_000));

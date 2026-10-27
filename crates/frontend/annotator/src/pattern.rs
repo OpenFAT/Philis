@@ -503,6 +503,7 @@ fn hash<T: Hash>(t: &T) -> u64 {
 mod tests {
     use super::*;
 
+    /// Oracle: subset relation between the two outputs, checked element-wise.
     #[test]
     fn recognize_all_is_a_superset_of_select_disjoint() {
         let nl = crate::tests::ota();
@@ -553,6 +554,7 @@ mod tests {
     /// EXT-06's key below priority: a match declaring pairs beats an overlapping one
     /// declaring none, even with larger labels; label-identical (automorphic) matches
     /// fall to sorted names. Neither depends on device ids or input order.
+    /// Oracle: metamorphic: reversing ids and input order changes nothing (EXT-06).
     #[test]
     fn select_disjoint_prefers_declared_pairs_then_names() {
         use crate::catalog::{DIFF_PAIR, PUSH_PULL_PAIR};

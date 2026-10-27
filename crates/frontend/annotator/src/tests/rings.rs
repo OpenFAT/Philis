@@ -48,6 +48,7 @@ fn inputs<'a>(nl: &'a Netlist, aggressor: &'a [bool], victim: &'a [bool], inject
 }
 
 /// GAP-14: tub members get the tub's ring on its tie; the rest keep their rows.
+/// Oracle: GAP-14: the input's tub members, tied to net 4, by construction.
 #[test]
 fn tub_members_get_a_tub_ring() {
     let nl = nl();
@@ -62,6 +63,7 @@ fn tub_members_get_a_tub_ring() {
     assert!(!missing.iter().any(|m| m.0 == "IsolatedTub"));
 }
 
+/// Oracle: the input: a deck with no deep n-well cannot draw a tub, so the note is owed.
 #[test]
 fn no_dnwell_falls_back_and_says_so() {
     let nl = nl();
@@ -71,11 +73,13 @@ fn no_dnwell_falls_back_and_says_so() {
     assert!(missing.contains(&("IsolatedTub", "deck has no deep n-well: tub drawn as an ordinary ring")), "{missing:?}");
 }
 
+/// Oracle: REL-07: no aggressor and no injector in the textbook 5T OTA, so no ring.
 #[test]
 fn an_ota_without_clocks_or_ports_gets_no_rings() {
     assert!(annotate(&ota(), &AnnotationConfig::default()).constraints.guard_rings.is_empty());
 }
 
+/// Oracle: REL-07's role table: an aggressor NMOS gets a tap ring on its bulk.
 #[test]
 fn clocked_devices_get_aggressor_tap_rings() {
     let nl = nl();
@@ -89,6 +93,7 @@ fn clocked_devices_get_aggressor_tap_rings() {
     assert!(missing.contains(&SUB30), "{missing:?}");
 }
 
+/// Oracle: REL-07: a quiet ring net is given, so both victims get shareable rings on it.
 #[test]
 fn a_quiet_net_turns_on_victim_rings() {
     let nl = nl();
@@ -100,6 +105,7 @@ fn a_quiet_net_turns_on_victim_rings() {
     assert!(!missing.contains(&SUB30));
 }
 
+/// Oracle: REL-07: an electron injector gets an ECGR tied to the highest supply, the deck's 420 nm width.
 #[test]
 fn an_electron_injector_gets_a_supply_tied_ecgr() {
     let nl = nl();
@@ -111,6 +117,7 @@ fn an_electron_injector_gets_a_supply_tied_ecgr() {
     assert!(missing.contains(&("GuardRing", "ECGR width rule not given: collection efficiency unknown")), "{missing:?}");
 }
 
+/// Oracle: REL-07: no HCGR drawable, so a hole injector gets a well tap.
 #[test]
 fn a_hole_injector_falls_back_to_a_well_tap() {
     let nl = nl();
@@ -121,6 +128,7 @@ fn a_hole_injector_falls_back_to_a_well_tap() {
     assert_eq!((r.device, r.ring_type, r.role, r.connection_net), (DeviceId(3), GuardRingType::Tap { in_well: true }, RingRole::Injector, NetId(4)));
 }
 
+/// Oracle: REL-07: on epi over low-resistivity substrate, rings do not help, so none.
 #[test]
 fn epi_substrate_draws_no_aggressor_or_victim_rings() {
     let nl = nl();

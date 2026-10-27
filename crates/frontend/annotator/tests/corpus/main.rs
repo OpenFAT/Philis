@@ -31,6 +31,8 @@ fn all() -> impl Iterator<Item = (&'static str, &'static str)> {
     CIRCUITS.into_iter().chain(NEGATIVE)
 }
 
+/// Oracle: golden: the EXPECTED rows characterise today's output (see the file header). No independent
+/// oracle.
 #[test]
 fn corpus_expectations() {
     assert_eq!(CIRCUITS.map(|c| c.0), EXPECTED.map(|r| r.0), "one row per circuit, same order");
@@ -81,6 +83,7 @@ fn src(name: &str) -> &'static str {
     all().find(|c| c.0 == name).unwrap_or_else(|| panic!("no circuit {name}")).1
 }
 
+/// Oracle: the inputs: a BJT mirror and an inverter chain hold no FET pattern by construction.
 #[test]
 fn negative_corpus() {
     for name in ["bjt_mirror", "inv_chain"] {
@@ -88,6 +91,7 @@ fn negative_corpus() {
     }
 }
 
+/// Oracle: the inputs: switches and unrelated equal FETs hold no pattern by construction.
 #[test]
 fn negative_corpus_sc_switches_and_equal_fets() {
     for name in ["sc_switches", "equal_fets"] {
@@ -95,6 +99,7 @@ fn negative_corpus_sc_switches_and_equal_fets() {
     }
 }
 
+/// Oracle: metamorphic: 20 seeded permutations of each netlist give the same canonical output.
 #[test]
 fn permutation_invariance() {
     for (name, src) in all() {
@@ -110,6 +115,7 @@ fn permutation_invariance() {
 }
 
 /// T4 on the HSMPG tree (EXT-13): rendered by name, it is the same under permutation.
+/// Oracle: metamorphic: the HSMPG tree rendered by name is the same under permutation.
 #[test]
 fn tree_is_permutation_invariant() {
     let tree = |nl: &analog::base::Netlist, name: &str| {
@@ -157,6 +163,7 @@ fn assert_no_conflicts(name: &str, src: &str) {
 }
 
 /// T6 on every corpus circuit but strongarm, which has its own test below.
+/// Oracle: certificate: the conflict check over the emitted batches finds none.
 #[test]
 fn no_emitted_conflicts() {
     for (name, src) in all().filter(|c| c.0 != "strongarm") {
@@ -165,6 +172,7 @@ fn no_emitted_conflicts() {
 }
 
 /// GAP-09: no rule clash on any corpus circuit (master §6 "EXT M3").
+/// Oracle: certificate: no `conflict` diagnostic on any corpus circuit.
 #[test]
 fn clean_corpus_has_no_conflicts() {
     for (name, src) in all() {
@@ -177,6 +185,7 @@ fn clean_corpus_has_no_conflicts() {
 /// AA-13: the clocked tail `mn0` sits in the input pair's stage, so it gets
 /// Proximity ≤ 5 µm to `mn1`/`mn2`; Isolation
 /// from them would contradict it. GAP-04 exempts same-block pairs.
+/// Oracle: certificate: the conflict check on strongarm finds none (GAP-04 exempts same-block pairs).
 #[test]
 fn no_emitted_conflicts_strongarm() {
     assert_no_conflicts("strongarm", STRONGARM);
@@ -185,6 +194,7 @@ fn no_emitted_conflicts_strongarm() {
 /// EXT-09/EXT-24: `Differential` comes only from recognised structure (a
 /// compound's mirrored nets), never a positional/O(N²) device-pair scan, and
 /// lands in `routing.budget`, not `.hard`.
+/// Oracle: the inputs: dac4 has no pair, so no Differential; elsewhere only budget rows.
 #[test]
 fn differential_comes_from_recognized_pairs() {
     use analog::RuleBatch;
@@ -232,6 +242,7 @@ fn xtalk(nl: &analog::base::Netlist, p: &annotator::Problem) -> Vec<(String, Str
 }
 
 /// T7: every device is in a requirement or reported `Unconstrained(reason)`.
+/// Oracle: partition: every device once, constrained or with a reason.
 #[test]
 fn coverage_is_total() {
     use annotator::Coverage::{Constrained, Grouped, Unconstrained};
@@ -258,6 +269,7 @@ fn coverage_is_total() {
 
 /// EXT-10: a batch's id survives a netlist permutation (ids follow emission
 /// order, which follows EXT-06's canonical block order).
+/// Oracle: metamorphic: a batch's id is the same after permuting the netlist.
 #[test]
 fn ids_survive_permutation() {
     let id_of = |nl: &analog::base::Netlist| {
@@ -277,6 +289,7 @@ fn ids_survive_permutation() {
     }
 }
 
+/// Oracle: golden: the COMPOUNDS rows characterise today's output. No independent oracle.
 #[test]
 fn compound_expectations() {
     let owned = |v: &[(&str, &str)]| v.iter().map(|(a, b)| ((*a).to_string(), (*b).to_string())).collect();

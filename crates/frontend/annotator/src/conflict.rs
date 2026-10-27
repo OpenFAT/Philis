@@ -92,12 +92,14 @@ mod tests {
     }
 
     /// (a): one entry pairs XM1 twice; the second pair is dropped, naming the entry.
+    /// Oracle: the input JSON: XM1 paired twice, so one conflict naming the entry.
     #[test]
     fn sidecar_double_pairing_is_a_conflict() {
         double_pairing(r#"[{"constraint":"SymmetricBlocks","direction":"V","pairs":[["XM1","XM2"],["XM1","XM6"]]}]"#, "ids 4294967295,4294967295:");
     }
 
     /// (a): split over two entries, both ids are named, the later one first.
+    /// Oracle: the input JSON: the double pairing split over two entries names both ids.
     #[test]
     fn two_entries_name_both_ids() {
         double_pairing(
@@ -107,6 +109,7 @@ mod tests {
     }
 
     /// (c): XM1 (L 1 µm) and XM5 (L 2 µm) cannot match; the entry is dropped.
+    /// Oracle: the netlist: XM1 L 1 µm, XM5 L 2 µm cannot match.
     #[test]
     fn match_on_unequal_l_is_a_conflict() {
         let (p, cfg) = annotate(&ota(), r#"[{"constraint":"Match","instances":["XM1","XM5"],"class":"moderate"}]"#);
@@ -118,6 +121,7 @@ mod tests {
     }
 
     /// (d): an extra gate on `vout1` only makes the mated outputs unequal.
+    /// Oracle: metamorphic: the OTA with and without an extra gate on `vout1`.
     #[test]
     fn asymmetric_differential_is_reported() {
         let asym = |nl: &Netlist| {
@@ -140,6 +144,7 @@ mod tests {
     }
 
     /// SelfDevice: a self-symmetric tail agreeing with propagation is no conflict; a self seed on a paired device is.
+    /// Oracle: the input JSON, both arms: a self seed on the tail agrees, on a paired device conflicts.
     #[test]
     fn self_device_conflicts_only_on_a_paired_device() {
         let two = |second: &str| {

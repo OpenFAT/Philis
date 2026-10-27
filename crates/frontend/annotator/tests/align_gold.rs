@@ -25,6 +25,7 @@ const GOLD_JSON: &str = r#"[{"constraint":"PowerPorts","ports":["VCC"]},{"constr
 // ---- private ----
 
 /// T1: every gold pair and no other, `mn0` and the 3 net pairs, one axis.
+/// Oracle: ALIGN's `high_speed_comparator.const.json` gold pairs and self.
 #[test]
 fn strongarm_matches_align_gold() {
     let nl = net(STRONGARM);
@@ -40,6 +41,7 @@ fn strongarm_matches_align_gold() {
 }
 
 /// EXT-26: the gold's port entries name the rails and the clock.
+/// Oracle: ALIGN's gold port entries name the rails and the clock.
 #[test]
 fn align_power_ground_clock() {
     use analog::metadata::NetClass;
@@ -55,6 +57,7 @@ fn align_power_ground_clock() {
 /// EXT-26 T1 through the sidecar: the full gold alone (no `strongarm_cfg`
 /// names) gives the gold pairs exactly, `mn0` on the one axis; its layout-only
 /// entries are diagnosed, never dropped silently.
+/// Oracle: ALIGN's gold through the sidecar reader: its pairs reproduced exactly.
 #[test]
 fn symmetric_blocks_become_seeds() {
     let nl = net(STRONGARM);
@@ -85,6 +88,7 @@ fn step_names(nl: &analog::base::Netlist, o: &analog::intent::Order) -> Vec<Vec<
 
 /// EXT-28: the extracted vertical current chains, `mn0` (clocked tail) at the bottom and
 /// the precharge switches `mp9`/`mp10` left out of the load step; the output inverters' chains.
+/// Oracle: ALIGN's gold `Order` for the comparator.
 #[test]
 fn strongarm_order_matches_gold() {
     use analog::intent::AxisDir;
@@ -102,6 +106,7 @@ fn strongarm_order_matches_gold() {
 
 /// EXT-28: the gold's `Order` (top_to_bottom mn0, xdp, xccn, xccp) is read bottom-up, and the
 /// extracted chain (its reverse) is not repeated: the gold is reproduced.
+/// Oracle: ALIGN's gold `Order` read bottom-up equals the extracted chain.
 #[test]
 fn gold_order_entry() {
     use analog::intent::{AxisDir, Order};

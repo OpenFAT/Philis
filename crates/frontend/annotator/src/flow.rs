@@ -205,6 +205,7 @@ mod tests {
             .collect()
     }
 
+    /// Oracle: the textbook three-stage op amp's stages, by name; ports seed level 0.
     #[test]
     fn three_stage_stage_order() {
         let nl = crate::tests::three_stage();
@@ -216,6 +217,7 @@ mod tests {
         assert_eq!(st, [vec!["M1", "M4"], vec!["M2", "M5"], vec!["M6", "M7"], vec!["M8", "M9"]]);
     }
 
+    /// Oracle: the input op point: a zero-current branch is no current path.
     #[test]
     fn op_drops_idle_branch() {
         let nl = crate::tests::three_stage();

@@ -27,6 +27,8 @@ const OTA5T: &str = "XM1_{k} vout1_{k} vinp_{k} vtail_{k} VSS nfet w=10u l=1u
 
 /// 2,500 disjoint copies sharing only VDD/VSS: 12,500 devices, 17,502 nets
 /// (below the `u16` id limit).
+/// Oracle: arithmetic on the input: 2 500 copies give 12 500 devices and 17 502 nets, each in exactly one
+/// group. The wall time is printed, not gated.
 #[test]
 fn twelve_thousand_devices() {
     let src: String = (0..2500).map(|k| OTA5T.replace("{k}", &k.to_string()) + "\n").collect();

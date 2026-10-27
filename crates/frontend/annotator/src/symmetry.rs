@@ -445,6 +445,7 @@ mod tests {
 
     /// A diff pair whose drains each carry two identical loads: no mutual unique
     /// best, so the loads stay unpaired and are reported, never paired by id.
+    /// Oracle: the input: two identical loads per drain have no unique best mate.
     #[test]
     fn tied_candidates_are_ambiguous() {
         // Nets: 0=a 1=inp 2=t 3=VSS 4=b 5=inn 6=vb 7=g.

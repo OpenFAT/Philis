@@ -305,6 +305,7 @@ mod tests {
         }
     }
 
+    /// Oracle: the input: RA and RB in series on one node form one divider.
     #[test]
     fn divider_chain_is_one_set() {
         // rdiv: RA top-mid 10 µm, RB mid-VSS 40 µm.
@@ -326,6 +327,7 @@ mod tests {
 
     /// Hastings 10.2.2: a 1X/2X pair degenerated for equal drops has resistors
     /// 2:1, so 20 µm against 10 µm is the inverse; equal lengths are flagged.
+    /// Oracle: Hastings 10.2.2: a 1X/2X pair needs 2:1 resistors; equal lengths are flagged.
     #[test]
     fn degeneration_inverse_ratio() {
         // Nets: 0=c1 1=vb 2=e1 3=c2 4=e2 5=t.

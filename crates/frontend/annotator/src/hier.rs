@@ -215,6 +215,7 @@ mod tests {
         nl
     }
 
+    /// Oracle: the input: two instances of one subcircuit pair up, device by device.
     #[test]
     fn two_identical_otas_pair_up() {
         let nl = two_otas();
@@ -231,6 +232,7 @@ mod tests {
         assert!(!has("X1/MN1", "X2/MN1"), "{pairs:?}");
     }
 
+    /// Oracle: the input: two instances of one inverter with paired ports mirror.
     #[test]
     fn identical_inverters_mirror() {
         let inv: [Dev; 2] = [("MN", N, "i", "o", "vss", "vss", 1_000, 150), ("MP", P, "i", "o", "vdd", "vdd", 2_000, 150)];
@@ -264,6 +266,7 @@ mod tests {
         nl
     }
 
+    /// Oracle: the input: four identical cells on one bias line form one array.
     #[test]
     fn bias_shared_array() {
         let nl = cells(4);
@@ -285,6 +288,7 @@ mod tests {
 
     /// EXT-27: ProxNet stays inside an instance, one star per instance on a shared net. Both
     /// OTAs drive `out1`: each instance keeps its MN2–MP4 edge, no edge crosses X1/X2.
+    /// Oracle: EXT-27: the input's two OTAs share `out1`; no ProxNet edge crosses instances.
     #[test]
     fn proxnet_per_instance() {
         let mut nl = Netlist::default();
@@ -308,6 +312,7 @@ mod tests {
         assert!(pn.contains(&e("X1/MN2", "X1/MP4")) && pn.contains(&e("X2/MN2", "X2/MP4")), "{pn:?}");
     }
 
+    /// Oracle: the input: three_stage has no instance, so no pair and no array.
     #[test]
     fn flat_netlist_unchanged() {
         let nl = crate::tests::three_stage();

@@ -117,6 +117,7 @@ mod tests {
         block::leaves(&p.blocks).iter().filter(|b| b.kind == BlockKind::DiffPair).count()
     }
 
+    /// Oracle: the model names: `nfet_01v8` and `nfet_01v8_lvt` are different devices.
     #[test]
     fn flavours_do_not_match() {
         let nl = pair([("nfet_01v8", 5), ("nfet_01v8_lvt", 5)], Some(10_000));
@@ -137,6 +138,7 @@ mod tests {
         assert_eq!(diff_pairs(&pair([("nfet_01v8", 5), ("NFET_01V8", 5)], Some(10_000))), 1);
     }
 
+    /// Oracle: the input: no W/L, so no match, and coverage says why.
     #[test]
     fn unknown_size_never_matches() {
         let nl = pair([("nfet_01v8", 5); 2], None);
@@ -148,6 +150,7 @@ mod tests {
         assert!(!missing(&pair([("nfet_01v8", 5); 2], Some(10_000))));
     }
 
+    /// Oracle: the input, both arms: bulks on two signal nets differ; on two rails they match.
     #[test]
     fn split_bulk_does_not_match() {
         assert_eq!(diff_pairs(&pair([("nfet_01v8", 7), ("nfet_01v8", 8)], Some(10_000))), 0);

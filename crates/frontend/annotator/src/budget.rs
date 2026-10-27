@@ -107,6 +107,8 @@ mod tests {
         rows(&Sensitivities { specs: vec![s] }, 1.0, None, policy)
     }
 
+    /// Oracle: hand arithmetic: a two-sided spec gives one row per bound; the helpful term drops from the
+    /// ceiling.
     #[test]
     fn two_sided_spec_gives_two_rows() {
         let s = SpecSens { d_c: vec![(NetId(0), -1e6)], ..spec(100e6, 300e6, 200e6) };
@@ -116,6 +118,7 @@ mod tests {
         assert!(r[1].nets.is_empty(), "the ceiling's term helps");
     }
 
+    /// Oracle: hand arithmetic: weights 1/80 and 1/70 from the process corners.
     #[test]
     fn process_spread_shrinks_headroom() {
         let s = SpecSens { proc: Some((180.0, 230.0)), d_c: vec![(NetId(0), -1.0), (NetId(1), 1.0)], ..spec(100.0, 300.0, 200.0) };
@@ -124,6 +127,7 @@ mod tests {
         assert!((r[0].weights[0] - 1.0 / 80.0).abs() < 1e-7 && (r[1].weights[0] - 1.0 / 70.0).abs() < 1e-7, "{:?} {:?}", r[0].weights, r[1].weights);
     }
 
+    /// Oracle: hand arithmetic: σ_f 10 at β 3 leaves margins of 70.
     #[test]
     fn beta_reserve() {
         let s = SpecSens { sigma_f: Some(10.0), ..spec(100.0, 300.0, 200.0) };
@@ -131,6 +135,7 @@ mod tests {
         assert_eq!(m, [70.0, 70.0]);
     }
 
+    /// Oracle: hand arithmetic: one row on the hurting net, weight 0.05.
     #[test]
     fn conservative_split_drops_helpful_terms() {
         let s = SpecSens { d_c: vec![(NetId(0), 0.5), (NetId(1), -0.5)], hi: None, ..spec(10.0, 0.0, 20.0) };
@@ -140,6 +145,7 @@ mod tests {
     }
 
     /// Ported from `library::perf` (PERF-06).
+    /// Oracle: PERF-06 port: the rows `library::perf` gave for the same spec.
     #[test]
     fn rows_cover_both_bounds_of_a_window_spec() {
         let s = SpecSens { d_c: vec![(NetId(0), -1.0)], ..spec(10.0, 20.0, 15.0) };
@@ -154,6 +160,7 @@ mod tests {
     }
 
     /// Ported from `library::perf` (PERF-06).
+    /// Oracle: PERF-06 port: a missed bound keeps a limit-0 row and one diagnostic.
     #[test]
     fn a_missed_bound_keeps_a_do_not_worsen_row() {
         let s = SpecSens { d_c: vec![(NetId(0), -1.0)], hi: None, ..spec(10.0, 0.0, 5.0) };
@@ -163,6 +170,7 @@ mod tests {
     }
 
     /// Ported from `library::perf` (PERF-06).
+    /// Oracle: the input: NaN and infinite bounds give no row.
     #[test]
     fn a_non_finite_bound_or_value_has_no_row() {
         let d_c = vec![(NetId(0), -1.0)];
@@ -171,6 +179,7 @@ mod tests {
         }
     }
 
+    /// Oracle: hand arithmetic: weights 0.02 and 0.01 from the stated sensitivities.
     #[test]
     fn r_and_coupling_terms() {
         let s = SpecSens { d_r: vec![(NetId(0), -0.2)], d_cc: vec![(NetId(0), NetId(1), -0.1)], hi: None, ..spec(10.0, 0.0, 20.0) };
@@ -180,6 +189,7 @@ mod tests {
         assert!(r[0].diff_pairs.is_empty());
     }
 
+    /// Oracle: hand arithmetic: each net's C and R share of the spec picks its class.
     #[test]
     fn rc_class_by_share() {
         let s = SpecSens {

@@ -136,6 +136,7 @@ mod tests {
         (c, src, diags.iter().map(|d| d.kind).collect())
     }
 
+    /// Oracle: the class thresholds: 12, 5 and 2 mV map to Minimal, Moderate, Exceptional.
     #[test]
     fn spec_maps_to_class() {
         use MatchClass::{Exceptional, Minimal, Moderate};
@@ -146,18 +147,21 @@ mod tests {
         assert_eq!(run(&s, None, Some(0.5), SetRole::Other), (Exceptional, ClassSource::Spec, vec!["beyond_exceptional_trim"]));
     }
 
+    /// Oracle: the precedence rule: User over Spec over Role.
     #[test]
     fn user_wins_over_spec_and_role() {
         let s = set(Family::Mos, MatchKind::Voltage);
         assert_eq!(run(&s, Some(MatchClass::Minimal), Some(2.0), SetRole::InputPair), (MatchClass::Minimal, ClassSource::User, vec![]));
     }
 
+    /// Oracle: the rule: a Current set's class ignores an mV spec and takes the role default.
     #[test]
     fn current_kind_ignores_mv_spec() {
         let s = set(Family::Mos, MatchKind::Current);
         assert_eq!(run(&s, None, Some(2.0), SetRole::BiasMirror), (MatchClass::Minimal, ClassSource::Role, vec![]));
     }
 
+    /// Oracle: the style table, enumerated by hand: class, kind and shared source → array style.
     #[test]
     fn style_by_class() {
         assert_eq!(style_of(MatchClass::Minimal, MatchKind::Current, true), ArrayStyle::Adjacent);

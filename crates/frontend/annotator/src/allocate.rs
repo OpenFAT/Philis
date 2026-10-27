@@ -140,6 +140,8 @@ mod tests {
         s.iter().enumerate().flat_map(|(k, &v)| [(DeviceId(2 * k as u16), v), (DeviceId(2 * k as u16 + 1), -v)]).collect()
     }
 
+    /// Oracle: certificate: each spec's Σ S·δ from the output stays within its margin; set 3's 5/(3·0.2) by
+    /// hand.
     #[test]
     fn allocation_respects_every_spec() {
         let (sa, sb) = ([2.0, 0.5, 0.0], [1.0, 3.0, 0.2]);
@@ -156,6 +158,7 @@ mod tests {
     }
 
     /// lampaert Table 4.2's first four sensitivities as relative weights.
+    /// Oracle: Lampaert Table 4.2's sensitivities: the allocation orders inversely to them.
     #[test]
     fn lampaert_table_4_2_ordering() {
         let s = [12.0, 2.9, 2.9, 0.2];
@@ -167,6 +170,7 @@ mod tests {
         assert!((used - 10.0).abs() < 1e-6, "{used}");
     }
 
+    /// Oracle: hand arithmetic: a 9 against 10 spec has no margin; the free set keeps its 6 mV.
     #[test]
     fn negative_margin_is_diagnosed() {
         let sens = Sensitivities { specs: vec![spec(9.0, Some(10.0), None, None, dvt(&[1.0, 2.0, 0.0]))] };
@@ -177,6 +181,7 @@ mod tests {
         assert_eq!(diags.iter().filter(|d| d.kind == "spec_infeasible_at_schematic").count(), 1);
     }
 
+    /// Oracle: hand arithmetic: margins 7 and 1 from the corners.
     #[test]
     fn two_sided_spec_takes_the_tighter_bound() {
         let mut s = spec(8.0, Some(0.0), Some(10.0), None, dvt(&[1.0]));
@@ -189,6 +194,7 @@ mod tests {
         assert_eq!(out[0].0, Some(1.0));
     }
 
+    /// Oracle: hand arithmetic: one set's share of a σ = 2 spec is 0.25; an untouched set gets none.
     #[test]
     fn weight_is_variance_share() {
         let sens = Sensitivities { specs: vec![spec(20.0, Some(0.0), None, Some(2.0), dvt(&[1.0]))] };

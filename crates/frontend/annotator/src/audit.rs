@@ -195,6 +195,7 @@ mod tests {
         d.iter().map(|x| x.kind).collect()
     }
 
+    /// Oracle: hand arithmetic: 2·Id/gm = 2·0.6/20 V is under the floor; at gm 10 it is not.
     #[test]
     fn vgst_floor() {
         let (nl, i) = (pair(), intent(set(Family::Mos, MatchClass::Moderate, &[1, 1])));
@@ -204,6 +205,8 @@ mod tests {
         assert!(audit(&i, &nl, &[], Some(&op(0.6, 10.0, Some(1.0), vec![Some(0.0); 4]))).is_empty());
     }
 
+    /// Oracle: the audit rule: an odd ratio (1:7) in a Moderate bipolar set is flagged; 1:8 and Minimal are
+    /// not.
     #[test]
     fn bjt_ratio_odd() {
         let nl = pair(); // the ratio reads units only; no C/E pins, so V_CE is never checked
@@ -213,6 +216,7 @@ mod tests {
         assert_eq!(k(MatchClass::Minimal, &[1, 7]), "");
     }
 
+    /// Oracle: the input: cascode widths that break the mirror's ratio, both arms.
     #[test]
     fn cascode_ratio_mismatch() {
         let n = DeviceKind::Nmos;
@@ -233,6 +237,7 @@ mod tests {
         assert_eq!(kinds(&audit(&Intent::default(), &tied, &c, None)), ["cascode_bulk"]);
     }
 
+    /// Oracle: hand arithmetic: 200 mV · 1 µS / 10 µA = 2 % > 1.5 %; 100 mV is 1 %.
     #[test]
     fn clm_from_vds() {
         let (nl, i) = (pair(), intent(set(Family::Mos, MatchClass::Moderate, &[1, 1])));
@@ -242,6 +247,7 @@ mod tests {
         assert!(audit(&i, &nl, &[], Some(&op(10.0, 1.0, Some(1.0), vds(600.0)))).is_empty());
     }
 
+    /// Oracle: the input: no op point, so the audit reports not checked.
     #[test]
     fn no_op_not_checked() {
         let (nl, i) = (pair(), intent(set(Family::Mos, MatchClass::Moderate, &[1, 1])));
@@ -249,6 +255,7 @@ mod tests {
     }
 
     /// An op point without `gds_us` still reports `clm_mismatch` as not checked.
+    /// Oracle: the input: no `gds_us`, so CLM is not checked and named.
     #[test]
     fn missing_gds_not_checked() {
         let (nl, i) = (pair(), intent(set(Family::Mos, MatchClass::Moderate, &[1, 1])));

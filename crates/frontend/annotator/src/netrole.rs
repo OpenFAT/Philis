@@ -307,6 +307,7 @@ mod tests {
     use analog::base::netlist::{Device, DeviceKind, Net, Netlist};
     use analog::base::BipartiteHypergraph;
 
+    /// Oracle: a hand-written name table: each name's rail role.
     #[test]
     fn rail_names() {
         use NetRole::{Ground as G, Supply as S};
@@ -334,6 +335,7 @@ mod tests {
         classify_nets(&BipartiteHypergraph::from_netlist(&nl), &AnnotationConfig::default())
     }
 
+    /// Oracle: the input: PMOS bulks on `a` make it Supply, NMOS bulks on `c` Ground.
     #[test]
     fn bulk_inference() {
         use DeviceKind::{Nmos as N, Pmos as P};
@@ -351,6 +353,7 @@ mod tests {
         assert_eq!(roles(&["a", "b", "c", "d"], &tie), [S, Sig, Sig, Sig]);
     }
 
+    /// Oracle: a hand-written list of clock names.
     #[test]
     fn clock_names() {
         for n in ["clk", "clk_in", "phi1", "phi_2b", "ck", "ckb", "sysclock"] {

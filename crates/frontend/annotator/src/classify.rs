@@ -385,6 +385,7 @@ fn classify_one(role: NetRole, gate_of_sensitive: bool, touches_gate: bool, touc
 mod tests {
     use super::*;
 
+    /// Oracle: the input roles: a named rail or clock keeps its class.
     #[test]
     fn rails_keep_their_named_role() {
         assert_eq!(classify_one(NetRole::Supply, false, false, true, false), NetClass::Supply);
@@ -392,12 +393,14 @@ mod tests {
         assert_eq!(classify_one(NetRole::Clock, false, true, false, false), NetClass::Clock);
     }
 
+    /// Oracle: the class rule: a gate-only net has no DC path, so Sensitive.
     #[test]
     fn a_gate_only_net_is_a_sensitive_reference() {
         // No DC path — gates only. This is a bias rail, the classic victim.
         assert_eq!(classify_one(NetRole::Signal, false, true, false, false), NetClass::Sensitive);
     }
 
+    /// Oracle: the class rule, both arms: with and without the matched gate.
     #[test]
     fn driving_a_matched_gate_makes_a_net_sensitive_even_with_a_dc_path() {
         // A differential input is driven *and* feeds a matched gate: still the
@@ -407,11 +410,13 @@ mod tests {
         assert_eq!(classify_one(NetRole::Signal, false, true, true, false), NetClass::Signal);
     }
 
+    /// Oracle: the class rule: a bulk-only net is Substrate.
     #[test]
     fn bulk_only_nets_are_substrate() {
         assert_eq!(classify_one(NetRole::Signal, false, false, false, true), NetClass::Substrate);
     }
 
+    /// Oracle: hand arithmetic: 100 fF of gate gives 100 fF of wire and coupling on a Sensitive net.
     #[test]
     fn budgets_scale_with_the_load_and_tighten_on_sensitive_nets() {
         let (c_s, k_s) = budgets(NetClass::Sensitive, 100_000.0);
@@ -436,6 +441,7 @@ mod tests {
         classes[i].class
     }
 
+    /// Oracle: the device kind: a BJT base is not a gate, by construction.
     #[test]
     fn bjt_terminals_are_not_gates() {
         use analog::base::ids::NetId;
@@ -467,6 +473,7 @@ mod tests {
         assert_eq!(class_of(&nl, &classes, "in"), NetClass::Signal);
     }
 
+    /// Oracle: the device kind: resistor ends conduct, so its nets have a DC path.
     #[test]
     fn resistor_ends_are_channels() {
         use analog::base::ids::NetId;
@@ -495,6 +502,7 @@ mod tests {
         (p.net_classes[i].class, p.intent.nets[i].evidence)
     }
 
+    /// Oracle: the class rule: an aggressor has no coupling budget; Bias equals Sensitive.
     #[test]
     fn aggressors_get_no_coupling_budget() {
         let c = 50_000.0;
@@ -504,6 +512,7 @@ mod tests {
 
     /// EXT-18: configured clocks keep their class with `User` evidence, and
     /// gate the triode switches.
+    /// Oracle: EXT-18: configured clocks are User evidence and gate the triode switches.
     #[test]
     fn sc_switches_clocks_are_user_evidence() {
         use crate::evidence::DeviceOp;
@@ -536,6 +545,7 @@ mod tests {
         assert!(p.intent.devices.iter().all(|f| f.role == analog::intent::DeviceRole::Switch));
     }
 
+    /// Oracle: the naming rule: a `_n` suffix alone, with no `_p` twin, is not a differential half.
     #[test]
     fn noisy_suffix_needs_no_p_twin() {
         use analog::base::netlist::{DeviceKind, Netlist};
@@ -560,6 +570,7 @@ mod tests {
 
     /// EXT-18 `z_ohm`: inert in the flow (PERF-09 has no gds), so tested on
     /// synthetic evidence. 5 µS is 200 kΩ (Sensitive); 20 µS is 50 kΩ (Signal).
+    /// Oracle: hand arithmetic: 5 µS is 200 kΩ (Sensitive), 20 µS is 50 kΩ (Signal).
     #[test]
     fn z_ohm_marks_high_impedance_sensitive() {
         use crate::evidence::DeviceOp;

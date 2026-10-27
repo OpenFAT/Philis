@@ -351,6 +351,7 @@ mod tests {
     use super::*;
 
     /// An analog-root name wins over a lower id and needs no aggressor check.
+    /// Oracle: the naming rule: `AVSS` beats `VSS` regardless of id.
     #[test]
     fn quiet_ground_prefers_analog_root() {
         let nl = analog::base::Netlist {

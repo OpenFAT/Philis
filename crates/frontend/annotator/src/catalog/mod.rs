@@ -305,6 +305,7 @@ mod tests {
         [kr, sr].into_iter().flatten()
     }
 
+    /// Oracle: structural invariants of the table: unique names, slot references in range.
     #[test]
     fn catalog_is_well_formed() {
         let mut names = HashSet::new();
@@ -429,6 +430,7 @@ mod tests {
         Netlist { devices, nets, ..Default::default() }
     }
 
+    /// Oracle: structural invariants: every ROLES row names a pattern and slots in range.
     #[test]
     fn roles_are_well_formed() {
         let mut names = HashSet::new();
@@ -448,6 +450,7 @@ mod tests {
         }
     }
 
+    /// Oracle: round-trip: a netlist built from each pattern's slots and links is matched by that pattern.
     #[test]
     fn every_pattern_matches_its_own_minimal_netlist() {
         for p in PATTERNS {

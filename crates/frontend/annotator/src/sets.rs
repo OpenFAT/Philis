@@ -487,6 +487,7 @@ mod tests {
     /// EXT-14 step 8: a compound whose couples carry one set's members onto
     /// another's records `(i, j)`; three_stage's own compound maps each set onto
     /// itself, so it records none.
+    /// Oracle: EXT-14 step 8 on three_stage: the compound maps the M1 set onto the M4 set, by name.
     #[test]
     fn set_pairs_maps_set_onto_set() {
         let nl = crate::tests::three_stage();
@@ -502,6 +503,7 @@ mod tests {
         assert_eq!(cs[0].set_pairs, [(i.min(j), i.max(j))]);
     }
 
+    /// Oracle: hand arithmetic: widths 2, 4, 8 µm over a 2 µm unit are 1, 2, 4.
     #[test]
     fn mirror_ratio_by_width() {
         let nl = mos(&[(2_000, 1_000, 1), (4_000, 1_000, 1), (8_000, 1_000, 1)]);
@@ -509,6 +511,7 @@ mod tests {
         assert_eq!((u.w_nm, par(&units)), (2000, vec![1, 2, 4]));
     }
 
+    /// Oracle: the textbook three-stage op amp: M3, M7, M9 share the bias gate.
     #[test]
     fn three_stage_bias_group() {
         let nl = crate::tests::three_stage();
@@ -533,6 +536,7 @@ mod tests {
         assert_eq!((u.w_nm, par(&units)), (2000, vec![4, 3, 10]));
     }
 
+    /// Oracle: Hastings' unit example: 100 µm and 2×200 µm over a 10 µm unit are 10 and 20.
     #[test]
     fn hastings_unit_example() {
         let nl = mos(&[(100_000, 500, 1), (200_000, 500, 2)]);
@@ -540,6 +544,7 @@ mod tests {
         assert_eq!((u.w_nm, par(&units)), (10_000, vec![10, 20]));
     }
 
+    /// Oracle: hand arithmetic: 4 µm long against 5×1 µm is 20:1 as 4 in series against 5 in parallel.
     #[test]
     fn series_parallel_20_to_1() {
         let nl = mos(&[(10_000, 4_000, 1), (50_000, 1_000, 5)]);
@@ -548,6 +553,7 @@ mod tests {
         assert_eq!(units, [(1, 4), (5, 1)]);
     }
 
+    /// Oracle: hand arithmetic: 10 µm against 40 µm on one unit length is 1:4.
     #[test]
     fn resistor_divider() {
         let r = |name: &str, p: u16, n: u16, l: i64| Device {
@@ -563,6 +569,7 @@ mod tests {
         assert_eq!(units.iter().map(|p| p.1).collect::<Vec<_>>(), [1, 4]);
     }
 
+    /// Oracle: the input deck has `max_w_nm` 0, so the unitizer must refuse with `unit_deck_incomplete`.
     #[test]
     fn missing_deck_key() {
         let nl = mos(&[(2_000, 1_000, 1), (4_000, 1_000, 1)]);
@@ -570,6 +577,7 @@ mod tests {
         assert_eq!(e.kind, "unit_deck_incomplete");
     }
 
+    /// Oracle: hand arithmetic: 2/1 against 3/1.5 µm is no integer ratio.
     #[test]
     fn non_integer() {
         let nl = mos(&[(2_000, 1_000, 1), (3_000, 1_500, 1)]);

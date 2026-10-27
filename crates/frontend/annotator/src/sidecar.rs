@@ -301,6 +301,7 @@ mod tests {
     use super::*;
 
     /// EXT-25: a `Load` entry is an external load on its net, aF.
+    /// Oracle: the input JSON: 1000 fF on `vout2` is 1e6 aF on net 4.
     #[test]
     fn load_entry_sets_a_net_load() {
         let nl = crate::tests::ota();
@@ -309,6 +310,7 @@ mod tests {
         assert!(d.is_empty(), "{d:?}");
     }
 
+    /// Oracle: the input JSON: `Align` is not supported, so one coded diagnostic.
     #[test]
     fn unknown_constraint_is_diagnosed() {
         let nl = crate::tests::ota();
@@ -318,6 +320,7 @@ mod tests {
 
     /// EXT-26: a `GroupBlocks` pull carries its entry as `Origin::User`, not
     /// the pattern or net class of its first device.
+    /// Oracle: EXT-26: a `GroupBlocks` entry's batch carries `Origin::User` with its index.
     #[test]
     fn group_blocks_batches_have_user_origin() {
         let nl = crate::tests::ota();
@@ -333,6 +336,7 @@ mod tests {
     }
 
     /// GAP-14: two NMOS on one bulk, tied to a supply.
+    /// Oracle: the input JSON: XM1, XM2 tied to `vdd` (net 7).
     #[test]
     fn an_isolated_tub_parses() {
         let nl = crate::tests::ota();
@@ -343,6 +347,7 @@ mod tests {
     }
 
     /// The tie must be a quiet supply (GAP-14): a signal net is drawn as asked and reported.
+    /// Oracle: GAP-14, both arms: `vdd` is a supply (no note), `vtail` is not (note).
     #[test]
     fn a_tub_tied_to_a_signal_is_reported() {
         let nl = crate::tests::ota();
@@ -354,6 +359,7 @@ mod tests {
     }
 
     /// A device in two tubs is refused, not silently given the first.
+    /// Oracle: the input JSON: XM2 in two tubs is a refusal by construction.
     #[test]
     fn overlapping_tubs_are_refused() {
         let nl = crate::tests::ota();
@@ -366,6 +372,7 @@ mod tests {
         assert_eq!(cfg.tubs.len(), 1);
     }
 
+    /// Oracle: the input JSON: an NMOS and a PMOS share no bulk, so the tub is refused.
     #[test]
     fn a_tub_with_a_pmos_is_refused() {
         let nl = crate::tests::ota();
@@ -374,6 +381,7 @@ mod tests {
         assert!(cfg.tubs.is_empty());
     }
 
+    /// Oracle: the input JSON: `nope` names no net, so one coded diagnostic.
     #[test]
     fn unknown_name_is_diagnosed() {
         let nl = crate::tests::ota();
@@ -382,6 +390,7 @@ mod tests {
         assert!(c.supply_nets.is_empty());
     }
 
+    /// Oracle: the input text: `{` is not JSON and `{}` is not an array.
     #[test]
     fn not_json_is_an_error() {
         assert!(parse("{", &crate::tests::ota()).is_err());
@@ -390,6 +399,8 @@ mod tests {
 
     /// A user class wins over the role, and an Exceptional Voltage set makes
     /// its compound Perfect.
+    /// Oracle: the input JSON: a user class beats the role; an Exceptional Voltage set makes its compound
+    /// Perfect (EXT-14 step 9).
     #[test]
     fn match_class_overrides_role() {
         let nl = crate::tests::ota();

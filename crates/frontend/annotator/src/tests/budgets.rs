@@ -11,6 +11,7 @@ use super::*;
 /// EXT-07 variant: once `vcas` also touches a channel (not gates only), its
 /// class is ordinary `Signal`, not `Sensitive`: with `Stack` no longer a gate
 /// reference in `is_sensitive`, a `vcas` that touches a channel is `Signal`.
+/// Oracle: EXT-07's class rule: a net touching a channel is not gate-only, so Signal.
 #[test]
 fn a_cascode_gate_net_with_a_channel_use_is_signal() {
     let nl = Netlist {
@@ -26,6 +27,7 @@ fn a_cascode_gate_net_with_a_channel_use_is_signal() {
     assert_eq!(p.net_classes[3].class, analog::metadata::NetClass::Signal);
 }
 
+/// Oracle: the input: gate and drain on different nets, gate area 1 µm² hand-computed.
 #[test]
 fn antenna_gate_area_lands_on_the_gate_net_not_the_drain() {
     // G ≠ D on purpose: a diode-connected device would hide an index slip.
@@ -39,6 +41,7 @@ fn antenna_gate_area_lands_on_the_gate_net_not_the_drain() {
     assert_eq!(nets_hit, vec![0], "gate area charged to net {nets_hit:?}, want the gate (0)");
 }
 
+/// Oracle: metamorphic: the same OTA without and with a clocked switch; only the second asks for a shield.
 #[test]
 fn shields_are_requested_only_against_a_clock() {
     let is_shield = |b: &Box<dyn RuleBatch<analog::base::Routes>>| b.kind().ends_with("Shield");
@@ -61,6 +64,7 @@ fn shields_are_requested_only_against_a_clock() {
     assert!(pairs.iter().all(|&(_, r, _)| r == vss), "shielded by ground: {pairs:?}");
 }
 
+/// Oracle: RTE-02: hand-drawn wires; the ground shield is not an aggressor, so its coupling is not booked.
 #[test]
 fn a_shielded_victim_books_no_coupling_to_its_shield() {
     // RTE-02: the ground shield the clocked OTA asks for is not an aggressor.
@@ -95,6 +99,7 @@ fn a_shielded_victim_books_no_coupling_to_its_shield() {
 
 /// EXT-20 (AA-23): a mirror with no compound is matched, not mirrored: one
 /// `MatchedSet` on both devices and its Axis Orientation, no Symmetry.
+/// Oracle: EXT-20 (AA-23): a mirror with no compound gets MatchedSet and Orientation, no Symmetry.
 #[test]
 fn a_lone_mirror_is_matched_not_mirrored() {
     let nl = Netlist {
@@ -117,6 +122,7 @@ fn a_lone_mirror_is_matched_not_mirrored() {
     assert_eq!(p.placement.hard.iter().filter(|b| b.kind() == "Orientation").count(), 1);
 }
 
+/// Oracle: metamorphic: the same OTA without and with the deck terms; the missing list empties.
 #[test]
 fn matched_sets_are_budgeted_and_missing_deck_terms_are_listed() {
     let is_set = |b: &Box<dyn RuleBatch<analog::base::Layout>>| b.kind() == "MatchedSet";
@@ -134,6 +140,7 @@ fn matched_sets_are_budgeted_and_missing_deck_terms_are_listed() {
 
 /// MAT-16: with the deck's S(L) fit the XM1/XM2 pair's gradient term reads
 /// S at L = 0.48 µm (0.580 µV/µm), 0.356 of the worst-case 1.63.
+/// Oracle: the MAT-16 fit evaluated by hand: S(0.48 µm) = 0.580 µV/µm, 0.356 of 1.63.
 #[test]
 fn svt_fit_sets_s_of_l() {
     let mut nl = ota();
@@ -179,6 +186,7 @@ fn svt_fit_sets_s_of_l() {
     assert!((r - 1.0).abs() < 1e-4, "{r}");
 }
 
+/// Oracle: metamorphic: the OTA without and with a clocked switch; only the second gets Isolation.
 #[test]
 fn clocked_devices_are_kept_away_from_matched_ones() {
     let is_iso = |b: &Box<dyn RuleBatch<analog::base::Layout>>| b.kind().ends_with("Isolation");
@@ -204,6 +212,7 @@ fn clocked_devices_are_kept_away_from_matched_ones() {
     assert!(!p.missing.iter().any(|m| m.0 == "Isolation"));
 }
 
+/// Oracle: MAT-07: the tail-to-pair distance must appear in the budget arm.
 #[test]
 fn proximity_is_a_priced_budget_not_just_a_pull() {
     // MAT-07: the tail's distance to the input pair is an allowance the search
@@ -216,6 +225,7 @@ fn proximity_is_a_priced_budget_not_just_a_pull() {
     assert!(!p.placement.hard.iter().any(|b| b.kind().ends_with("Proximity")));
 }
 
+/// Oracle: ARR-03/05: plate limits are array specs, so both nets read unknown and are listed missing.
 #[test]
 fn capacitor_plate_nets_get_no_invented_budget() {
     // An inverter drives a DAC bit plate; the top plate feeds a comparator
@@ -248,6 +258,7 @@ fn capacitor_plate_nets_get_no_invented_budget() {
     assert!(p.missing.iter().any(|m| m.0 == "ParasiticBudget" && m.1.contains("ARR-05")));
 }
 
+/// Oracle: AA-35: 65 536 nets exceed the u16 id space; the call must panic.
 #[test]
 #[should_panic(expected = "annotator: 65536 devices/nets exceed the u16 id space (65535)")]
 fn more_nets_than_u16_ids_is_refused_not_wrapped() {
@@ -256,6 +267,7 @@ fn more_nets_than_u16_ids_is_refused_not_wrapped() {
     let _ = annotate(&nl, &AnnotationConfig::default());
 }
 
+/// Oracle: the textbook 5T OTA: one compound, two sets, so one axis.
 #[test]
 fn intent_axes_per_compound() {
     let p = annotate(&ota(), &AnnotationConfig::default());
@@ -269,6 +281,7 @@ fn intent_axes_per_compound() {
 /// EXT-21: offset f0 0, hi 5 (M 5) touches the DP (S 1) and the load (S 0.2);
 /// K 2 gives the DP 5/(2·1) = 2.5 mV (its cap 3·5/√10 = 4.74 does not bind)
 /// and the load min(12.5, 3·5/√20 = 3.35).
+/// Oracle: EXT-21's allocation worked by hand: DP 5/(2·1) = 2.5 mV, load min(12.5, 3.35).
 #[test]
 fn ext21_ota_dp_allowance_below_load() {
     use crate::evidence::{Evidence, Sensitivities, SpecSens};
@@ -304,6 +317,7 @@ fn ext21_ota_dp_allowance_below_load() {
 /// the DP's allowance is 1 mV and its 6 mV target makes it (Moderate, Spec), apart
 /// from both the role default (Moderate, Role) and D5. (At the 2.5 mV of
 /// `ext21_ota_dp_allowance_below_load` the 15 mV target is itself Minimal.)
+/// Oracle: EXT-21's class rules worked by hand from σ_f = 4 mV (weights 0.006 and 0.31).
 #[test]
 fn ext21_minor_weight_and_allowance_set_class() {
     use crate::evidence::{Evidence, Sensitivities, SpecSens};
@@ -348,6 +362,8 @@ fn ext21_minor_weight_and_allowance_set_class() {
 /// EXT-25 (AA-25): a drain-only net's load is off-netlist, so it is unbudgeted
 /// and listed missing until a sidecar `Load` states it; a gate-driving net
 /// (vbias) keeps its gate-load budget.
+/// Oracle: AA-25: a drain-only net's load is off-netlist; metamorphic with a sidecar `Load` restoring the
+/// budget.
 #[test]
 fn drain_only_net_without_load_is_unknown() {
     let mut cfg = AnnotationConfig::default();

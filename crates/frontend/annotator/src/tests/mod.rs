@@ -77,6 +77,7 @@ fn block_of(blocks: &[Block], d: u16) -> Option<&Block> {
     blocks.iter().find(|b| !matches!(b.kind, BlockKind::Glue) && b.devices.contains(&DeviceId(d)))
 }
 
+/// Oracle: the textbook 5T OTA: XM1 and XM2 are its input pair by construction.
 #[test]
 fn diff_pair_halves_share_a_block() {
     let nl = ota();
@@ -88,6 +89,7 @@ fn diff_pair_halves_share_a_block() {
     assert!(std::ptr::eq(b1, b2), "diff-pair halves split across blocks");
 }
 
+/// Oracle: the textbook simple mirror: XM1 diode-connected, XM2 sharing its gate.
 #[test]
 fn current_mirror_recognised() {
     // XM1 diode-connected (D=G=vref net 0), XM2 output (D=iout net 1, G=vref).
@@ -102,6 +104,7 @@ fn current_mirror_recognised() {
     assert_eq!(b.devices, [DeviceId(0), DeviceId(1)], "slot 0 is the diode reference");
 }
 
+/// Oracle: the textbook cross-coupled pair, gates and drains crossed by construction.
 #[test]
 fn cross_coupled_recognised() {
     // XM1: G=outn(1) D=outp(0); XM2: G=outp(0) D=outn(1).
@@ -115,6 +118,7 @@ fn cross_coupled_recognised() {
     assert_eq!(b.kind, BlockKind::DiffPair, "cross-coupled pairs are symmetric matched pairs");
 }
 
+/// Oracle: the input: device 0 is excluded by configuration, so it must be glue.
 #[test]
 fn do_not_identify_suppresses_block() {
     let nl = ota();
@@ -148,6 +152,7 @@ fn count(batches: &[Box<dyn RuleBatch<analog::base::Layout>>]) -> usize {
     batches.iter().map(|b| b.count()).sum()
 }
 
+/// Oracle: the textbook 5T OTA: a DiffPair on XM1/XM2 must exist at some level.
 #[test]
 fn diff_pair_lives_in_the_hierarchy() {
     // Whether the OTA matches as a composite (diff pair swallowed → recovered as a
@@ -158,6 +163,8 @@ fn diff_pair_lives_in_the_hierarchy() {
     assert!(has_leaf(&p.blocks, BlockKind::DiffPair, &[0, 1]), "no DiffPair leaf for XM1/XM2");
 }
 
+/// Oracle: the BlockKind→rule mapping (PLAN §4d): a DiffPair owes Symmetry hard and MatchedSet budget and
+/// cost.
 #[test]
 fn diff_pair_emits_its_constraints() {
     // A recognised diff pair emits Symmetry (hard) and MatchedSet (budget +
@@ -178,6 +185,7 @@ fn diff_pair_emits_its_constraints() {
     assert!(!hard_kinds.iter().any(|k| k.contains("MatchedSet")), "MatchedSet must not gate placement moves: {hard_kinds:?}");
 }
 
+/// Oracle: D15's invariant: no batch is registered in two arms.
 #[test]
 fn budget_rules_land_in_exactly_one_partition() {
     // D15's invariant, and the one this partition exists to establish: the two-arm
@@ -214,6 +222,7 @@ fn budget_rules_land_in_exactly_one_partition() {
     assert!(!set(&p.placement.hard), "MatchedSet must never gate legality as Hard");
 }
 
+/// Oracle: MAT-05: Orientation axis hard, Φ budget, no cost copy.
 #[test]
 fn matched_pairs_get_orientation_rules() {
     // MAT-05: channel axes are a hard placement rule (a quarter-turned partner is
@@ -225,6 +234,8 @@ fn matched_pairs_get_orientation_rules() {
     assert!(!has(&p.placement.cost), "Orientation has no cost copy");
 }
 
+/// Oracle: D17 with hand-sized wires: 100 mm of metal is about 10× every length budget, so the residual
+/// must exceed 1.
 #[test]
 fn parasitic_and_coupling_report_an_overshoot_not_a_count() {
     // D17: Θ sums residuals, and a residual is only summable normalised by its own
@@ -250,6 +261,7 @@ fn parasitic_and_coupling_report_an_overshoot_not_a_count() {
     }
 }
 
+/// Oracle: PLAN §4b: one DtiBand batch in hard and cost, never budget, ids dense from 0.
 #[test]
 fn dti_bands_are_one_hard_batch_with_dense_ids_seeded_share() {
     // The producer half of PLAN §4b: every matched pair in the OTA (diff pair,
@@ -278,6 +290,7 @@ fn dti_bands_are_one_hard_batch_with_dense_ids_seeded_share() {
     }
 }
 
+/// Oracle: D16: the input's device kinds; no abutment group mixes NMOS and PMOS.
 #[test]
 fn abutment_excludes_mixed_polarity_groups() {
     // D16: `groups` is the recognition table and deliberately contains composites
@@ -298,6 +311,7 @@ fn abutment_excludes_mixed_polarity_groups() {
     }
 }
 
+/// Oracle: the input: two unrelated resistors match no pattern.
 #[test]
 fn glue_only_netlist_emits_no_placement() {
     // Two unrelated resistors → nothing recognised → no placement constraints.
@@ -326,6 +340,7 @@ fn glue_only_netlist_emits_no_placement() {
     assert_eq!(count(&p.placement.cost), 0);
 }
 
+/// Oracle: the input: no matched leaf and no gate, so no MatchedSet or Antenna entry applies.
 #[test]
 fn missing_is_relevant() {
     // Two resistors: no matched leaf and no gate, so no MatchedSet or Antenna entry.
@@ -357,6 +372,7 @@ fn missing_is_relevant() {
     assert!(p.missing.contains(&("ParasiticBudget", "deck gate_cap_af_um2")), "{:?}", p.missing);
 }
 
+/// Oracle: EXT-10's contract: every batch tagged, ids distinct and dense, checked over all arms.
 #[test]
 fn every_batch_is_tagged() {
     let mut clocked = ota();
@@ -393,6 +409,7 @@ fn every_batch_is_tagged() {
     }
 }
 
+/// Oracle: partition: blocks are disjoint and cover every device, counted from the netlist.
 #[test]
 fn every_device_accounted_for() {
     // No device is lost: recognised ∪ glue == all devices, disjoint.
@@ -408,6 +425,7 @@ fn every_device_accounted_for() {
     assert!(seen.into_iter().all(|s| s), "some device unaccounted for");
 }
 
+/// Oracle: the netlist's own params: every member's W, L and kind equal the group's scalars.
 #[test]
 fn a_unitization_never_mixes_kinds_or_sizes() {
     // `unit_w`/`unit_l`/`device_type` are one-per-group scalars, so every member
@@ -428,6 +446,7 @@ fn a_unitization_never_mixes_kinds_or_sizes() {
     }
 }
 
+/// Oracle: the input: M1's bulk is net 3, not net 0, by construction.
 #[test]
 fn guard_rings_tie_to_the_guarded_device_s_bulk() {
     // A ring is a substrate/well tap: it must land on the bulk rail, never on
@@ -451,6 +470,7 @@ fn guard_rings_tie_to_the_guarded_device_s_bulk() {
     }
 }
 
+/// Oracle: the textbook 5T OTA: two mirrored pairs and a self-symmetric tail, so 3 symmetry rows.
 #[test]
 fn a_differential_stage_is_symmetric_about_one_axis() {
     // 5T OTA with a biased (non-diode) load: one five_transistor_ota stage. The
@@ -468,6 +488,7 @@ fn a_differential_stage_is_symmetric_about_one_axis() {
 /// the tail (slot 6) and no role for the load bias (slot 7, a diode PMOS on the
 /// loads' source). Nets: 0=inp 1=x1 2=tail 3=VSS 4=inn 5=x2 6=vbn2 7=o1 8=o2
 /// 9=vbp 10=VDD 11=vbn.
+/// Oracle: AA-23 and the catalog's ROLES row: slot 6 is declared self, slot 7 is not.
 #[test]
 fn telescopic_slot7_is_not_self_symmetric() {
     let (n, p) = (DeviceKind::Nmos, DeviceKind::Pmos);
@@ -493,6 +514,7 @@ fn telescopic_slot7_is_not_self_symmetric() {
     assert_eq!(selfs, [6], "the tail only, not slot 7: {m:?}");
 }
 
+/// Oracle: the input: four equal nfets in series on one gate is the series_stack_4 template.
 #[test]
 fn a_shared_gate_chain_is_a_series_stack_not_a_cascode() {
     // chain4: four same-size nfets in series on one gate net.
@@ -508,6 +530,7 @@ fn a_shared_gate_chain_is_a_series_stack_not_a_cascode() {
     assert_eq!(p.net_classes[0].class, analog::metadata::NetClass::Bias);
 }
 
+/// Oracle: the textbook cascode: M1's drain is M2's source, sizes differ, so no match.
 #[test]
 fn a_cascode_stack_is_adjacent_not_matched() {
     // M1 (bottom) drain feeds M2 (top) source: a stack, not a matched pair.
@@ -531,6 +554,7 @@ fn a_cascode_stack_is_adjacent_not_matched() {
 /// aggressor that forced isolation onto the stack's two devices. Since EXT-23
 /// a Bias-gated FET is a victim on its own, so `R1`/`R2` give both gates a DC
 /// path (Signal, not Bias): only the stack membership is under test.
+/// Oracle: EXT-07: a Stack is not a gate reference; the resistors give the gates a DC path by construction.
 #[test]
 fn a_cascode_stack_is_not_an_isolation_victim() {
     let r = |name: &str, p: u16| Device {

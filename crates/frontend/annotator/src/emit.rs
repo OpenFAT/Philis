@@ -477,6 +477,7 @@ mod tests {
 
     /// MAT-07 / EXT-20: each MOS/bipolar set of ≥ 2 keeps Axis hard; Φ is a
     /// budget for a Moderate set and absent for a Minimal one.
+    /// Oracle: MAT-07 / EXT-20: a Moderate set keeps Axis hard and Φ budget; a Minimal one has no Φ.
     #[test]
     fn default_class_is_moderate_mos() {
         let nl = crate::tests::ota();
@@ -510,6 +511,7 @@ mod tests {
 
     /// MAT-08 + C13: the class limit only for an explicit class; an allocated
     /// Voltage allowance is the budget itself.
+    /// Oracle: MAT-08 + C13: the budget table by class source, enumerated by hand.
     #[test]
     fn set_budget_follows_source() {
         use MatchKind::{Current, Voltage};
@@ -525,6 +527,7 @@ mod tests {
     }
 
     /// C13: an allocated allowance reaches the ledger unchanged.
+    /// Oracle: C13: the allowance written into the set equals the ledger's.
     #[test]
     fn allocated_allowance_round_trips() {
         let nl = crate::tests::ota();
@@ -560,6 +563,7 @@ mod tests {
     /// REL C3 / AA-13: the stage's clocked tail sits by its pair (Proximity);
     /// isolating it from the pair would contradict that. A clocked device
     /// outside the stage is still isolated from the pair.
+    /// Oracle: AA-13: the tail is in the pair's block, so Isolation would contradict Proximity.
     #[test]
     fn a_clocked_tail_is_not_isolated_from_its_own_pair() {
         let (nl, cfg) = strongarm_like();
@@ -575,6 +579,7 @@ mod tests {
     /// GAP-09 (b): a sidecar group holding aggressor `XS` and victim `mn1`
     /// pulls them ≤ 5 µm while Isolation pushes ≥ 10 µm: the user pull wins,
     /// the Isolation pair is dropped and both ids are reported.
+    /// Oracle: GAP-09 (b): a 5 µm pull against a 10 µm push is a conflict by arithmetic; both ids reported.
     #[test]
     fn proximity_below_isolation_is_a_conflict() {
         let (nl, mut cfg) = strongarm_like();
@@ -599,6 +604,7 @@ mod tests {
 
     /// REL-15: the stage's own clocked tail is no imbalance source for its
     /// pair; the lone `XS` gets one rule per pair, tagged net-class.
+    /// Oracle: REL-15: the input's clocked tail is in the pair's block; only `XS` is a source.
     #[test]
     fn substrate_balance_skips_the_aggressors_own_block() {
         let (nl, cfg) = strongarm_like();
@@ -619,6 +625,7 @@ mod tests {
     }
 
     /// REL C3: epi on p+ saturates at 4·t_epi (Su), a budget the search pays.
+    /// Oracle: REL C3: epi on p+ saturates at 4·t_epi (Su), so a budget row is owed.
     #[test]
     fn epi_decks_get_a_plateau_budget() {
         let (nl, mut cfg) = strongarm_like();
@@ -632,6 +639,7 @@ mod tests {
 
     /// Bulk (sky130's `substrate_kind`) has no plateau distance: a cost-only
     /// pull at 4·2500 nm, reported unknown, whatever epi the deck states.
+    /// Oracle: the input deck: bulk substrate has no plateau, so a cost-only row at 4·2500 nm.
     #[test]
     fn bulk_is_cost_only_and_unknown() {
         let (nl, mut cfg) = strongarm_like();

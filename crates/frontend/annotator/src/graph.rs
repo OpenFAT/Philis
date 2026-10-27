@@ -244,6 +244,7 @@ mod tests {
         (reqs, render(&tree, &names))
     }
 
+    /// Oracle: the textbook 5T OTA's hierarchy, written by hand.
     #[test]
     fn ota5t_tree() {
         // XM1..XM5 = ids 0..4.
@@ -251,6 +252,7 @@ mod tests {
         assert_eq!(t, "Root{Symmetry{Matching{XM3,XM4},Proximity{Matching{XM1,XM2},XM5}}}");
     }
 
+    /// Oracle: the input: the tail sits in the compound and in the bias set, so both nodes hold it.
     #[test]
     fn tail_in_two_requirements() {
         let nl = crate::tests::three_stage();
