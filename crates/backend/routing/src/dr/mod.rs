@@ -3037,7 +3037,17 @@ fn add_pin_access(
         let options = [(full, false), (full, true), (narrow, false), (narrow, true)];
         // Landing chose its width before the exact metal's was known.
         let choice = a.choice.filter(|c| c.0 >= need).map(|(w, f)| (if cfg.exact(metal) { full } else { w }, f));
-        let cands: Vec<(i32, bool)> = choice.into_iter().chain(options).collect();
+        let mut cands: Vec<(i32, bool)> = choice.into_iter().chain(options).collect();
+        // On a metal hosting full-width cuts, the leg meeting the node runs
+        // along the net's wire there: across it, the node's cut spans neither
+        // axis (ASAP7 V1.M2.AUX.2).
+        if cfg.exact(metal) {
+            let node = Rect { x: nx - wire / 2, y: ny - wire / 2, w: wire, h: wire };
+            let trunk = routes.wires[net].iter().find(|w| w.layer == metal && w.rect.w != w.rect.h && rect_gap(w.rect, node) == 0);
+            if let Some(along_x) = trunk.map(|w| w.rect.w > w.rect.h) {
+                cands.sort_by_key(|&(_, flip)| (if flip { ny == py } else { nx != px }) != along_x);
+            }
+        }
         let clear = |legs: &[Rect; 2], gap: i32| {
             let probe = Shape { layer: metal, rect: legs[0] };
             routes.wires.iter().enumerate().all(|(n, w)| {
@@ -3177,7 +3187,9 @@ fn add_pin_access(
                         _ if end == (px, py) => lattice_x(base),
                         _ => node_axis(base),
                     };
-                    wires.push(cfg.exact_pad(base, cut, size, false, end, along_x));
+                    // At the node, the pad follows the net's wire meeting the cut.
+                    let p = cfg.exact_pad(base, cut, size, false, end, along_x);
+                    wires.push(if end == (px, py) { p } else { along_wire(cfg, p, c.rect, wires) });
                 } else if !hosted {
                     wires.push(pad(base, end, below));
                 }
@@ -3225,7 +3237,14 @@ fn add_pin_access(
                     wires.push(pad(cut, (nx, ny), size));
                     for (l, square, upper) in [(layers[k], below, false), (layers[k + 1], above, true)] {
                         let along_x = if l == metal { node_x } else { node_axis(l) };
-                        wires.push(if cfg.exact(l) { cfg.exact_pad(l, cut, size, upper, (nx, ny), along_x) } else { pad(l, (nx, ny), square) });
+                        // An exact pad follows the net's wire meeting the cut.
+                        let c = pad(cut, (nx, ny), size).rect;
+                        let p = if cfg.exact(l) {
+                            along_wire(cfg, cfg.exact_pad(l, cut, size, upper, (nx, ny), along_x), c, wires)
+                        } else {
+                            pad(l, (nx, ny), square)
+                        };
+                        wires.push(p);
                     }
                 }
             }
@@ -5537,6 +5556,42 @@ mod tests {
         // nothing there: only the new cut, judged in, refuses it.
         let taken = add_where_clear(&mut wires, &[vec![vec![across]]], &[None], 1, &clear);
         assert_eq!(taken, vec![vec![None]], "the new cut is in when its pad is judged");
+    }
+
+    /// ota on asap7 with MosRatioed: access at a node on a V1 whose M2 wire
+    /// runs one way. Net 0, an M1 pin below a vertical M2 trunk: the jog's
+    /// leg meeting the node runs along the trunk, not across it. Net 1, an
+    /// M2 pin climbing to M3 over a node under a horizontal M2 wire: the
+    /// node stack's M2 pads run along that wire. Before: m2's
+    /// `ota_signs_off_on_asap7` with Ratioed merged, 3× V1.M2.AUX.2.
+    /// Oracle: [`spans`] (GPurify's `full_width` reading, tested above) over
+    /// every V1 and the M2 touching it.
+    #[test]
+    fn access_at_a_full_width_node_runs_along_its_wire() {
+        let (m1, m2, m3, v1, v2) = (LayerId(9), LayerId(11), LayerId(13), LayerId(35), LayerId(36));
+        let (layers, cuts) = ([m1, m2, m3], [(v1, 18, 28, 28), (v2, 18, 28, 28)]);
+        // asap7's 5 nm end enclosure: every exact pad 18 × 28.
+        let cut_enclosure_pair = vec![(v1, (0, 5), (0, 5)), (v2, (0, 5), (0, 5))];
+        let cfg = DetailedCfg { pitch: 36, wire_width: 18, full_width: vec![(v1, m2)], cut_enclosure_pair, ..DetailedCfg::default() };
+        let r = |x, y, w, h| Rect { x, y, w, h };
+        let s = |layer, rect| Shape { layer, rect };
+        let mut routes = Routes {
+            wires: vec![
+                vec![s(m2, r(63, 543, 18, 738)), s(v1, r(63, 543, 18, 18)), s(m1, r(58, 538, 28, 28)), s(m2, r(63, 538, 18, 28))],
+                vec![s(m2, r(447, 543, 210, 18)), s(v1, r(639, 543, 18, 18)), s(m1, r(634, 538, 28, 28)), s(m2, r(634, 543, 28, 18))],
+            ],
+            ..Default::default()
+        };
+        let access = |ci, pin, pin_layer, node| Access { ci, pin, pin_layer, node, node_layer: 0, choice: None, ua: None, node_ua: None };
+        let access = [access(0, r(100, 484, 18, 18), m1, (72, 552)), access(1, r(639, 429, 18, 18), m2, (648, 552))];
+        let joins = joins(&layers, &cuts, None);
+        add_pin_access(&mut routes, &access, &[0, 1], &cfg, &layers, &cuts, &joins, &[], (0, 0), &[Vec::new(), Vec::new()], &[]);
+        for (n, w) in routes.wires.iter().enumerate() {
+            for c in w.iter().filter(|x| x.layer == v1) {
+                let host: Vec<Rect> = w.iter().filter(|x| x.layer == m2 && rect_gap(x.rect, c.rect) == 0).map(|x| x.rect).collect();
+                assert!(spans(c.rect, &host), "net {n}: V1 {:?} under M2 {host:?}", c.rect);
+            }
+        }
     }
 
     #[test]
