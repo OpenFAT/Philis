@@ -3003,6 +3003,8 @@ name = "placement"
 version = "0.1.0"
 dependencies = [
  "analog",
+ "substrate3",
+ "verify",
 ]
 
 [[package]]
