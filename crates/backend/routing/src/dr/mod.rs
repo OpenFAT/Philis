@@ -970,7 +970,14 @@ impl DetailedRoute {
                 let narrow = full.min(r.w).min(r.h).max(floor).max(need);
                 // A point terminal (1×1 rect) is its own node: nothing to jog to.
                 let point = r.w <= 1 && r.h <= 1;
-                let cands = if point { Vec::new() } else { grid.candidates(cx, cy, &claimed, clean, 8, 12) };
+                let mut cands = if point { Vec::new() } else { grid.candidates(cx, cy, &claimed, clean, 8, 12) };
+                // Nearest first within each layer's ring: the ring scan's own
+                // order (row by row) is not distance.
+                cands.sort_by_key(|&n| {
+                    let ((px, py, l), (ix, iy, _)) = (grid.pos(n), grid.ixy(n));
+                    let ring = (ix as i32 - grid.bin_x(cx) as i32).abs().max((iy as i32 - grid.bin_y(cy) as i32).abs());
+                    (l, ring, (px - cx).abs() + (py - cy).abs())
+                });
                 // Spaced from every foreign pin's future pad first, then merely
                 // not touching it.
                 let spaced = (stitch, (cfg.pitch - cfg.wire_width).max(1));
@@ -1531,9 +1538,10 @@ impl DetailedRoute {
                 };
                 // The non-route metal each net keeps off: other nets' pins, cell metal
                 // not its own lead, and the hard blockages binding it.
+                let own_cell: Vec<Vec<Shape>> = (0..n_nets).map(cell_of).collect();
                 let statics: Vec<Vec<Shape>> = (0..n_nets)
                     .map(|ni| {
-                        let mine = cell_of(ni);
+                        let mine = &own_cell[ni];
                         (0..n_nets)
                             .filter(|&n| n != ni)
                             .flat_map(|n| term_rects[n].iter().map(|&(r, l, _)| Shape { layer: l, rect: r }))
@@ -1550,7 +1558,8 @@ impl DetailedRoute {
                 // Metal added after search (redundant cuts, corner stubs and
                 // squares) goes where it clears: a cut every cut but itself by cut
                 // spacing (same-net too), metal the other nets' wires and its
-                // statics by the fill's spacing, its own net's metal by that spacing
+                // statics by the fill's spacing, its own net's metal (wires and
+                // the cell metal it reaches, [`cell_metal`]) by that spacing
                 // unless it touches (no new notch or sliver).
                 //
                 // ponytail: linear scan per candidate shape (O(sites × shapes)).
@@ -1574,7 +1583,12 @@ impl DetailedRoute {
                         |g: &Shape| g.layer != s.layer || rect_gap(g.rect, s.rect) >= cfg.space(s.layer, md(s.rect), md(g.rect), fill_space(s.layer));
                     statics[n].iter().all(ok)
                         && wires.iter().enumerate().filter(|&(m, _)| m != n).flat_map(|(_, w)| w).all(ok)
-                        && wires.get(n).is_none_or(|w| w.iter().all(|g| g.layer != s.layer || rect_gap(g.rect, s.rect) == 0 || ok(g)))
+                        && wires
+                            .get(n)
+                            .into_iter()
+                            .flatten()
+                            .chain(&own_cell[n])
+                            .all(|g| g.layer != s.layer || rect_gap(g.rect, s.rect) == 0 || ok(g))
                 };
                 let mut image: Vec<Option<(usize, crate::gr::LatticeMap)>> = vec![None; n_nets];
                 for (a, m) in cold.mirror.iter().enumerate() {
@@ -1859,7 +1873,7 @@ impl DetailedRoute {
                 order.sort_by_key(|&ni| lead[ni].is_some());
                 let mut fillers: Vec<Vec<Shape>> = vec![Vec::new(); n_nets];
                 for ni in order {
-                    let mine = cell_of(ni);
+                    let mine = own_cell[ni].clone();
                     let foreign: Vec<Shape> = flat.iter().filter(|&&(i, _)| i != ni).map(|&(_, s)| s).chain(statics[ni].iter().copied()).collect();
                     if let Some((a, map)) = lead[ni] {
                         for f in std::mem::take(&mut fillers[a]) {
