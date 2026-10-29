@@ -130,7 +130,8 @@ pub fn annotate(netlist: &Netlist, cfg: &AnnotationConfig) -> Problem {
 
 /// Assemble the [`Problem`], reading simulation evidence (EXT-17): testbench
 /// rails and clocks join the name pre-pass, the op point sets device regions
-/// and roles. Deterministic.
+/// and roles, and the rows and diagnostics of evidence files (#77) become
+/// `intent.evidence` and part of `intent.diagnostics`. Deterministic.
 ///
 /// # Panics
 /// When the netlist has more than 65535 devices or nets: ids are `u16` (AA-35).
@@ -275,6 +276,8 @@ pub fn annotate_with(netlist: &Netlist, cfg: &AnnotationConfig, ev: &Evidence) -
         c.dir = dir;
     }
     intent.diagnostics.extend(cfg.sidecar_diags.iter().cloned());
+    intent.diagnostics.extend(ev.diagnostics.iter().cloned());
+    intent.evidence = ev.rows.clone();
     intent.diagnostics.extend(diags);
     let shared = sets::shared_bias_groups(&hg, &drawn, &net_classes);
     // EXT-19: passive, bipolar-core and diode sets.

@@ -6,6 +6,9 @@
 //! recipe ([`RecipeKind::MosAdjacent`]) and a one-row floorplan; the steps the
 //! spine names but M0 does not need yet (`gate_confidence`, `compact`,
 //! `score_claims`, `print`) land with the milestone that needs them.
+//!
+//! [`run_with`] annotates with simulation evidence (#77, Q61): ESPice's
+//! files, read against the parsed netlist by [`evidence`].
 
 pub mod route;
 
@@ -25,7 +28,7 @@ use verify::{LabeledPin, Pdk};
 /// fallback to another spine.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Refusal {
-    /// `parse`, `no-recipe`, `reference`, or a foundry engine's `foundry/…` ([`verify::Refused`]).
+    /// `parse`, `evidence`, `no-recipe`, `reference`, or a foundry engine's `foundry/…` ([`verify::Refused`]).
     pub code: &'static str,
     pub message: String,
 }
@@ -85,6 +88,10 @@ fn intern(flat: &mut Flat, ids: &mut HashMap<String, NetId>, name: &str) -> NetI
 }
 
 /// SCIR → flat devices, as `substrate3::signoff::reference` walks it for LVS.
+/// Device names are the netlist's (Q31: evidence and the sidecar name them
+/// so): SCIR drops each instance's SPICE letter (`XM1` is instance `M1`),
+/// which comes back here, `X` for a subcircuit or raw instance and `M` for a
+/// MOS card, in upper case: `X1/MN1` for `MN1` inside `X1`.
 /// ponytail: scalar signals only; a bus port refuses until a fixture has one.
 fn flatten(
     lib: &scir::Library<Spice>,
@@ -116,14 +123,14 @@ fn flatten(
                     let name = c.signal(p.signal()).name.to_string();
                     inner.insert(name.clone(), net_of(inst, &name)?);
                 }
-                flatten(lib, child, &format!("{prefix}{}/", inst.name()), &inner, pdk, flat, ids)?;
+                flatten(lib, child, &format!("{prefix}X{}/", inst.name()), &inner, pdk, flat, ids)?;
             }
             ChildId::Primitive(pid) => {
-                let (model, ports, params) = match lib.primitive(pid) {
+                let (letter, model, ports, params) = match lib.primitive(pid) {
                     spice::Primitive::RawInstance { ports, cell, params } | spice::Primitive::RawInstanceWithCell { ports, cell, params, .. } => {
-                        (cell.to_string(), ports.iter().map(ToString::to_string).collect::<Vec<_>>(), params)
+                        ('X', cell.to_string(), ports.iter().map(ToString::to_string).collect::<Vec<_>>(), params)
                     }
-                    spice::Primitive::Mos { model, params } => (model.to_string(), ["D", "G", "S", "B"].map(String::from).to_vec(), params),
+                    spice::Primitive::Mos { model, params } => ('M', model.to_string(), ["D", "G", "S", "B"].map(String::from).to_vec(), params),
                     other => return Err(refuse("parse", format!("{prefix}{}: {other:?} is not a device M0 reads", inst.name()))),
                 };
                 let kind = match pdk.model_kind(&model) {
@@ -155,7 +162,7 @@ fn flatten(
                 p.extend(num("nf").map(|v| ("nf".to_string(), v.round() as i64)));
                 p.extend(num("m").map(|v| ("m".to_string(), v.round() as i64)));
                 flat.devices.push(Device {
-                    name: format!("{prefix}{}", inst.name()),
+                    name: format!("{prefix}{letter}{}", inst.name()),
                     kind,
                     model: pdk.deck_model(&model).unwrap_or(model),
                     terminals,
@@ -171,6 +178,63 @@ fn flatten(
 #[must_use]
 pub fn annotation(pdk: &Pdk) -> annotator::AnnotationConfig {
     route::annotation(pdk, &annotator::AnnotationConfig::default())
+}
+
+/// Simulation evidence files for [`run_with`] (#77): each as `(name,
+/// contents)`, the name as the report and `evidence.json` quote it.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct EvidenceFiles<'a> {
+    /// An `espice-emir/1` file (`espice --emir`): each instance terminal's
+    /// current.
+    pub currents: Option<(&'a str, &'a str)>,
+    /// A raw file, binary or ASCII, whose `Operating Point` plot saves each
+    /// device's `vds`, `vgs`, `id` and `vdsat` (`espice -r`).
+    pub op: Option<(&'a str, &'a [u8])>,
+}
+
+/// The evidence table `files` give the annotator: read against `flat`, the
+/// parsed netlist, so their names resolve now, at parse time (Q31). A name
+/// the netlist lacks is a diagnostic in the table, never a refusal.
+///
+/// # Errors
+/// `evidence`: a file that is not what its field says, `currents` no
+/// `espice-emir/1` JSON or `op` no raw file with one operating point
+/// ([`op_vectors`]).
+pub fn evidence(files: &EvidenceFiles<'_>, flat: &Flat) -> Result<annotator::Evidence, Refusal> {
+    let mut ev = annotator::Evidence::default();
+    if let Some((name, json)) = files.currents {
+        ev.read_currents(name, json, flat).map_err(|e| refuse("evidence", e))?;
+    }
+    if let Some((name, raw)) = files.op {
+        let vectors = op_vectors(raw).map_err(|e| refuse("evidence", format!("{name}: {e}")))?;
+        let named: Vec<(&str, f64)> = vectors.iter().map(|(n, v)| (n.as_str(), *v)).collect();
+        ev.read_op(name, &named, flat);
+    }
+    Ok(ev)
+}
+
+/// The `Operating Point` plot of a raw file (ngspice binary or ASCII, as
+/// ESPice writes them, OmarSiwy/ESPice#236), as `(vector name, value)` in
+/// the file's order.
+///
+/// # Errors
+/// Bytes no raw-file reader parses; no `Operating Point` plot or several (a
+/// `.step` writes one per variant); a complex one, or one that is not a
+/// single point.
+pub fn op_vectors(raw: &[u8]) -> Result<Vec<(String, f64)>, String> {
+    // ESPice and ngspice write binary samples in the host's byte order.
+    let endianness = if cfg!(target_endian = "big") { nutlex::ByteOrder::BigEndian } else { nutlex::ByteOrder::LittleEndian };
+    let file = nutlex::parse(&raw, nutlex::Options { endianness }).map_err(|e| format!("not a raw file: {e}"))?;
+    let mut plots = file.analyses.into_iter().filter(|a| a.plotname.trim().to_ascii_lowercase().starts_with("operating point"));
+    let (Some(op), None) = (plots.next(), plots.next()) else { return Err("not one Operating Point plot".into()) };
+    let nutlex::parser::Data::Real(columns) = &op.data else { return Err("a complex operating point".into()) };
+    if op.num_points != 1 {
+        return Err(format!("an operating point of {} points", op.num_points));
+    }
+    op.variables
+        .iter()
+        .map(|v| columns.get(v.idx).and_then(|c| c.first()).map(|&x| (v.name.to_string(), x)).ok_or_else(|| format!("{}: no value", v.name)))
+        .collect()
 }
 
 /// Recipe kinds (S1: a closed enum, matched exhaustively).
@@ -540,6 +604,9 @@ pub struct Outcome {
     pub route_report: Report,
     pub signoff: verify::Signoff,
     pub report: String,
+    /// `evidence.json` ([`evidence_json`]): the evidence rows the run read,
+    /// so the sign-off that follows can be checked against the same currents.
+    pub evidence_json: String,
 }
 
 /// Flat geometry: every placed tile's shapes, then every routed wire.
@@ -612,12 +679,48 @@ fn dummy_cards(placed: &[Macro], nets: &[String], schematic: &[RefDeviceIn]) -> 
     out
 }
 
-/// The report: one line per call, then the signoff verdict.
+/// The report: one line per call, the evidence section when the run read
+/// evidence (each row with its instance and source file, then each evidence
+/// diagnostic), then the signoff verdict.
 #[must_use]
-pub fn report(calls: &RecipeCalls, flat: &Flat, signoff: &verify::Signoff) -> String {
+pub fn report(calls: &RecipeCalls, flat: &Flat, intent: &analog::intent::Intent, signoff: &verify::Signoff) -> String {
     let mut s = String::new();
     for i in 0..calls.len() {
         s.push_str(&format!("call {i}: {:?} [{}] ladder step {}\n", calls.kind[i], names(flat, calls.members_of(i)), calls.ladder_step[i]));
+    }
+    let ev = &intent.evidence;
+    let diags: Vec<_> = intent.diagnostics.iter().filter(|d| d.kind.starts_with("evidence_")).collect();
+    if !ev.sources.is_empty() || !diags.is_empty() {
+        let (c, o) = (&ev.currents, &ev.op);
+        let name = |d: DeviceId| flat.devices[d.0 as usize].name.as_str();
+        let file = |k: u8| ev.sources[usize::from(k)].as_str();
+        s.push_str(&format!("evidence: {} terminal currents, {} operating points\n", c.device.len(), o.device.len()));
+        for i in 0..c.device.len() {
+            s.push_str(&format!(
+                "  {} {:?}: avg {} µA, em_avg {} µA, rms {} µA, peak {} µA ({})\n",
+                name(c.device[i]),
+                c.term[i],
+                c.avg_ua[i],
+                c.em_avg_ua[i],
+                c.rms_ua[i],
+                c.peak_ua[i],
+                file(c.source[i])
+            ));
+        }
+        for i in 0..o.device.len() {
+            s.push_str(&format!(
+                "  {}: vds {} mV, vgs {} mV, id {} µA, vdsat {} mV ({})\n",
+                name(o.device[i]),
+                o.vds_mv[i],
+                o.vgs_mv[i],
+                o.id_ua[i],
+                o.vdsat_mv[i],
+                file(o.source[i])
+            ));
+        }
+        for d in diags {
+            s.push_str(&format!("  {}: {}\n", d.kind, d.message));
+        }
     }
     let hard = &signoff.report.hard_violations;
     s.push_str(&format!("signoff: {} hard violations\n", hard.len()));
@@ -627,14 +730,55 @@ pub fn report(calls: &RecipeCalls, flat: &Flat, signoff: &verify::Signoff) -> St
     s
 }
 
-/// Recipe mode, the whole spine, signed off by `engine`.
+/// `evidence.json` (#77): `{"currents": [..], "op": [..]}`, one object per
+/// row of `ev`, each naming its instance and its source file, in µA and mV;
+/// both arrays empty without evidence.
+///
+/// # Panics
+/// When a row's device is not in `flat` or its source not in `ev.sources`.
+#[must_use]
+pub fn evidence_json(ev: &analog::intent::EvidenceRows, flat: &Flat) -> String {
+    use serde_json::json;
+    let name = |d: DeviceId| flat.devices[d.0 as usize].name.as_str();
+    let file = |k: u8| ev.sources[usize::from(k)].as_str();
+    // An f32's shortest decimal (`121.00001`), not its f64 widening (`121.00000762939453`).
+    let n = |x: f32| x.to_string().parse::<f64>().expect("an f32 prints as a decimal");
+    let (c, o) = (&ev.currents, &ev.op);
+    let currents: Vec<_> = (0..c.device.len())
+        .map(|i| {
+            json!({"instance": name(c.device[i]), "terminal": format!("{:?}", c.term[i]), "source": file(c.source[i]),
+                "avg_ua": n(c.avg_ua[i]), "em_avg_ua": n(c.em_avg_ua[i]), "rms_ua": n(c.rms_ua[i]), "peak_ua": n(c.peak_ua[i])})
+        })
+        .collect();
+    let op: Vec<_> = (0..o.device.len())
+        .map(|i| {
+            json!({"instance": name(o.device[i]), "source": file(o.source[i]),
+                "vds_mv": n(o.vds_mv[i]), "vgs_mv": n(o.vgs_mv[i]), "id_ua": n(o.id_ua[i]), "vdsat_mv": n(o.vdsat_mv[i])})
+        })
+        .collect();
+    serde_json::to_string_pretty(&json!({"currents": currents, "op": op})).expect("a JSON value serialises")
+}
+
+/// Recipe mode, the whole spine, signed off by `engine`: [`run_with`] and no
+/// evidence.
 ///
 /// # Errors
 /// Any step's [`Refusal`].
 pub fn run(spice: &str, pdk: &Pdk, engine: verify::SignoffEngine) -> Result<Outcome, Refusal> {
+    run_with(spice, &EvidenceFiles::default(), pdk, engine)
+}
+
+/// Recipe mode annotated with the simulation evidence `files` (#77), read
+/// against the netlist as soon as it is parsed ([`evidence`]).
+///
+/// # Errors
+/// Any step's [`Refusal`]; `evidence` for a file that is not what its field
+/// says.
+pub fn run_with(spice: &str, files: &EvidenceFiles<'_>, pdk: &Pdk, engine: verify::SignoffEngine) -> Result<Outcome, Refusal> {
     let netlist = parse(spice, pdk)?;
     let cfg = annotation(pdk);
-    let problem = annotator::annotate(&netlist.flat, &cfg);
+    let evidence = evidence(files, &netlist.flat)?;
+    let problem = annotator::annotate_with(&netlist.flat, &cfg, &evidence);
     let calls = plan_recipes(&problem, &netlist.flat)?;
     run_calls(&netlist, &problem, &cfg, calls, pdk, engine)
 }
@@ -656,6 +800,7 @@ pub fn run_calls(
     let layout = arrange(&tiles, pdk)?;
     let (placed, routes, route_report) = route::route(&tiles, &layout, problem, cfg, netlist.flat.nets.len(), pdk);
     let signoff = signoff(netlist, &placed, &routes, pdk, engine)?;
-    let report = report(&calls, &netlist.flat, &signoff);
-    Ok(Outcome { calls, placed, routes, route_report, signoff, report })
+    let report = report(&calls, &netlist.flat, &problem.intent, &signoff);
+    let evidence_json = evidence_json(&problem.intent.evidence, &netlist.flat);
+    Ok(Outcome { calls, placed, routes, route_report, signoff, report, evidence_json })
 }

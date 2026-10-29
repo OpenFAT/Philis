@@ -1,8 +1,8 @@
 //! Extraction's contract (EXT-12): batch identity and provenance (EXT-10),
 //! and everything the annotator infers about a circuit (matched sets,
-//! symmetry compounds, the group tree, net and device facts), independent of
-//! how placement turns it into rules. Reached by path only: `verify::Intent`
-//! shares the name.
+//! symmetry compounds, the group tree, net and device facts) or reads from
+//! simulation evidence (#77, Q61), independent of how placement turns it
+//! into rules. Reached by path only: `verify::Intent` shares the name.
 
 use crate::base::ids::{AxisId, DeviceId, NetId};
 pub use crate::matching::class::{Family, MatchClass, MatchKind};
@@ -41,6 +41,11 @@ pub enum Origin {
     Derived {
         parent: ConstraintId,
     },
+    /// A fact a simulator's file states (#77, Q61): a row of
+    /// [`EvidenceRows`], read from `EvidenceRows::sources[source]`.
+    Evidence {
+        source: u8,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -64,7 +69,7 @@ pub enum Half {
 }
 
 /// Terminal names, the pin-table columns of `annotator::pattern`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Term {
     G,
     D,
@@ -74,6 +79,25 @@ pub enum Term {
     E,
     P,
     N,
+}
+
+impl Term {
+    /// The terminal a pin name spells, in any case (`"d"` is [`Term::D`]);
+    /// `None` for a name that is no terminal here.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        Some(match name.to_ascii_uppercase().as_str() {
+            "G" => Self::G,
+            "D" => Self::D,
+            "S" => Self::S,
+            "B" => Self::B,
+            "C" => Self::C,
+            "E" => Self::E,
+            "P" => Self::P,
+            "N" => Self::N,
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -304,6 +328,71 @@ pub struct Diagnostic {
     pub message: String,
 }
 
+/// Each instance terminal's current as a simulator states it (#77; ESPice
+/// `--emir`, `espice-emir/1`), µA, positive into the terminal. SoA, one row
+/// per (device, terminal), in file order; at most one row per pair.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TerminalCurrents {
+    pub source: Vec<u8>,
+    pub device: Vec<DeviceId>,
+    pub term: Vec<Term>,
+    /// Signed mean over the window: the direction KCL sums.
+    pub avg_ua: Vec<f32>,
+    /// Electromigration average under the simulation's `.option
+    /// em_recovery`: what DC EM sizes by.
+    pub em_avg_ua: Vec<f32>,
+    pub rms_ua: Vec<f32>,
+    /// Largest |i| over the window.
+    pub peak_ua: Vec<f32>,
+}
+
+impl TerminalCurrents {
+    /// Row `i`'s origin: the evidence file it was read from.
+    ///
+    /// # Panics
+    /// When `i` is not a row.
+    #[must_use]
+    pub fn origin(&self, i: usize) -> Origin {
+        Origin::Evidence { source: self.source[i] }
+    }
+}
+
+/// Each device's operating point as a simulator's `.op` states it (#77):
+/// the voltages in mV and the drain current in µA, signed as the
+/// simulator prints them (a PMOS conducts at negative `vds`). SoA, one row
+/// per device, in file order.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OpPoints {
+    pub source: Vec<u8>,
+    pub device: Vec<DeviceId>,
+    pub vds_mv: Vec<f32>,
+    pub vgs_mv: Vec<f32>,
+    pub id_ua: Vec<f32>,
+    pub vdsat_mv: Vec<f32>,
+}
+
+impl OpPoints {
+    /// Row `i`'s origin: the evidence file it was read from.
+    ///
+    /// # Panics
+    /// When `i` is not a row.
+    #[must_use]
+    pub fn origin(&self, i: usize) -> Origin {
+        Origin::Evidence { source: self.source[i] }
+    }
+}
+
+/// What simulation evidence states about the circuit (#77, Q61), resolved to
+/// netlist ids when it was read (Q31). Empty without evidence. Confidence
+/// arrives in M4, which rates these rows Proven.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct EvidenceRows {
+    /// The files read, as the caller named them; a row's `source` indexes it.
+    pub sources: Vec<String>,
+    pub currents: TerminalCurrents,
+    pub op: OpPoints,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Intent {
     pub sets: Vec<MatchSpec>,
@@ -320,6 +409,9 @@ pub struct Intent {
     pub stars: Vec<StarReq>,
     pub kelvins: Vec<KelvinReq>,
     pub diagnostics: Vec<Diagnostic>,
+    /// Simulation evidence (#77): ROUTE-EmWidth (M2) sizes by `currents`,
+    /// the MOS-cascode V_DS claim (v2) scores by `op`.
+    pub evidence: EvidenceRows,
 }
 
 #[cfg(test)]

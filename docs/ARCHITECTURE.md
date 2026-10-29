@@ -22,7 +22,7 @@ owner's skeleton of 2026-10-25.
 | `backend/placement` | floorplan recipes: symmetric row stack, array (Q21); glue row (Q20); targets solver (Q22); free-form placer (1.0 `gp`, `dp`) | analog, substrate3 |
 | `backend/routing` | routing recipes: mirror pair, star common node, shield, keepout (Q23); negotiated router (1.0 `gr`, `dr`); EM width, antenna repair | analog, substrate3 |
 | `backend/post-processing` | compaction (Q24, Q25; research first); later fill and density | analog, substrate3 |
-| `frontend/annotator` | netlist to `intent`: identification, confidence (Q6, Q30), sidecar reader (Q7, Q31) | analog, substrate3 (SCIR) |
+| `frontend/annotator` | netlist to `intent`: identification, confidence (Q6, Q30), sidecar reader (Q7, Q31), evidence readers (Q61) | analog, substrate3 (SCIR) |
 | `frontend/engine` | the two spines, the `recipe_calls` table (Q32), the printer (Q12, Q34), the CLI, modes (Q16, Q18) | all of the above |
 | `frontend/visualizer` (Q36) | GDS parse, SVG export, viewer, progress probe | analog, `gpurify-geom` only |
 
@@ -57,7 +57,7 @@ work happens live here; transforms are straight loops over tables.
 | table | owner (crate) | written by | read by | capacity | lifetime |
 |---|---|---|---|---|---|
 | `netlist` (SCIR library, Q37) | engine (`parse`) | parse | annotator, plan, LVS reference | 65 535 devices and nets (u16 ids, as 1.0 asserts) | run |
-| `intent`: sets, compounds, orders, net classes, guard-ring requirements, budgets, device facts; every row carries `origin` and `confidence` | annotator | annotate, sidecar | gate_confidence, plan_recipes, score_claims | one row per constraint, bounded by devices × families | run |
+| `intent`: sets, compounds, orders, net classes, guard-ring requirements, budgets, device facts, evidence rows (terminal currents, operating points; Q61); every row carries `origin` and `confidence` | annotator | annotate, sidecar | gate_confidence, plan_recipes, score_claims, route_recipes (EmWidth), report | one row per constraint, bounded by devices × families; evidence one row per (device, terminal) and per device | run |
 | `recipe_calls`: recipe kind, parameters, claimed constraint ids, parent, children, placement relation, ladder step taken (Q32) | engine | plan_recipes | build_tiles, arrange, printer, visualizer, sidecar | ≤ sets + compounds + 1 glue + 1 floorplan per block | run |
 | `tiles`: outline, pins and abstract, unit table, device membership | substrate3 | build_tiles | arrange, route, score_claims | one per set-level call | run |
 | `claims`: constraint id, rule kind, promised value, status (met, violated, unknown) | engine | recipes declare, score_claims fills status | report, conformance | one per (call, constraint) | run |
@@ -141,6 +141,9 @@ no callbacks, no registries, no hidden state.
   their claims.
 - A new sidecar entry: one reader arm in `annotator/sidecar`, keyed by names
   (Q31).
+- A new evidence file: its container decoded in `frontend/engine` (as the
+  raw file is), one reader on `annotator::Evidence` keyed by names (Q31,
+  Q61), its rows a table of `Intent::evidence`.
 - Outside code needing to change a table: a request table its owner drains.
 
 ## Change drill (Q51)

@@ -285,10 +285,71 @@ netlist) -> (Overrides, Vec<Diagnostic>)`; `sidecar::apply(intent, overrides)`;
 - Flow control: none; diagnostics are returned as a table.
 - Discontinuity: a learned or LLM-produced hint enters as `Intent` rows at Hint confidence through the same table, never as a callback.
 
+#### Evidence from ESPice (#77, Q61)
+
+Shipped as `annotate_with(netlist, cfg, &evidence)`, where `annotator::Evidence`
+is the evidence table and `Evidence::read_currents(file, json, netlist)` and
+`Evidence::read_op(file, vectors, netlist)` fill it; `annotate(netlist, cfg)`
+is the same call with no evidence.
+
+```sh
+philis run ota.spice sky130 --evidence-currents hot.emir.json --evidence-op ota_op.raw -o out/
+```
+
+- `--evidence-currents FILE` reads an `espice-emir/1` file (ESPice `--emir`,
+  OmarSiwy/ESPice#237): each instance terminal's `avg`, `em_avg`, `rms` and
+  `peak` current, at the corner it was simulated at. The testbench's
+  `sources` are not read.
+- `--evidence-op FILE` reads an ESPice raw file, binary or ASCII, whose one
+  `Operating Point` plot saves each device's `vds`, `vgs`, `id` (BSIM-CMG
+  calls it `ids`) and `vdsat`, as `@m1[vds]` (ngspice `.save`, or `.probe
+  op`) or `m1:vds` (Spectre `save`) (OmarSiwy/ESPice#236). The engine decodes
+  the file (`engine::op_vectors`, the fork's `nutlex`) and the annotator
+  reads the named values. A device that saves `gm` as well enters
+  `Evidence::op` (EXT-17), with `vth`, `vbs`, `gds` and `gmbs` where saved,
+  which sets its region and role.
+- Both are keyed by instance names and resolved when they are read, as the
+  sidecar is (Q31): the netlist's flattened name, with `.` or `/` between
+  levels, in any case. ngspice's device letter (`m.x1.mn1`) and the inner
+  device of a model subcircuit (sky130's `xm1.msky130_fd_pr__nfet_01v8`)
+  name the netlist's device. A name the netlist lacks is an
+  `evidence_unknown_name` diagnostic naming it, once per instance. An entry
+  Philis cannot read is `evidence_unsupported`: a missing or non-finite
+  value, a terminal or variable stated twice, or a device saving some of the
+  four but not all. Either way the rest is read. A file that is not what its
+  flag says is the refusal `evidence`.
+- The evidence becomes `Intent::evidence` rows, `TerminalCurrents` and
+  `OpPoints` in µA and mV, each with `Origin::Evidence { source }` naming
+  the file it came from. `Confidence` lands in M4, which rates these rows
+  Proven; until then they carry none.
+
+What changes with evidence:
+
+| | without evidence | with evidence, at M0 |
+|---|---|---|
+| ROUTE-EmWidth (M2) | role defaults | the currents wait in `Intent::evidence.currents`, the table it will size each segment and via array by: DC from `em_avg`, v2 adds RMS and peak |
+| criticality of a net (M2) | by role | by current, from the same table, once ROUTE-EmWidth reads it |
+| MOS-cascode V_DS equality (v2) | unknown | `vds` waits in `Intent::evidence.op`, from which the recipe will promise and score it |
+| device regions and roles (EXT-17) | from structure | from the operating point, for each device that saves `gm` |
+| the report | no evidence section | `evidence:` lists each row with its instance and source file, then each evidence diagnostic |
+
+- Without either flag nothing changes: the report is the same and every
+  claim that needs evidence reports unknown, as before.
+- `Outcome::evidence_json` (`evidence.json` under `-o`) carries the rows,
+  each naming its instance and source file, so the GPurify run that follows
+  (`erc --currents`, UW-ASIC/GPurify#82) can be checked against the same
+  currents.
+
 ### frontend/engine
 
 Surface: `run(mode, inputs, pdk, cfg) -> Result<Outcome, Refusal>` and every
 step of §1 as a free function; `print(calls, pdk) -> String`; the CLI.
+Shipped so far: `run(spice, pdk, signoff_engine)` and `run_with(spice,
+&EvidenceFiles, pdk, signoff_engine)`, the second with simulation evidence
+read by `evidence(files, flat)` (#77); `Outcome` carries the report and
+`evidence_json`; the CLI is `philis run <netlist> <pdk> [--evidence-currents
+FILE] [--evidence-op FILE] [-o DIR]`, whose help text is in
+`frontend/engine/src/main.rs`.
 
 - Granularity: `run` is the §1 steps pasted; a caller can delete the call and paste its body.
 - Redundancy: `Inputs` accepts SPICE text or a SCIR library; `Outcome` carries GDS bytes, report text, JSON tables and the Rust source so no caller re-derives one from another.

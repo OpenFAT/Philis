@@ -7,7 +7,8 @@ is a new oracle or a new input generator, not one more example. Round 3 of
 a tracked number rather than a gate.
 
 **In one sentence each.** Input: a SPICE netlist (plus an optional ALIGN-style
-sidecar, an interface file, an operating point) and a PDK deck. Output: a GDS,
+sidecar, an interface file, simulation evidence: terminal currents and an
+operating point) and a PDK deck. Output: a GDS,
 an LVS reference netlist, a signoff report, a claims report, and optionally a
 Rust generator program. Correct: the GDS signs off (DRC 0, ERC 0, LVS MATCH)
 on the real decks, every claim the recipes made is met by the drawn geometry
@@ -18,7 +19,7 @@ with a coded diagnostic.
 
 | component | domain | bug classes that matter |
 |---|---|---|
-| parser, sidecar reader, deck loader | compiler frontend / parser | crash on malformed input; accepting invalid, rejecting valid; silent misread of a value or unit |
+| parser, sidecar and evidence readers, deck loader | compiler frontend / parser | crash on malformed input; accepting invalid, rejecting valid; silent misread of a value, a unit or a name |
 | annotator | compiler semantic analysis | false positive and false negative constraints; wrong confidence; non-permutation-invariant output |
 | recipes, device blocks, floorplan, compaction | geometry / EDA | claim violated silently; DRC-dirty geometry; off-grid; wrong on a PDK not tested; degraded without a report row |
 | router | geometry / EDA | opens, shorts, unlanded pins; asymmetric differential routes; EM under-width |
@@ -43,7 +44,7 @@ with a coded diagnostic.
 | symmetric circuit laid out asymmetrically | metamorphic: swap the two halves' names in the netlist → mirrored call tree and mirrored geometry | property test on symmetric fixtures | merge |
 | wrong pattern math | exhaustive: every member-count vector up to 16 units → moments cancel to the promised order; spec examples from the papers (Hastings, Karmokar) | unit tests in `kernel/analog::matching` | local |
 | compaction breaks an invariant | property: random tile sets with axes and centroid groups → after compaction, mirror pairs still mirror, groups rigid, environment distances not below the recipe's, DRC clean, every claim re-met (Q24) | property test with 1.0's `SplitMix64`, no `proptest` (Q44) | merge |
-| parser or reader crash or misread | coverage-guided fuzz with `cargo-fuzz`: SPICE, sidecar JSON, deck text, GDS bytes into the visualizer (Q45); oracle: no panic, every rejection carries a diagnostic, value round-trips | fuzz targets with a checked-in corpus | merge replays the corpus; nightly fuzzes |
+| parser or reader crash or misread | coverage-guided fuzz with `cargo-fuzz`: SPICE, sidecar JSON, evidence files (`espice-emir/1` JSON, raw files), deck text, GDS bytes into the visualizer (Q45); oracle: no panic, every rejection carries a diagnostic, value round-trips | fuzz targets with a checked-in corpus | merge replays the corpus; nightly fuzzes |
 | printer drift | round-trip: `recipe_calls → Rust → cargo check → run → recipe_calls'` equal (Q47) | one generated crate per acceptance fixture | nightly |
 | output not reproducible for a seed | run twice with the same seed, compare `recipe_calls` and the GDS (Q33) | acceptance fixtures | merge |
 | hot path slower than its target | wall per fixture against the 10 s OTA target; +20 % alerts (Q48) | benchmark harness, `progress.py` | tracked on every push, reviewed at release, gates nothing until the acceptance set passes (Q53, Q56) |
@@ -86,6 +87,9 @@ proves nothing.
   the progress page.
 - `fuzz/`: `cargo-fuzz` targets and corpus.
 - `frontend/engine/tests/deps.rs`: forbidden dependency edges over `cargo metadata`.
+- `frontend/engine/tests/evidence.rs`: simulation evidence (#77) through the
+  spine and `philis run`, against fixtures written by hand from ESPice's
+  formats; the readers' own tests are in `annotator/src/evidence.rs`.
 - `frontend/engine/tests/roundtrip.rs`: the printer round-trip, nightly.
 
 ## Gates (Q42, Q50)

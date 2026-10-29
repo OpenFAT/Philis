@@ -188,18 +188,7 @@ pub fn parse(json: &str, nl: &Netlist) -> Result<(AnnotationConfig, Vec<Diagnost
             "Kelvin" => {
                 let pin = |s: &str| -> Option<(DeviceId, Term)> {
                     let (d, t) = s.split_once('/')?;
-                    let t = match t.to_ascii_uppercase().as_str() {
-                        "G" => Term::G,
-                        "D" => Term::D,
-                        "S" => Term::S,
-                        "B" => Term::B,
-                        "C" => Term::C,
-                        "E" => Term::E,
-                        "P" => Term::P,
-                        "N" => Term::N,
-                        _ => return None,
-                    };
-                    Some((device(d)?, t))
+                    Some((device(d)?, Term::from_name(t)?))
                 };
                 let at = e.get("pin").and_then(Value::as_str).unwrap_or("");
                 let sense: Option<Vec<(DeviceId, Term)>> = strs("sense").iter().map(|s| pin(s)).collect();

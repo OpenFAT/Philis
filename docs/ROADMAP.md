@@ -91,6 +91,24 @@ and typed fields for the `pdk_data` tables.
   only (`4896cb5`, 349 ms); `cap_array::extracted_bit_ratios_follow_the_weights`
   passes since `59a9fe8`.
 
+- Simulation evidence (#77, Q61) reaches `Intent::evidence`, the report and
+  `evidence.json`, at M0. Its consumers are later milestones, so three of
+  #77's gate items wait on them, untested:
+  - The 1:10 mirror's wires and via arrays at ten times the reference's, and
+    the doubled-currents seeded violation, wait on ROUTE-EmWidth (M2) and
+    the claims table (M1). `dr` already sizes from `DetailedCfg::pin_ua`,
+    and M2 builds that from `Intent::evidence.currents`. The test that
+    stands today is `annotator` `a_ten_to_one_mirror_carries_ten_times_the_reference_current`:
+    the currents are in that table at the ratio.
+  - The round trip through `gpurify erc --currents` waits on M2 and on
+    GPurify 2.0's `--currents` (UW-ASIC/GPurify#82, not shipped; Philis pins
+    the Rust GPurify).
+  - The MOS-cascode V_DS claim is v2; `vds` waits in `Intent::evidence.op`.
+
+  The fixtures (`benchmarks/fixtures/pair.emir.json`, `pair.op.raw`) are
+  written by hand from OmarSiwy/ESPice#237 and #236, which are not shipped
+  either: check them against ESPice's own files when those land. The rows
+  carry no confidence until M4.
 - Compaction is research (M6); until its verdict, the hot path's area is the
   atoll-snapped area.
 - `Confidence` does not exist until M4; before it, the hot path runs on

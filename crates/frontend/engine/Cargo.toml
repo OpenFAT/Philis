@@ -12,6 +12,13 @@ substrate3 = { path = "../../kernel/substrate3" }
 annotator = { path = "../annotator" }
 routing = { path = "../../backend/routing" }
 serde_json = { workspace = true }
+# The fork's raw-file reader, for an operating point's evidence (#77).
+nutlex = { workspace = true }
+
+# `philis run`, the recipe spine from the command line.
+[[bin]]
+name = "philis"
+path = "src/main.rs"
 
 [dev-dependencies]
 analog = { path = "../../kernel/analog" }

@@ -60,6 +60,7 @@ gdsconv = { path = "crates/kernel/substrate3/upstream/libs/gdsconv" }
 gds = { path = "crates/kernel/substrate3/upstream/libs/gds" }
 scir = { path = "crates/kernel/substrate3/upstream/libs/scir" }
 spice = { path = "crates/kernel/substrate3/upstream/libs/spice" }
+nutlex = { path = "crates/kernel/substrate3/upstream/libs/nutlex" }
 serde_json = "1"
 
 # From Substrate2's workspace (crates/kernel/substrate3/upstream).

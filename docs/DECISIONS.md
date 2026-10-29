@@ -761,3 +761,30 @@ M7 with the checklist as its specification; the die-context input table
 (outline, origin, thickness, package and bumps, θ, heaters, pin classes, pad
 order) is defined in v1 so the block floorplan's stress, thermal and pad rules
 read it when present and report unknown when absent. Recommendation: yes.
+
+---
+
+## After M0
+
+### Q61 Simulation evidence is ESPice's files, read by name — accepted (UW-ASIC/Philis#77, 2026-10-26)
+
+Philis 1.0 got its operating point by spawning ngspice (`--op-lib`,
+`--testbench`). The analog flow runs one simulator, ESPice, and Philis 2.0
+spawns none. ESPice writes each instance terminal's average, EM-average, RMS
+and peak current (`--emir`, `espice-emir/1`, OmarSiwy/ESPice#237) and each
+device's operating-point variables into a raw file (OmarSiwy/ESPice#236).
+The same current file feeds GPurify's EM sign-off (UW-ASIC/GPurify#82), so
+routing and sign-off size and check wires from the same numbers.
+
+Decided by the issue: Philis reads both files (`--evidence-currents`,
+`--evidence-op`), keyed by instance names resolved at parse time as Q31 keys
+the sidecar; a name the netlist lacks is a diagnostic, never dropped in
+silence. The facts enter `intent` with origin Evidence, and M4's
+`Confidence` rates them Proven. Their consumers keep their milestones:
+ROUTE-EmWidth DC in M2 (v2 adds RMS and peak) and the MOS-cascode V_DS claim
+in v2. Recorded with the implementation: the engine decodes the raw file
+(the fork's `nutlex`), as it parses the SPICE, and the annotator resolves
+the names; ngspice's device letter (`m.x1.mn1`) and the inner device of a
+model subcircuit (sky130's `xm1.msky130_fd_pr__nfet_01v8`) name the
+netlist's device; and the engine's flat device names are the netlist's own,
+since the fork's SCIR drops each SPICE letter (`XM1` is instance `M1`).

@@ -155,6 +155,12 @@ The user's ALIGN-style JSON constraint file, keyed by instance and net names;
 it adds, confirms, rejects and steers.
 _Avoid_: constraints JSON, override file
 
+**Evidence**:
+What a simulation states about the circuit, read from the simulator's files
+and keyed by instance names: each terminal's current, each device's operating
+point. It enters the annotator beside the netlist and the sidecar.
+_Avoid_: simulation results, op data, measurements
+
 **Acceptance set**:
 The fixtures the recipe mode must take to clean signoff on both proof PDKs
 before a version counts as done; it only grows.

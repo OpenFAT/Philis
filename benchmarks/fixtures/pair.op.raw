@@ -1,0 +1,34 @@
+Title: pair at the hot corner
+Date: Thu Jan  1 00:00:00 1970
+Plotname: Operating Point
+Flags: real
+No. Variables: 13
+No. Points: 1
+Variables:
+	0	v(d)	voltage
+	1	v(g)	voltage
+	2	i(vd)	current
+	3	@m.xm1.msky130_fd_pr__nfet_01v8[vds]	voltage
+	4	@m.xm1.msky130_fd_pr__nfet_01v8[vgs]	voltage
+	5	@m.xm1.msky130_fd_pr__nfet_01v8[id]	current
+	6	@m.xm1.msky130_fd_pr__nfet_01v8[vdsat]	voltage
+	7	@m.xm1.msky130_fd_pr__nfet_01v8[gm]	notype
+	8	@m.xm2.msky130_fd_pr__nfet_01v8[vds]	voltage
+	9	@m.xm2.msky130_fd_pr__nfet_01v8[vgs]	voltage
+	10	@m.xm2.msky130_fd_pr__nfet_01v8[id]	current
+	11	@m.xm2.msky130_fd_pr__nfet_01v8[vdsat]	voltage
+	12	@m.xm2.msky130_fd_pr__nfet_01v8[gm]	notype
+Values:
+0	9e-1
+	8e-1
+	-1e-4
+	9e-1
+	8e-1
+	5e-5
+	1.8e-1
+	4e-4
+	9e-1
+	8e-1
+	5e-5
+	1.8e-1
+	4e-4
