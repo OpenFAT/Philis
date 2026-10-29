@@ -19,12 +19,46 @@
 //! | `Load`                                   | `net`, `ff` (external load, fF)         |
 //! | `Order`                                  | `instances` (names or aliases), `direction` (`bottom_to_top`, `top_to_bottom`, `left_to_right`, `right_to_left`) |
 //! | `IsolatedTub`                            | `instances` (NMOS, one bulk net), `tie` |
+//! | `Reference`                              | `aspect`, `rows: [[name]]`, `extents: {name: {x, y, w, h}}`; optional `source`, `unit_area: {name: ratio}`, `area_ratio` |
+//!
+//! ## `Reference` (UW-ASIC/Philis#78, Q61)
+//!
+//! A prior design's floorplan, which the floorplan takes as its targets in
+//! place of the stage order (Q21, Q22):
+//!
+//! ```json
+//! {"constraint": "Reference", "source": "sar10 v1, gf180mcu, 2025 shuttle", "aspect": 1.6,
+//!  "rows": [["cdac"], ["comparator", "bias"], ["sar_logic"]],
+//!  "extents": {"cdac":       {"x": 0.00, "y": 0.00, "w": 1.00, "h": 0.55},
+//!              "comparator": {"x": 0.00, "y": 0.55, "w": 0.60, "h": 0.20},
+//!              "bias":       {"x": 0.60, "y": 0.55, "w": 0.40, "h": 0.20},
+//!              "sar_logic":  {"x": 0.00, "y": 0.75, "w": 1.00, "h": 0.25}},
+//!  "unit_area": {"cdac": 1.0}, "area_ratio": 1.0}
+//! ```
+//!
+//! - A name is a `GroupBlocks` alias from an earlier entry or an instance,
+//!   resolved as `Order` resolves them (Q31). A name the netlist lacks is a
+//!   `sidecar_unknown_name` diagnostic and drops that block; the rest stand.
+//! - `aspect` is the outline's width over its height. Extents are fractions
+//!   of the outline from its lower-left corner; `rows[0]` is the bottom row,
+//!   names left to right. Every listed name has an extent inside the
+//!   outline, extents in a row do not overlap, and each row sits on or above
+//!   the one below. A shape that breaks any of this, a device in two blocks,
+//!   or a second `Reference` is `sidecar_unsupported`, and the entry is
+//!   dropped (the first `Reference` stands).
+//! - `unit_area` (a block's unit over the reference's) and `area_ratio` (the
+//!   block area over the reference's, after scaling by the ratio of total
+//!   device area) are checked (> 0, names in a row) and carried; M0 applies
+//!   neither (`placement::reference`).
+//! - The reader only parses: the conflicts with the circuit's constraints,
+//!   the targets and the report belong to the floorplan
+//!   (`placement::reference`, `engine::arrange_reference`).
 
 use std::collections::HashMap;
 
 use analog::base::ids::{DeviceId, NetId};
 use analog::base::Netlist;
-use analog::intent::{AxisDir, ConstraintId, Diagnostic, KelvinReq, MatchClass, MatchKind, Order, Term};
+use analog::intent::{AxisDir, ConstraintId, Diagnostic, KelvinReq, MatchClass, MatchKind, Order, RefBlock, Reference, Term};
 use analog::metadata::NetClass;
 use serde_json::Value;
 
@@ -279,10 +313,128 @@ pub fn parse(json: &str, nl: &Netlist) -> Result<(AnnotationConfig, Vec<Diagnost
                 cfg.groups.push((i as u32, ds.clone()));
                 cfg.tubs.push((ds, tie));
             }
+            "Reference" => {
+                if cfg.reference.is_some() {
+                    diags.push(Diagnostic {
+                        kind: "sidecar_unsupported",
+                        devices: vec![],
+                        message: format!("entry {i} (Reference): a second Reference; the first stands"),
+                    });
+                    continue;
+                }
+                let resolve = |n: &str| alias.get(&n.to_ascii_lowercase()).cloned().or_else(|| device(n).map(|d| vec![d]));
+                cfg.reference = reference(e, i as u32, &resolve, nl, &mut diags);
+            }
             _ => diags.push(Diagnostic { kind: "sidecar_unsupported", devices: vec![], message: format!("entry {i} ({kind})") }),
         }
     }
     Ok((cfg, diags))
+}
+
+/// Slack on the sums a reference's fractions make (`0.55 + 0.20 + 0.25`).
+const FRACTION_EPS: f64 = 1e-9;
+
+/// The `Reference` entry `e`, index `i`, its names resolved by `resolve`.
+/// `None` with one `sidecar_unsupported` diagnostic when its shape is wrong
+/// ([`reference_shape`]) or a device lands in two blocks. A name `resolve`
+/// does not know is a `sidecar_unknown_name` diagnostic and drops that
+/// block only (`None` when no block is left).
+fn reference(e: &Value, i: u32, resolve: &dyn Fn(&str) -> Option<Vec<DeviceId>>, nl: &Netlist, diags: &mut Vec<Diagnostic>) -> Option<Reference> {
+    let unsupported = |why: String| Diagnostic { kind: "sidecar_unsupported", devices: vec![], message: format!("entry {i} (Reference): {why}") };
+    let shape = match reference_shape(e) {
+        Ok(r) => r,
+        Err(why) => {
+            diags.push(unsupported(why));
+            return None;
+        }
+    };
+    let mut blocks = Vec::with_capacity(shape.blocks.len());
+    for mut b in shape.blocks {
+        match resolve(&b.name) {
+            Some(devices) => {
+                b.devices = devices;
+                blocks.push(b);
+            }
+            None => diags.push(Diagnostic {
+                kind: "sidecar_unknown_name",
+                devices: vec![],
+                message: format!("entry {i} (Reference): unknown name {}", b.name),
+            }),
+        }
+    }
+    let mut owner: HashMap<DeviceId, usize> = HashMap::new();
+    for (k, b) in blocks.iter().enumerate() {
+        for &d in &b.devices {
+            if let Some(j) = owner.insert(d, k).filter(|&j| j != k) {
+                let name = &nl.devices[d.0 as usize].name;
+                diags.push(Diagnostic { devices: vec![d], ..unsupported(format!("{name} is in blocks {} and {}", blocks[j].name, b.name)) });
+                return None;
+            }
+        }
+    }
+    (!blocks.is_empty()).then_some(Reference { entry: i, blocks, ..shape })
+}
+
+/// A `Reference` entry checked for what the floorplan needs, its blocks
+/// with no devices yet; `Err` names the first field that is wrong. Rows
+/// list names once each, bottom row first; every listed name has an extent
+/// inside the outline and nothing else has one; within a row extents run
+/// left to right without overlap, and each row sits on or above the one
+/// below it.
+fn reference_shape(e: &Value) -> Result<Reference, String> {
+    let positive = |k: &str| -> Result<Option<f32>, String> {
+        e.get(k).map(|v| v.as_f64().filter(|x| x.is_finite() && *x > 0.0).map(|x| x as f32).ok_or(format!("{k} must be a number > 0"))).transpose()
+    };
+    let aspect = positive("aspect")?.ok_or("aspect must be a number > 0")?;
+    let area_ratio = positive("area_ratio")?;
+    let rows = e.get("rows").and_then(Value::as_array).filter(|r| !r.is_empty()).ok_or("rows must list rows of names, bottom first")?;
+    let extents = e.get("extents").and_then(Value::as_object).ok_or("extents must map every name to {x, y, w, h}")?;
+    let units = e.get("unit_area").map(|u| u.as_object().ok_or("unit_area must map names to numbers")).transpose()?;
+    let mut blocks: Vec<RefBlock> = Vec::new();
+    // Each block's extent as written, for the agreement checks below.
+    let mut exact: Vec<[f64; 4]> = Vec::new();
+    for (r, row) in rows.iter().enumerate() {
+        let row_id = u16::try_from(r).map_err(|_| "more than 65535 rows".to_string())?;
+        let names = row.as_array().filter(|n| !n.is_empty()).ok_or(format!("row {r} must list names"))?;
+        for n in names {
+            let name = n.as_str().ok_or(format!("row {r}: a name must be a string"))?;
+            if blocks.iter().any(|b| b.name == name) {
+                return Err(format!("{name} is listed twice"));
+            }
+            let x = extents.get(name).ok_or(format!("{name} has no extent"))?;
+            let f = |k: &str| x.get(k).and_then(Value::as_f64).filter(|v| v.is_finite());
+            let (Some(ex), Some(ey), Some(ew), Some(eh)) = (f("x"), f("y"), f("w"), f("h")) else {
+                return Err(format!("{name}: an extent is numbers x, y, w, h"));
+            };
+            if ex < 0.0 || ey < 0.0 || ew <= 0.0 || eh <= 0.0 || ex + ew > 1.0 + FRACTION_EPS || ey + eh > 1.0 + FRACTION_EPS {
+                return Err(format!("{name}: extent ({ex}, {ey}, {ew}, {eh}) is not inside the outline"));
+            }
+            let unit_area = units
+                .and_then(|u| u.get(name))
+                .map(|v| v.as_f64().filter(|v| v.is_finite() && *v > 0.0).map(|v| v as f32).ok_or(format!("unit_area of {name} must be a number > 0")))
+                .transpose()?;
+            let extent = analog::intent::Extent { x: ex as f32, y: ey as f32, w: ew as f32, h: eh as f32 };
+            blocks.push(RefBlock { name: name.to_string(), devices: Vec::new(), row: row_id, extent, unit_area });
+            exact.push([ex, ey, ew, eh]);
+        }
+    }
+    if let Some(k) = extents.keys().chain(units.into_iter().flat_map(|u| u.keys())).find(|k| !blocks.iter().any(|b| &b.name == *k)) {
+        return Err(format!("{k} has an extent or a unit_area but no row"));
+    }
+    for (w, x) in blocks.windows(2).zip(exact.windows(2)) {
+        if w[0].row == w[1].row && x[1][0] < x[0][0] + x[0][2] - FRACTION_EPS {
+            return Err(format!("row {}: {} must sit right of {}", w[0].row, w[1].name, w[0].name));
+        }
+    }
+    let rows_of = |r: u16| blocks.iter().zip(&exact).filter(move |(b, _)| b.row == r).map(|(_, x)| x);
+    for r in 1..=blocks.last().map_or(0, |b| b.row) {
+        let top = rows_of(r - 1).map(|x| x[1] + x[3]).fold(f64::MIN, f64::max);
+        if rows_of(r).any(|x| x[1] < top - FRACTION_EPS) {
+            return Err(format!("row {r} must sit on or above row {}", r - 1));
+        }
+    }
+    let source = e.get("source").and_then(Value::as_str).unwrap_or_default().to_string();
+    Ok(Reference { entry: 0, source, aspect, blocks, area_ratio })
 }
 
 impl AnnotationConfig {
@@ -382,6 +534,112 @@ mod tests {
     fn not_json_is_an_error() {
         assert!(parse("{", &crate::tests::ota()).is_err());
         assert!(parse("{}", &crate::tests::ota()).is_err(), "not an array");
+    }
+
+    /// The issue's example entry (#78), its four names as `GroupBlocks`
+    /// aliases over the OTA's devices.
+    const SPEC_EXAMPLE: &str = r#"[
+        {"constraint":"GroupBlocks","instances":["XM5"],"instance_name":"cdac"},
+        {"constraint":"GroupBlocks","instances":["XM1","XM2"],"instance_name":"comparator"},
+        {"constraint":"GroupBlocks","instances":["XM3"],"instance_name":"bias"},
+        {"constraint":"GroupBlocks","instances":["XM4"],"instance_name":"sar_logic"},
+        {"constraint":"Reference","source":"sar10 v1, gf180mcu, 2025 shuttle","aspect":1.6,
+         "rows":[["cdac"],["comparator","bias"],["sar_logic"]],
+         "extents":{"cdac":{"x":0.00,"y":0.00,"w":1.00,"h":0.55},
+                    "comparator":{"x":0.00,"y":0.55,"w":0.60,"h":0.20},
+                    "bias":{"x":0.60,"y":0.55,"w":0.40,"h":0.20},
+                    "sar_logic":{"x":0.00,"y":0.75,"w":1.00,"h":0.25}},
+         "unit_area":{"cdac":1.0},"area_ratio":1.0}]"#;
+
+    /// Oracle: the values the issue's example writes.
+    #[test]
+    fn the_issue_example_reference_parses() {
+        let nl = crate::tests::ota();
+        let (cfg, d) = parse(SPEC_EXAMPLE, &nl).unwrap();
+        assert!(d.is_empty(), "{d:?}");
+        let r = cfg.reference.expect("a reference");
+        assert_eq!((r.entry, r.source.as_str(), r.aspect, r.area_ratio), (4, "sar10 v1, gf180mcu, 2025 shuttle", 1.6, Some(1.0)));
+        let ext = |x: f32, y: f32, w: f32, h: f32| analog::intent::Extent { x, y, w, h };
+        let got: Vec<_> = r.blocks.iter().map(|b| (b.name.as_str(), b.devices.clone(), b.row, b.extent, b.unit_area)).collect();
+        assert_eq!(
+            got,
+            [
+                ("cdac", vec![DeviceId(4)], 0, ext(0.0, 0.0, 1.0, 0.55), Some(1.0)),
+                ("comparator", vec![DeviceId(0), DeviceId(1)], 1, ext(0.0, 0.55, 0.6, 0.2), None),
+                ("bias", vec![DeviceId(2)], 1, ext(0.6, 0.55, 0.4, 0.2), None),
+                ("sar_logic", vec![DeviceId(3)], 2, ext(0.0, 0.75, 1.0, 0.25), None),
+            ]
+        );
+    }
+
+    /// Instance names resolve as aliases do; a name the netlist lacks is a
+    /// diagnostic and drops that block only.
+    #[test]
+    fn a_reference_name_the_netlist_lacks_is_a_diagnostic() {
+        let nl = crate::tests::ota();
+        let json = r#"[{"constraint":"Reference","aspect":1,"rows":[["XM5"],["nope"]],
+            "extents":{"XM5":{"x":0,"y":0,"w":1,"h":0.5},"nope":{"x":0,"y":0.5,"w":1,"h":0.5}}}]"#;
+        let (cfg, d) = parse(json, &nl).unwrap();
+        assert_eq!(d.iter().map(|d| (d.kind, d.message.as_str())).collect::<Vec<_>>(), [("sidecar_unknown_name", "entry 0 (Reference): unknown name nope")]);
+        let r = cfg.reference.expect("the known block stands");
+        assert_eq!(r.blocks.iter().map(|b| (b.name.as_str(), b.devices.clone(), b.row)).collect::<Vec<_>>(), [("XM5", vec![DeviceId(4)], 0)]);
+    }
+
+    /// Negative space: every shape the floorplan could not honour is refused
+    /// with one diagnostic naming the entry, and no reference is kept.
+    #[test]
+    fn a_malformed_reference_is_refused() {
+        let nl = crate::tests::ota();
+        let two = r#""extents":{"XM1":{"x":0,"y":0,"w":0.5,"h":1},"XM3":{"x":0.5,"y":0,"w":0.5,"h":1}}"#;
+        let cases = [
+            ("no aspect", format!(r#""rows":[["XM1","XM3"]],{two}"#)),
+            ("aspect 0", format!(r#""aspect":0,"rows":[["XM1","XM3"]],{two}"#)),
+            ("no rows", format!(r#""aspect":1,"rows":[],{two}"#)),
+            ("a name twice", format!(r#""aspect":1,"rows":[["XM1","XM3"],["XM1"]],{two}"#)),
+            ("a name with no extent", r#""aspect":1,"rows":[["XM1"]],"extents":{}"#.to_string()),
+            ("an extent no row lists", format!(r#""aspect":1,"rows":[["XM1"]],{two}"#)),
+            ("past the outline", r#""aspect":1,"rows":[["XM1"]],"extents":{"XM1":{"x":0.5,"y":0,"w":0.6,"h":1}}"#.to_string()),
+            ("zero width", r#""aspect":1,"rows":[["XM1"]],"extents":{"XM1":{"x":0,"y":0,"w":0,"h":1}}"#.to_string()),
+            ("overlap in a row", r#""aspect":1,"rows":[["XM1","XM3"]],"extents":{"XM1":{"x":0,"y":0,"w":0.6,"h":1},"XM3":{"x":0.5,"y":0,"w":0.5,"h":1}}"#.to_string()),
+            ("right to left", r#""aspect":1,"rows":[["XM3","XM1"]],"extents":{"XM1":{"x":0,"y":0,"w":0.5,"h":1},"XM3":{"x":0.5,"y":0,"w":0.5,"h":1}}"#.to_string()),
+            ("rows out of order", r#""aspect":1,"rows":[["XM1"],["XM3"]],"extents":{"XM1":{"x":0,"y":0.5,"w":1,"h":0.5},"XM3":{"x":0,"y":0,"w":1,"h":0.5}}"#.to_string()),
+            ("unit_area 0", format!(r#""aspect":1,"rows":[["XM1","XM3"]],{two},"unit_area":{{"XM1":0}}"#)),
+            ("unit_area off the rows", format!(r#""aspect":1,"rows":[["XM1","XM3"]],{two},"unit_area":{{"XM5":1}}"#)),
+            ("area_ratio -1", format!(r#""aspect":1,"rows":[["XM1","XM3"]],{two},"area_ratio":-1"#)),
+            ("a device in two blocks", r#""aspect":1,"rows":[["XM1","xm1"]],"extents":{"XM1":{"x":0,"y":0,"w":0.5,"h":1},"xm1":{"x":0.5,"y":0,"w":0.5,"h":1}}"#.to_string()),
+        ];
+        for (what, body) in cases {
+            let (cfg, d) = parse(&format!(r#"[{{"constraint":"Reference",{body}}}]"#), &nl).unwrap();
+            assert_eq!(d.iter().map(|d| d.kind).collect::<Vec<_>>(), ["sidecar_unsupported"], "{what}: {d:?}");
+            assert!(d[0].message.starts_with("entry 0 (Reference): "), "{what}: {}", d[0].message);
+            assert!(cfg.reference.is_none(), "{what}: kept");
+        }
+        // A second entry is refused; the first stands.
+        let one = format!(r#"{{"constraint":"Reference","aspect":1,"rows":[["XM1","XM3"]],{two}}}"#);
+        let (cfg, d) = parse(&format!("[{one},{one}]"), &nl).unwrap();
+        assert_eq!(d.iter().map(|d| d.kind).collect::<Vec<_>>(), ["sidecar_unsupported"]);
+        assert_eq!(cfg.reference.map(|r| r.entry), Some(0));
+    }
+
+    /// `benchmarks/fixtures/dac4.reference.json`, the input of the gate's
+    /// first check (it runs at M3, when `dac4` parses), against `dac4`'s
+    /// instances as the engine names them: SCIR drops SPICE's element
+    /// letter, so `XC0` is `C0`. Oracle: the fixture's own blocks.
+    #[test]
+    fn the_dac4_reference_resolves() {
+        use analog::base::netlist::{Device, DeviceKind};
+        let dev = |name: String, kind| Device { name, kind, model: String::new(), terminals: Vec::new(), params: Vec::new() };
+        let mut devices: Vec<Device> = (0..5).map(|k| dev(format!("C{k}"), DeviceKind::Capacitor)).collect();
+        for k in 0..4 {
+            devices.extend([dev(format!("MP{k}"), DeviceKind::Pmos), dev(format!("MN{k}"), DeviceKind::Nmos)]);
+        }
+        devices.push(dev("MC".into(), DeviceKind::Nmos));
+        let nl = Netlist { devices, ..Default::default() };
+        let (cfg, d) = parse(include_str!("../../../../benchmarks/fixtures/dac4.reference.json"), &nl).unwrap();
+        assert!(d.is_empty(), "{d:?}");
+        let r = cfg.reference.expect("a reference");
+        assert_eq!(r.blocks.iter().map(|b| (b.name.as_str(), b.row, b.devices.len())).collect::<Vec<_>>(), [("cdac", 0, 5), ("drivers", 0, 8), ("cmp", 1, 1)]);
+        assert_eq!((r.aspect, r.area_ratio), (1.506, Some(1.0)));
     }
 
     /// A user class wins over the role, and an Exceptional Voltage set makes

@@ -1,0 +1,18 @@
+[
+  {"constraint": "GroupBlocks", "instances": ["C0", "C1", "C2", "C3", "C4"], "instance_name": "cdac"},
+  {"constraint": "GroupBlocks", "instances": ["MP0", "MN0", "MP1", "MN1", "MP2", "MN2", "MP3", "MN3"], "instance_name": "drivers"},
+  {"constraint": "GroupBlocks", "instances": ["MC"], "instance_name": "cmp"},
+  {
+    "constraint": "Reference",
+    "source": "Philis 1.0 dac4 at 8f84de4 (docs/progress/layouts/dac4.svg, 40.84 x 27.13 um), rounded to two rows: the inverter left of the array joins the drivers on its right, the comparator device's row starts at the array's top",
+    "aspect": 1.506,
+    "rows": [["cdac", "drivers"], ["cmp"]],
+    "extents": {
+      "cdac":    {"x": 0.063, "y": 0.158, "w": 0.768, "h": 0.689},
+      "drivers": {"x": 0.831, "y": 0.021, "w": 0.137, "h": 0.360},
+      "cmp":     {"x": 0.893, "y": 0.847, "w": 0.107, "h": 0.153}
+    },
+    "unit_area": {"cdac": 1.0},
+    "area_ratio": 1.0
+  }
+]

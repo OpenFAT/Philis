@@ -304,6 +304,51 @@ pub struct Diagnostic {
     pub message: String,
 }
 
+/// A box as fractions of a reference outline, from its lower-left corner:
+/// `x`, `y` ≥ 0, `w`, `h` > 0, `x + w` and `y + h` at most 1 (the sidecar
+/// reader admits nothing else).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Extent {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+/// One block of a [`Reference`]: the devices a sidecar name resolves to (a
+/// `GroupBlocks` alias or an instance) and where the prior design had them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RefBlock {
+    /// The name as the sidecar writes it; the report quotes it.
+    pub name: String,
+    pub devices: Vec<DeviceId>,
+    /// 0 is the bottom row.
+    pub row: u16,
+    pub extent: Extent,
+    /// The block's unit (a capacitor unit, a mirror unit) over the
+    /// reference's, > 0; `None` when the entry gives none.
+    pub unit_area: Option<f32>,
+}
+
+/// A prior design's floorplan, the sidecar's `Reference` entry
+/// (UW-ASIC/Philis#78, Q61): its row order, extents and aspect are the
+/// floorplan's targets in place of the stage order (Q21, Q22). `blocks` run
+/// row by row, bottom first, left to right within a row; their extents
+/// stack in that order and never overlap, and no device is in two blocks.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Reference {
+    /// Index of the sidecar entry, as [`Origin::User`] counts it.
+    pub entry: u32,
+    /// The prior design, free text the report quotes.
+    pub source: String,
+    /// Outline width over height, > 0.
+    pub aspect: f32,
+    pub blocks: Vec<RefBlock>,
+    /// Target block area over the reference's after scaling by the ratio
+    /// of total device area, > 0; `None` when the entry gives none.
+    pub area_ratio: Option<f32>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Intent {
     pub sets: Vec<MatchSpec>,

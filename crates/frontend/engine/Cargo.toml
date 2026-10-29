@@ -10,6 +10,7 @@ analog = { path = "../../kernel/analog" }
 verify = { path = "../../kernel/verify" }
 substrate3 = { path = "../../kernel/substrate3" }
 annotator = { path = "../annotator" }
+placement = { path = "../../backend/placement" }
 routing = { path = "../../backend/routing" }
 serde_json = { workspace = true }
 

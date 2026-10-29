@@ -2,8 +2,9 @@
 //!
 //! Recipe mode: `parse → annotate → plan_recipes → build_tiles → arrange →
 //! route → signoff → report`, each step a free function over the tables the
-//! one before returned, and [`run`] those lines pasted. M0 holds one set
-//! recipe ([`RecipeKind::MosAdjacent`]) and a one-row floorplan; the steps the
+//! one before returned, and [`run_with`] those lines pasted. M0 holds one set
+//! recipe ([`RecipeKind::MosAdjacent`]) and a one-row floorplan, or the
+//! sidecar `Reference`'s floorplan ([`arrange_reference`]); the steps the
 //! spine names but M0 does not need yet (`gate_confidence`, `compact`,
 //! `score_claims`, `print`) land with the milestone that needs them.
 
@@ -25,7 +26,9 @@ use verify::{LabeledPin, Pdk};
 /// fallback to another spine.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Refusal {
-    /// `parse`, `no-recipe`, `reference`, or a foundry engine's `foundry/…` ([`verify::Refused`]).
+    /// `parse`, `sidecar`, `no-recipe`, `floorplan`, `floorplan/reference`,
+    /// `reference` (the LVS reference), or a foundry engine's `foundry/…`
+    /// ([`verify::Refused`]).
     pub code: &'static str,
     pub message: String,
 }
@@ -171,6 +174,18 @@ fn flatten(
 #[must_use]
 pub fn annotation(pdk: &Pdk) -> annotator::AnnotationConfig {
     route::annotation(pdk, &annotator::AnnotationConfig::default())
+}
+
+/// [`annotation`] plus the sidecar's entries (Q7), their names resolved
+/// against `netlist` (Q31); every entry-level problem is a diagnostic the
+/// intent carries. `[]` gives exactly [`annotation`].
+///
+/// # Errors
+/// `sidecar`: text that is not JSON, or not a top-level array.
+pub fn annotation_with(pdk: &Pdk, netlist: &Netlist, sidecar: &str) -> Result<annotator::AnnotationConfig, Refusal> {
+    let (mut base, diags) = annotator::AnnotationConfig::from_json(sidecar, &netlist.flat).map_err(|e| refuse("sidecar", e))?;
+    base.sidecar_diags = diags;
+    Ok(route::annotation(pdk, &base))
 }
 
 /// Recipe kinds (S1: a closed enum, matched exhaustively).
@@ -502,23 +517,66 @@ fn join_members(m: &mut Macro, pdk: &Pdk) {
 /// Several tiles on a deck with fins: exact gate and fin pitches (ASAP7
 /// GATE.S.1, FIN.S.1) need the gate-lattice glue row between tiles (M2).
 pub fn arrange(tiles: &[Macro], pdk: &Pdk) -> Result<Layout, Refusal> {
-    if tiles.len() > 1 && analog::base::Process::layer(pdk, "fin").is_some() {
-        return Err(refuse("floorplan", format!("{} tiles on a fin deck: a row needs the gate-lattice glue row (M2)", tiles.len())));
-    }
+    one_tile_on_fins(tiles, pdk)?;
     let gap = widest_spacing(tiles, pdk);
     // Tile origins on the cut lattice, as the cells draw their cuts.
     let lattice = substrate3::cells::builder::cut_lattice(pdk).max(1);
-    let n = tiles.len();
-    let mut x = Vec::with_capacity(n);
+    let mut x = Vec::with_capacity(tiles.len());
     let mut cursor = 0;
     for m in tiles {
-        // `place_macro` puts the lower-left at `x − hw`: here, `cursor`.
-        x.push(cursor + m.bbox.w / 2);
+        x.push(cursor);
         cursor += (m.bbox.w + gap + lattice - 1) / lattice * lattice;
     }
-    Ok(Layout {
-        x,
-        y: tiles.iter().map(|m| m.bbox.h / 2).collect(),
+    Ok(layout_at(tiles, &x, &vec![0; tiles.len()]))
+}
+
+/// The reference floorplan (#78, [`placement::reference`]): each tile in
+/// its block's target box, the tiles of no block in a row above the
+/// outline, `gap` as [`arrange`]'s. Returns the layout, which block each
+/// tile took (and the conflicts that degraded), and the fit.
+///
+/// # Errors
+/// `floorplan/reference`: the reference splits a common-centroid, Precise or
+/// User matched set or contradicts a user `Order` (each named with the
+/// entry), or its extents are too small for their tiles; `floorplan` as
+/// [`arrange`].
+pub fn arrange_reference(
+    reference: &analog::intent::Reference,
+    calls: &RecipeCalls,
+    tiles: &[Macro],
+    problem: &annotator::Problem,
+    flat: &Flat,
+    pdk: &Pdk,
+) -> Result<(Layout, placement::reference::Assignment, placement::reference::Fit), Refusal> {
+    assert_eq!(calls.len(), tiles.len(), "one tile per call");
+    one_tile_on_fins(tiles, pdk)?;
+    let names: Vec<&str> = flat.devices.iter().map(|d| d.name.as_str()).collect();
+    let members: Vec<&[DeviceId]> = (0..calls.len()).map(|i| calls.members_of(i)).collect();
+    let refused = |why: String| refuse("floorplan/reference", why);
+    let assignment = placement::reference::assign(reference, &problem.intent, &members, &names).map_err(refused)?;
+    let sizes: Vec<(i32, i32)> = tiles.iter().map(|m| (m.bbox.w, m.bbox.h)).collect();
+    let lattice = substrate3::cells::builder::cut_lattice(pdk).max(1);
+    let fit = placement::reference::fit(reference, &assignment.block, &sizes, widest_spacing(tiles, pdk), lattice).map_err(refused)?;
+    Ok((layout_at(tiles, &fit.x, &fit.y), assignment, fit))
+}
+
+/// [`arrange`]'s refusal: exact gate and fin pitches need M2's glue row
+/// between tiles, so a fin deck takes one tile.
+fn one_tile_on_fins(tiles: &[Macro], pdk: &Pdk) -> Result<(), Refusal> {
+    if tiles.len() > 1 && analog::base::Process::layer(pdk, "fin").is_some() {
+        return Err(refuse("floorplan", format!("{} tiles on a fin deck: a row needs the gate-lattice glue row (M2)", tiles.len())));
+    }
+    Ok(())
+}
+
+/// A [`Layout`] with tile `i`'s lower-left corner at `(x[i], y[i])`:
+/// `place_macro` puts it at `x − hw`, `y − hh`.
+fn layout_at(tiles: &[Macro], x: &[i32], y: &[i32]) -> Layout {
+    assert!(x.len() == tiles.len() && y.len() == tiles.len(), "one corner per tile");
+    let n = tiles.len();
+    Layout {
+        x: tiles.iter().zip(x).map(|(m, &x)| x + m.bbox.w / 2).collect(),
+        y: tiles.iter().zip(y).map(|(m, &y)| y + m.bbox.h / 2).collect(),
         hw: tiles.iter().map(|m| m.bbox.w / 2).collect(),
         hh: tiles.iter().map(|m| m.bbox.h / 2).collect(),
         axis: vec![0],
@@ -529,7 +587,7 @@ pub fn arrange(tiles: &[Macro], pdk: &Pdk) -> Result<Layout, Refusal> {
         power_uw: vec![0; n],
         temp_mc: vec![0; n],
         units: Default::default(),
-    })
+    }
 }
 
 /// Everything signoff reads, and its verdict.
@@ -540,6 +598,9 @@ pub struct Outcome {
     pub route_report: Report,
     pub signoff: verify::Signoff,
     pub report: String,
+    /// The sidecar `Reference`'s floorplan, which block each call took and
+    /// where ([`arrange_reference`]); `None` without a reference.
+    pub reference: Option<(placement::reference::Assignment, placement::reference::Fit)>,
 }
 
 /// Flat geometry: every placed tile's shapes, then every routed wire.
@@ -627,13 +688,89 @@ pub fn report(calls: &RecipeCalls, flat: &Flat, signoff: &verify::Signoff) -> St
     s
 }
 
-/// Recipe mode, the whole spine, signed off by `engine`.
+/// The report's reference section (#78): the reference quoted, its aspect
+/// against the outline's and the drawn layout's (tiles and routes), each
+/// block's target extent against the box its tiles drew, the calls outside
+/// the reference, the targets M0 does not apply, and every conflict that
+/// degraded. Fractions are of the outline, from its lower-left corner.
+#[must_use]
+pub fn reference_report(
+    r: &analog::intent::Reference,
+    a: &placement::reference::Assignment,
+    fit: &placement::reference::Fit,
+    placed: &[Macro],
+    routes: &Routes,
+) -> String {
+    use std::fmt::Write as _;
+    let (w, h) = (f64::from(fit.outline.0.max(1)), f64::from(fit.outline.1.max(1)));
+    let pct = |got: f64, want: f64| 100.0 * (got / want - 1.0);
+    let aspect = f64::from(r.aspect);
+    let mut s = format!("reference: sidecar entry {}, {:?}\n", r.entry, r.source);
+    let _ = write!(s, "  aspect: target {aspect:.3}, outline {:.3} ({:.2} x {:.2} um)", w / h, w / 1e3, h / 1e3);
+    match geometry(placed, routes).into_iter().map(|g| g.rect).reduce(union).filter(|d| d.h > 0) {
+        Some(d) => {
+            let got = f64::from(d.w) / f64::from(d.h);
+            let _ = writeln!(s, ", drawn {got:.3} ({:+.1} %, {:.2} x {:.2} um)", pct(got, aspect), f64::from(d.w) / 1e3, f64::from(d.h) / 1e3);
+        }
+        None => s.push_str(", nothing drawn\n"),
+    }
+    for (b, k) in r.blocks.iter().enumerate() {
+        let e = k.extent;
+        let calls: Vec<usize> = (0..a.block.len()).filter(|&t| a.block[t] == Some(b as u16)).collect();
+        let _ = write!(s, "  {} (row {}): target x {:.3} y {:.3} w {:.3} h {:.3}", k.name, k.row, e.x, e.y, e.w, e.h);
+        match calls.iter().map(|&t| placed[t].bbox).reduce(union) {
+            None => s.push_str(", no tile\n"),
+            Some(d) => {
+                let (dw, dh) = (f64::from(d.w) / w, f64::from(d.h) / h);
+                let _ = writeln!(
+                    s,
+                    "; calls {calls:?} drew x {:.3} y {:.3} w {dw:.3} h {dh:.3} (w {:+.1} %, h {:+.1} %)",
+                    f64::from(d.x) / w,
+                    f64::from(d.y) / h,
+                    pct(dw, f64::from(e.w)),
+                    pct(dh, f64::from(e.h))
+                );
+            }
+        }
+    }
+    let outside: Vec<usize> = (0..a.block.len()).filter(|&t| a.block[t].is_none()).collect();
+    if !outside.is_empty() {
+        let _ = writeln!(s, "  outside the reference: calls {outside:?}, a row above the outline");
+    }
+    for k in &r.blocks {
+        if let Some(u) = k.unit_area {
+            let _ = writeln!(s, "  unit_area {} {u:.3}: not applied, no M0 set recipe takes a unit target", k.name);
+        }
+    }
+    if let Some(ratio) = r.area_ratio {
+        let _ = writeln!(s, "  area_ratio {ratio:.3}: not applied, the entry gives no reference area to scale (Q61, open)");
+    }
+    for d in &a.degraded {
+        let _ = writeln!(s, "  degraded: {d}");
+    }
+    s
+}
+
+/// Recipe mode, the whole spine, signed off by `engine`: [`run_with`] and
+/// no sidecar.
 ///
 /// # Errors
 /// Any step's [`Refusal`].
 pub fn run(spice: &str, pdk: &Pdk, engine: verify::SignoffEngine) -> Result<Outcome, Refusal> {
+    run_with(spice, None, pdk, engine)
+}
+
+/// Recipe mode with the user's constraint sidecar (Q7), the whole spine,
+/// signed off by `engine`.
+///
+/// # Errors
+/// Any step's [`Refusal`].
+pub fn run_with(spice: &str, sidecar: Option<&str>, pdk: &Pdk, engine: verify::SignoffEngine) -> Result<Outcome, Refusal> {
     let netlist = parse(spice, pdk)?;
-    let cfg = annotation(pdk);
+    let cfg = match sidecar {
+        Some(json) => annotation_with(pdk, &netlist, json)?,
+        None => annotation(pdk),
+    };
     let problem = annotator::annotate(&netlist.flat, &cfg);
     let calls = plan_recipes(&problem, &netlist.flat)?;
     run_calls(&netlist, &problem, &cfg, calls, pdk, engine)
@@ -653,9 +790,19 @@ pub fn run_calls(
     engine: verify::SignoffEngine,
 ) -> Result<Outcome, Refusal> {
     let tiles = build_tiles(&calls, problem, &netlist.flat, pdk)?;
-    let layout = arrange(&tiles, pdk)?;
+    let (layout, reference) = match &cfg.reference {
+        None => (arrange(&tiles, pdk)?, None),
+        Some(r) => {
+            let (layout, assignment, fit) = arrange_reference(r, &calls, &tiles, problem, &netlist.flat, pdk)?;
+            (layout, Some((r, assignment, fit)))
+        }
+    };
     let (placed, routes, route_report) = route::route(&tiles, &layout, problem, cfg, netlist.flat.nets.len(), pdk);
     let signoff = signoff(netlist, &placed, &routes, pdk, engine)?;
-    let report = report(&calls, &netlist.flat, &signoff);
-    Ok(Outcome { calls, placed, routes, route_report, signoff, report })
+    let mut report = report(&calls, &netlist.flat, &signoff);
+    if let Some((r, assignment, fit)) = &reference {
+        report.push_str(&reference_report(r, assignment, fit, &placed, &routes));
+    }
+    let reference = reference.map(|(_, assignment, fit)| (assignment, fit));
+    Ok(Outcome { calls, placed, routes, route_report, signoff, report, reference })
 }

@@ -159,6 +159,9 @@ pub struct AnnotationConfig {
     pub kelvins: Vec<analog::intent::KelvinReq>,
     /// Sidecar `Order` (EXT-28): placed ahead of the extracted orders, `reversible: false`.
     pub order: Vec<analog::intent::Order>,
+    /// Sidecar `Reference` (#78): a prior design's floorplan. Annotation
+    /// never reads it; the floorplan does.
+    pub reference: Option<analog::intent::Reference>,
     /// The sidecar parse's diagnostics, carried into `Intent.diagnostics`.
     pub sidecar_diags: Vec<analog::intent::Diagnostic>,
 }
